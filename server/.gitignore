@@ -1,0 +1,7 @@
+# Secret files — never commit
+.env
+*.env.local
+.docker-dev/.env
+
+# Build output
+dist

@@ -1,0 +1,50 @@
+services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       charitychest
+      POSTGRES_USER:     charitychest
+      POSTGRES_PASSWORD: charitychest_dev
+    ports:
+      - "5432:5432"           # expose locally so you can inspect with psql / DBeaver
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U charitychest -d charitychest"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── API server ────────────────────────────────────────────────────────────────
+  server:
+    build:
+      context: ..                        # server/ directory is the build context
+      dockerfile: .docker-dev/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: >-
+        postgres://charitychest:charitychest_dev@postgres:5432/charitychest?sslmode=disable
+
+      # ⚠  Change this before any real deployment
+      JWT_SECRET: demo-jwt-secret-do-not-use-in-production
+
+      # Copy .env.example → .env in this directory and set these two values.
+      # Google OAuth will not work without real credentials.
+      GOOGLE_CLIENT_ID:     ${GOOGLE_CLIENT_ID:?Set GOOGLE_CLIENT_ID in .docker-dev/.env}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?Set GOOGLE_CLIENT_SECRET in .docker-dev/.env}
+
+      # Must match the redirect URI registered in Google Cloud Console
+      GOOGLE_REDIRECT_URL: http://localhost:8080/v1/auth/google/callback
+
+      PORT: "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy   # wait until postgres is ready before starting
+
+volumes:
+  postgres_data:
