@@ -1,0 +1,25 @@
+services:
+
+  # ── Next.js dev server ────────────────────────────────────────────────────────
+  webapp:
+    build:
+      context: ..                          # webapp/ directory is the build context
+      dockerfile: .docker-dev/Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount the entire webapp source for hot reload.
+      - ..:/app
+      # Named volumes keep the container's node_modules and .next cache intact;
+      # they take precedence over the source mount above, so the host's
+      # node_modules (if any) do not bleed into the container.
+      - node_modules:/app/node_modules
+      - next_cache:/app/.next
+    env_file:
+      - .env                               # git-ignored; copy from .env.example
+    environment:
+      NODE_ENV: development
+
+volumes:
+  node_modules:
+  next_cache:

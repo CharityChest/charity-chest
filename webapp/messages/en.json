@@ -1,0 +1,43 @@
+{
+  "common": {
+    "appName": "Charity Chest",
+    "tagline": "Giving made easy.",
+    "loading": "Loading…",
+    "logout": "Log out",
+    "goHome": "Go home"
+  },
+  "home": {
+    "login": "Log in",
+    "register": "Create account"
+  },
+  "login": {
+    "subtitle": "Sign in to your account",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "google": "Continue with Google",
+    "noAccount": "Don't have an account?",
+    "createOne": "Create one",
+    "or": "or"
+  },
+  "register": {
+    "subtitle": "Create your account",
+    "name": "Full name",
+    "namePlaceholder": "Jane Doe",
+    "email": "Email",
+    "password": "Password",
+    "passwordHint": "(min. 8 chars)",
+    "submit": "Create account",
+    "submitting": "Creating account…",
+    "alreadyHave": "Already have an account?",
+    "signIn": "Sign in"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "id": "ID",
+    "name": "Name",
+    "email": "Email",
+    "memberSince": "Member since"
+  }
+}

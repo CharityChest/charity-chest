@@ -8,24 +8,44 @@ This file is read by Claude Code at the start of every session. It describes the
 
 ```
 charity-chest/
-└── server/                         # Go HTTP API (the only service so far)
-    ├── main.go                     # Entry point: config → migrations → routes → listen
-    ├── go.mod / go.sum             # Module: charity-chest, Go 1.26
-    ├── Makefile                    # Build, test, and utility targets
-    ├── .env.example                # Template for local secrets (never commit .env)
-    ├── .gitignore
-    ├── internal/
-    │   ├── config/config.go        # Loads env vars via godotenv; fails fast on missing required vars
-    │   ├── handler/auth.go         # Register, Login, GoogleLogin, GoogleCallback, Me
-    │   ├── middleware/jwt.go       # Bearer token validation; injects user_id + email into context
-    │   └── model/user.go           # GORM User model (supports password + Google OAuth)
-    ├── migrations/                 # Raw SQL migrations (golang-migrate, file source)
-    │   ├── 000001_create_users_table.up.sql
-    │   └── 000001_create_users_table.down.sql
-    └── .docker-dev/                # Docker Compose demo environment
-        ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
-        ├── docker-compose.yml      # Postgres + server; server waits for DB health check
-        └── .env.example            # Template for Google OAuth secrets used by compose
+├── server/                         # Go HTTP API
+│   ├── main.go                     # Entry point: config → migrations → routes → listen
+│   ├── go.mod / go.sum             # Module: charity-chest, Go 1.26
+│   ├── Makefile                    # Build, test, and utility targets
+│   ├── .env.example                # Template for local secrets (never commit .env)
+│   ├── .gitignore
+│   ├── internal/
+│   │   ├── config/config.go        # Loads env vars via godotenv; fails fast on missing required vars
+│   │   ├── handler/auth.go         # Register, Login, GoogleLogin, GoogleCallback, Me
+│   │   ├── middleware/jwt.go       # Bearer token validation; injects user_id + email into context
+│   │   └── model/user.go           # GORM User model (supports password + Google OAuth)
+│   ├── migrations/                 # Raw SQL migrations (golang-migrate, file source)
+│   │   ├── 000001_create_users_table.up.sql
+│   │   └── 000001_create_users_table.down.sql
+│   └── .docker-dev/                # Docker Compose demo environment
+│       ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
+│       ├── docker-compose.yml      # Postgres + server; server waits for DB health check
+│       └── .env.example            # Template for Google OAuth secrets used by compose
+└── webapp/                         # Next.js 15 frontend (EN + IT)
+    ├── messages/                   # i18n string files
+    │   ├── en.json
+    │   └── it.json
+    ├── src/
+    │   ├── app/
+    │   │   ├── layout.tsx          # Minimal root layout
+    │   │   ├── globals.css
+    │   │   └── [locale]/           # All pages live here — locale prefix in URL
+    │   ├── components/
+    │   │   └── LanguageSwitcher.tsx
+    │   ├── i18n/                   # next-intl wiring (routing, request, navigation)
+    │   ├── middleware.ts            # Locale detection and redirect
+    │   ├── lib/                    # constants.ts, api.ts, auth.ts
+    │   └── types/api.ts            # TypeScript types mirroring server JSON responses
+    ├── .env.example                # Template: NEXT_PUBLIC_API_URL
+    └── .docker-dev/                # Docker Compose dev environment for the webapp
+        ├── Dockerfile              # node:20-alpine, hot reload via next dev
+        ├── docker-compose.yml      # Source mount + named volumes for node_modules/.next
+        └── .env.example
 ```
 
 ---
@@ -127,3 +147,71 @@ make tidy
 2. Register the route under the `v1` group in `main.go`. Public routes go under `v1.Group("/auth")`; protected routes go under `v1.Group("/api")`.
 3. If the endpoint needs a new table or column, create `migrations/NNNNNN_<description>.{up,down}.sql`.
 4. Add tests in the corresponding `_test.go` file. Wire routes with the `/v1/` prefix in the `newServer` test helper.
+
+---
+
+## Webapp tech stack
+
+| Concern | Choice |
+|---|---|
+| Framework | Next.js 15 (App Router) |
+| Language | TypeScript (strict) |
+| Styling | Tailwind CSS v3 |
+| Auth storage | `localStorage` (`cc_token`) |
+
+---
+
+## Webapp environment variables
+
+| Variable | Description |
+|---|---|
+| `NEXT_PUBLIC_API_URL` | Base URL of the API server. The `NEXT_PUBLIC_` prefix is required — Next.js inlines it into the browser bundle. No other secrets belong in the webapp. |
+
+- `webapp/.env.local` is git-ignored. Copy `webapp/.env.example` to create it locally.
+- `webapp/.docker-dev/.env` is also git-ignored. Copy `webapp/.docker-dev/.env.example`.
+
+---
+
+## Webapp development workflow
+
+```bash
+# Run locally (requires the server to be running)
+cd webapp
+npm install
+npm run dev          # http://localhost:3000
+
+# Run with Docker
+docker compose -f webapp/.docker-dev/docker-compose.yml up --build
+```
+
+---
+
+## Webapp code conventions
+
+- **API client**: all server calls go through `webapp/src/lib/api.ts`. No raw `fetch` calls in components.
+- **Auth helpers**: token read/write/clear live in `webapp/src/lib/auth.ts`. No other file touches `localStorage` directly.
+- **Constants**: `NEXT_PUBLIC_API_URL` is accessed only via `webapp/src/lib/constants.ts#API_BASE_URL`.
+- **Error handling**: `api.ts` throws `ApiError` (carries HTTP status). Components catch it and branch on `err.status` (e.g. 401 → clear token + redirect to `/login`).
+- **Protected pages**: check `isAuthenticated()` in a `useEffect`, then call `router.replace('/login')` if false. Do not rely on server-side session checks.
+- **No secrets in the browser**: JWT signing keys and OAuth credentials live exclusively on the server.
+- **Navigation**: always import `Link`, `useRouter`, and `usePathname` from `@/i18n/navigation` — never from `next/link` or `next/navigation`. This ensures the current locale is preserved on every navigation.
+- **Translations**: call `useTranslations()` (or `useTranslations('namespace')`) inside components. Never hardcode UI strings directly in JSX.
+
+---
+
+## Webapp i18n conventions
+
+- Supported locales: `en` (default), `it`. Defined in `webapp/src/i18n/routing.ts`.
+- All UI strings live in `webapp/messages/en.json` and `webapp/messages/it.json`. Both files must be kept in sync — every key present in one must exist in the other.
+- Namespaces: `common`, `home`, `login`, `register`, `dashboard`. Add new namespaces as the app grows.
+- To add a new language: add the locale to `routing.ts`, create `messages/<code>.json`, add its label to `LanguageSwitcher.tsx`, and extend the middleware matcher regex.
+
+---
+
+## Adding a new webapp page
+
+1. Create `webapp/src/app/[locale]/<route>/page.tsx`. Add `'use client'` if the page needs browser APIs or React state.
+2. Import `Link` and `useRouter` from `@/i18n/navigation`.
+3. Add translations for every new string to both `messages/en.json` and `messages/it.json`.
+4. If the page calls a new API endpoint, add a typed wrapper to `webapp/src/lib/api.ts` and the corresponding TypeScript types to `webapp/src/types/api.ts`.
+5. Protected pages must redirect to `/login` when `isAuthenticated()` returns false.
