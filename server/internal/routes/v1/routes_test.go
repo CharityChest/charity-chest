@@ -1,4 +1,4 @@
-package routes_test
+package v1_test
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
 	"charity-chest/internal/model"
-	"charity-chest/internal/routes"
+	routesv1 "charity-chest/internal/routes/v1"
 
 	"github.com/glebarez/sqlite"
 	"github.com/labstack/echo/v4"
@@ -53,11 +53,11 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 	e := echo.New()
 	e.HideBanner = true
 
-	routes.RegisterHealth(e)
+	routesv1.RegisterHealth(e)
 
 	v1 := e.Group("/v1")
-	routes.RegisterAuth(v1, h)
-	routes.RegisterAPI(v1, h, cfg.JWTSecret)
+	routesv1.RegisterAuth(v1, h)
+	routesv1.RegisterAPI(v1, h, cfg.JWTSecret)
 
 	return e, db
 }
@@ -402,7 +402,7 @@ func TestMe_TokenSignedWithWrongSecret(t *testing.T) {
 	attackerHandler := handler.NewAuthHandler(db, cfg)
 	attackerEcho := echo.New()
 	v1 := attackerEcho.Group("/v1")
-	routes.RegisterAuth(v1, attackerHandler)
+	routesv1.RegisterAuth(v1, attackerHandler)
 
 	rec := do(attackerEcho, http.MethodPost, "/v1/auth/register",
 		`{"email":"attacker@example.com","password":"password123","name":"Attacker"}`, "")

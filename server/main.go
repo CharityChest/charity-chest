@@ -5,7 +5,7 @@ import (
 
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
-	"charity-chest/internal/routes"
+	routesv1 "charity-chest/internal/routes/v1"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -48,11 +48,11 @@ func main() {
 
 	authHandler := handler.NewAuthHandler(db, cfg)
 
-	routes.RegisterHealth(e)
+	routesv1.RegisterHealth(e)
 
 	v1 := e.Group("/v1")
-	routes.RegisterAuth(v1, authHandler)
-	routes.RegisterAPI(v1, authHandler, cfg.JWTSecret)
+	routesv1.RegisterAuth(v1, authHandler)
+	routesv1.RegisterAPI(v1, authHandler, cfg.JWTSecret)
 
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(e.Start(":" + cfg.Port))
