@@ -5,7 +5,7 @@ import (
 
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
-	"charity-chest/internal/middleware"
+	"charity-chest/internal/routes"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -48,25 +48,11 @@ func main() {
 
 	authHandler := handler.NewAuthHandler(db, cfg)
 
-	// Unversioned — infrastructure probe
-	e.GET("/health", func(c echo.Context) error {
-		return c.JSON(200, map[string]string{"status": "ok"})
-	})
+	routes.RegisterHealth(e)
 
-	// v1 API
 	v1 := e.Group("/v1")
-
-	// Public auth routes
-	auth := v1.Group("/auth")
-	auth.POST("/register", authHandler.Register)
-	auth.POST("/login", authHandler.Login)
-	auth.GET("/google", authHandler.GoogleLogin)
-	auth.GET("/google/callback", authHandler.GoogleCallback)
-
-	// Protected routes — require a valid JWT
-	api := v1.Group("/api")
-	api.Use(middleware.JWT(cfg.JWTSecret))
-	api.GET("/me", authHandler.Me)
+	routes.RegisterAuth(v1, authHandler)
+	routes.RegisterAPI(v1, authHandler, cfg.JWTSecret)
 
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(e.Start(":" + cfg.Port))
