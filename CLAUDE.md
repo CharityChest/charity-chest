@@ -1,6 +1,6 @@
-# CLAUDE.md — Charity Chest
+# CLAUDE.md
 
-This file is read by Claude Code at the start of every session. It describes the project layout, conventions, and rules to follow when working in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ---
 
@@ -120,10 +120,14 @@ make build-debug    # dist/debug/server   — race detector, no optimisations
 make build-release  # dist/release/server — static, stripped
 
 # Test (no external services needed — uses SQLite in-memory)
-make test           # go test -race ./internal/...
+make test                                          # all tests
+go test -race -run TestFunctionName ./internal/... # single test by name
 
 # Tidy dependencies
 make tidy
+
+# Clean build artifacts
+make clean
 ```
 
 ---
@@ -179,6 +183,12 @@ make tidy
 cd webapp
 npm install
 npm run dev          # http://localhost:3000
+
+# Build
+npm run build
+
+# Lint
+npm run lint
 
 # Run with Docker
 docker compose -f webapp/.docker-dev/docker-compose.yml up --build
