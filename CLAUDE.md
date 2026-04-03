@@ -18,7 +18,12 @@ charity-chest/
 │   │   ├── config/config.go        # Loads env vars via godotenv; fails fast on missing required vars
 │   │   ├── handler/auth.go         # Register, Login, GoogleLogin, GoogleCallback, Me
 │   │   ├── middleware/jwt.go       # Bearer token validation; injects user_id + email into context
-│   │   └── model/user.go           # GORM User model (supports password + Google OAuth)
+│   │   ├── model/user.go           # GORM User model (supports password + Google OAuth)
+│   │   └── routes/                 # Route registration (one file per group)
+│   │       ├── health.go           # RegisterHealth(e) — GET /health
+│   │       ├── auth.go             # RegisterAuth(v1, h) — public /v1/auth/* routes
+│   │       ├── api.go              # RegisterAPI(v1, h, jwtSecret) — protected /v1/api/* routes
+│   │       └── routes_test.go      # E2e tests for every endpoint (full stack, in-memory SQLite)
 │   ├── migrations/                 # Raw SQL migrations (golang-migrate, file source)
 │   │   ├── 000001_create_users_table.up.sql
 │   │   └── 000001_create_users_table.down.sql
@@ -69,7 +74,7 @@ charity-chest/
 
 All application routes are prefixed with `/v1/`. The health probe is intentionally unversioned — it is an infrastructure endpoint, not part of the API contract.
 
-When a breaking change is needed, introduce a `/v2/` group in `main.go` alongside `/v1/` and keep both alive until clients have migrated.
+When a breaking change is needed, introduce a `/v2/` group in `main.go` alongside `/v1/`, add the corresponding `RegisterFoo` functions in `internal/routes/`, and keep both alive until clients have migrated.
 
 ## API surface
 
@@ -139,7 +144,8 @@ make clean
 - **No user enumeration**: login returns a generic 401 for both "user not found" and "wrong password".
 - **Sensitive fields**: `PasswordHash` and `GoogleID` are tagged `json:"-"` — they must never appear in API responses.
 - **Nullable columns**: `PasswordHash` and `GoogleID` are `*string`; nil means that auth method is not configured for that user.
-- **Tests**: one `_test.go` file per source file, in `package foo_test` (black-box). Each test gets a fresh in-memory SQLite DB via `newTestDB(t)`. No external services, no global state.
+- **Unit tests**: one `_test.go` file per source file, in `package foo_test` (black-box). Each test gets a fresh in-memory SQLite DB via `newTestDB(t)`. No external services, no global state.
+- **E2e tests**: `internal/routes/routes_test.go` exercises every endpoint through the full Echo stack (all middleware in the chain). `newServer(t)` wires `RegisterHealth` + `RegisterAuth` + `RegisterAPI` against an in-memory SQLite DB — no external services required.
 - **No testify**: tests use only the standard `testing` package.
 - **Migrations**: always add a matching `.down.sql` for every `.up.sql`.
 
@@ -148,9 +154,10 @@ make clean
 ## Adding a new API endpoint
 
 1. Add the handler method to the appropriate file in `internal/handler/` (or create a new file for a new domain).
-2. Register the route under the `v1` group in `main.go`. Public routes go under `v1.Group("/auth")`; protected routes go under `v1.Group("/api")`.
+2. Register the route in `internal/routes/`: add it to the relevant `Register*` function (`auth.go` for public routes, `api.go` for protected ones), or create a new file with a new `Register*` function and call it from `main.go`.
 3. If the endpoint needs a new table or column, create `migrations/NNNNNN_<description>.{up,down}.sql`.
-4. Add tests in the corresponding `_test.go` file. Wire routes with the `/v1/` prefix in the `newServer` test helper.
+4. Add unit tests in the corresponding `_test.go` file inside `internal/handler/`.
+5. Add e2e tests in `internal/routes/routes_test.go` — the `newServer` helper already wires the full stack.
 
 ---
 
