@@ -142,14 +142,27 @@ func (h *AuthHandler) GoogleLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateState))
 	}
 
-	c.SetCookie(&http.Cookie{
-		Name:     "oauth_state",
-		Value:    state,
+	oauthLocale := c.QueryParam("locale")
+	if oauthLocale != "it" {
+		oauthLocale = "en"
+	}
+
+	cookieDefaults := http.Cookie{
 		Path:     "/",
 		HttpOnly: true,
 		MaxAge:   300, // 5 minutes
 		SameSite: http.SameSiteLaxMode,
-	})
+	}
+
+	stateCookie := cookieDefaults
+	stateCookie.Name = "oauth_state"
+	stateCookie.Value = state
+	c.SetCookie(&stateCookie)
+
+	localeCookie := cookieDefaults
+	localeCookie.Name = "oauth_locale"
+	localeCookie.Value = oauthLocale
+	c.SetCookie(&localeCookie)
 
 	return c.Redirect(http.StatusTemporaryRedirect, h.oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOnline))
 }
@@ -158,7 +171,11 @@ func (h *AuthHandler) GoogleLogin(c echo.Context) error {
 // GET /auth/google/callback  — exchanges the code, finds-or-creates the user, redirects to the
 // webapp callback page with ?token=<jwt> on success or ?error=sign_in_failed on failure.
 func (h *AuthHandler) GoogleCallback(c echo.Context) error {
-	callbackBase := h.cfg.FrontendURL + "/en/auth/callback"
+	loc := "en"
+	if lc, err := c.Cookie("oauth_locale"); err == nil && lc.Value != "" {
+		loc = lc.Value
+	}
+	callbackBase := h.cfg.FrontendURL + "/" + loc + "/auth/callback"
 
 	cookie, err := c.Cookie("oauth_state")
 	if err != nil || cookie.Value != c.QueryParam("state") {

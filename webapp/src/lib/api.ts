@@ -67,9 +67,10 @@ export const api = {
   /**
    * Returns the full URL to redirect the browser to for Google OAuth.
    * The server handles the consent screen and callback entirely; no fetch needed.
+   * The locale is forwarded so the server can redirect back to the correct locale prefix.
    */
-  googleAuthUrl(): string {
-    return `${API_BASE_URL}/v1/auth/google`;
+  googleAuthUrl(locale: string): string {
+    return `${API_BASE_URL}/v1/auth/google?locale=${locale}`;
   },
 
   /** GET /v1/api/me  — requires a valid JWT in localStorage */

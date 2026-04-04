@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Link, useRouter } from '@/i18n/navigation';
 import { api, ApiError } from '@/lib/api';
 import { setToken } from '@/lib/auth';
@@ -9,6 +9,7 @@ import ErrorBanner from '@/components/ErrorBanner';
 
 export default function LoginPage() {
   const t = useTranslations();
+  const locale = useLocale();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -88,15 +89,8 @@ export default function LoginPage() {
           <div className="h-px flex-1 bg-gray-200" />
         </div>
 
-        {/*
-          Google OAuth is handled entirely server-side. Clicking this link sends the
-          browser to GET /v1/auth/google, which redirects to Google's consent screen.
-          The server's callback endpoint returns { token, user } as JSON.
-          A production integration would have the server callback redirect back to
-          /[locale]/login?token=... so the webapp can store it automatically.
-        */}
         <a
-          href={api.googleAuthUrl()}
+          href={api.googleAuthUrl(locale)}
           className="flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
         >
           <GoogleIcon />
