@@ -17,7 +17,9 @@ charity-chest/
 │   ├── internal/
 │   │   ├── config/config.go        # Loads env vars via godotenv; fails fast on missing required vars
 │   │   ├── handler/auth.go         # Register, Login, GoogleLogin, GoogleCallback, Me
+│   │   ├── i18n/messages.go        # Message keys + EN/IT translations; T(locale, key) lookup
 │   │   ├── middleware/jwt.go       # Bearer token validation; injects user_id + email into context
+│   │   ├── middleware/locale.go    # Accept-Language parser; stores resolved locale in context
 │   │   ├── model/user.go           # GORM User model (supports password + Google OAuth)
 │   │   └── routes/
 │   │       └── v1/                 # Route registration for the v1 API (one file per group)
@@ -143,6 +145,7 @@ make clean
 - **Package layout**: all non-main code lives under `internal/`. No `pkg/` directory.
 - **Error handling**: handlers return `echo.NewHTTPError(statusCode, message)`. Errors are never swallowed silently.
 - **No user enumeration**: login returns a generic 401 for both "user not found" and "wrong password".
+- **i18n**: all error messages are translated via `internal/i18n`. The `Locale` middleware (global) reads `Accept-Language`, resolves it to `"en"` or `"it"` (default `"en"`), and stores it under `"locale"` in the Echo context. Handlers call `i18n.T(locale(c), i18n.KeyXxx)`. When adding a new error message, add its key constant to `internal/i18n/messages.go` and provide both EN and IT translations.
 - **Sensitive fields**: `PasswordHash` and `GoogleID` are tagged `json:"-"` — they must never appear in API responses.
 - **Nullable columns**: `PasswordHash` and `GoogleID` are `*string`; nil means that auth method is not configured for that user.
 - **Unit tests**: one `_test.go` file per source file, in `package foo_test` (black-box). Each test gets a fresh in-memory SQLite DB via `newTestDB(t)`. No external services, no global state.
@@ -157,8 +160,9 @@ make clean
 1. Add the handler method to the appropriate file in `internal/handler/` (or create a new file for a new domain).
 2. Register the route in `internal/routes/v1/`: add it to the relevant `Register*` function (`auth.go` for public routes, `api.go` for protected ones), or create a new file with a new `Register*` function and call it from `main.go`.
 3. If the endpoint needs a new table or column, create `migrations/NNNNNN_<description>.{up,down}.sql`.
-4. Add unit tests in the corresponding `_test.go` file inside `internal/handler/`.
-5. Add e2e tests in `internal/routes/v1/routes_test.go` — the `newServer` helper already wires the full stack.
+4. For any new error messages, add the key to `internal/i18n/messages.go` with both `"en"` and `"it"` translations.
+5. Add unit tests in the corresponding `_test.go` file inside `internal/handler/`.
+6. Add e2e tests in `internal/routes/v1/routes_test.go` — the `newServer` helper already wires the full stack.
 
 ---
 
@@ -206,7 +210,8 @@ docker compose -f webapp/.docker-dev/docker-compose.yml up --build
 
 ## Webapp code conventions
 
-- **API client**: all server calls go through `webapp/src/lib/api.ts`. No raw `fetch` calls in components.
+- **API client**: all server calls go through `webapp/src/lib/api.ts`. No raw `fetch` calls in components. Every request automatically includes `Accept-Language` derived from the URL locale via `getLocale()`.
+- **Error display**: use `<ErrorBanner message={error} />` (`src/components/ErrorBanner.tsx`) for all API error messages. Never use a bare `<p>` for server errors.
 - **Auth helpers**: token read/write/clear live in `webapp/src/lib/auth.ts`. No other file touches `localStorage` directly.
 - **Constants**: `NEXT_PUBLIC_API_URL` is accessed only via `webapp/src/lib/constants.ts#API_BASE_URL`.
 - **Error handling**: `api.ts` throws `ApiError` (carries HTTP status). Components catch it and branch on `err.status` (e.g. 401 → clear token + redirect to `/login`).

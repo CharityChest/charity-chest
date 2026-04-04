@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '@/i18n/navigation';
 import { api, ApiError } from '@/lib/api';
 import { setToken } from '@/lib/auth';
+import ErrorBanner from '@/components/ErrorBanner';
 
 export default function LoginPage() {
   const t = useTranslations();
@@ -38,11 +39,7 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
-              {error}
-            </p>
-          )}
+          <ErrorBanner message={error} />
 
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700">

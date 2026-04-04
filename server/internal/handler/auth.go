@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"charity-chest/internal/config"
+	"charity-chest/internal/i18n"
 	"charity-chest/internal/model"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -66,23 +67,23 @@ type authResponse struct {
 func (h *AuthHandler) Register(c echo.Context) error {
 	var req registerRequest
 	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyInvalidBody))
 	}
 	if req.Email == "" || req.Password == "" || req.Name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "email, password, and name are required")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyFieldsRequired))
 	}
 	if len(req.Password) < 8 {
-		return echo.NewHTTPError(http.StatusBadRequest, "password must be at least 8 characters")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyPasswordTooShort))
 	}
 
 	var existing model.User
 	if err := h.db.Where("email = ?", req.Email).First(&existing).Error; err == nil {
-		return echo.NewHTTPError(http.StatusConflict, "email already registered")
+		return echo.NewHTTPError(http.StatusConflict, i18n.T(locale(c), i18n.KeyEmailTaken))
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to process password")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyProcessPassword))
 	}
 
 	hashStr := string(hash)
@@ -92,12 +93,12 @@ func (h *AuthHandler) Register(c echo.Context) error {
 		Name:         req.Name,
 	}
 	if err := h.db.Create(user).Error; err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create user")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyCreateUser))
 	}
 
 	token, err := h.generateJWT(user)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate token")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
 	}
 
 	return c.JSON(http.StatusCreated, authResponse{Token: token, User: user})
@@ -108,26 +109,26 @@ func (h *AuthHandler) Register(c echo.Context) error {
 func (h *AuthHandler) Login(c echo.Context) error {
 	var req loginRequest
 	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyInvalidBody))
 	}
 
 	var user model.User
 	if err := h.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
 		// Return generic error to avoid user enumeration
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid credentials")
+		return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyInvalidCredentials))
 	}
 
 	if user.PasswordHash == nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "this account uses Google login")
+		return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyGoogleOnly))
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid credentials")
+		return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyInvalidCredentials))
 	}
 
 	token, err := h.generateJWT(&user)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate token")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
 	}
 
 	return c.JSON(http.StatusOK, authResponse{Token: token, User: &user})
@@ -138,7 +139,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 func (h *AuthHandler) GoogleLogin(c echo.Context) error {
 	state, err := randomState()
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate state")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateState))
 	}
 
 	c.SetCookie(&http.Cookie{
@@ -158,32 +159,32 @@ func (h *AuthHandler) GoogleLogin(c echo.Context) error {
 func (h *AuthHandler) GoogleCallback(c echo.Context) error {
 	cookie, err := c.Cookie("oauth_state")
 	if err != nil || cookie.Value != c.QueryParam("state") {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid oauth state")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyInvalidOAuthState))
 	}
 
 	code := c.QueryParam("code")
 	if code == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "missing oauth code")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyMissingOAuthCode))
 	}
 
 	oauthToken, err := h.oauthConfig.Exchange(context.Background(), code)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to exchange oauth code")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyExchangeOAuthCode))
 	}
 
 	gUser, err := fetchGoogleUserInfo(oauthToken.AccessToken)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fetch google user info")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyFetchUserInfo))
 	}
 
 	user, err := h.findOrCreateGoogleUser(gUser)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to resolve user")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyResolveUser))
 	}
 
 	jwtToken, err := h.generateJWT(user)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate token")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
 	}
 
 	return c.JSON(http.StatusOK, authResponse{Token: jwtToken, User: user})
@@ -196,13 +197,23 @@ func (h *AuthHandler) Me(c echo.Context) error {
 
 	var user model.User
 	if err := h.db.First(&user, userID).Error; err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "user not found")
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(locale(c), i18n.KeyUserNotFound))
 	}
 
 	return c.JSON(http.StatusOK, &user)
 }
 
 // --- Helpers ---
+
+// locale extracts the resolved locale from the Echo context.
+// The Locale middleware always sets this key; the fallback guards against
+// tests or callers that bypass the middleware stack.
+func locale(c echo.Context) string {
+	if l, ok := c.Get("locale").(string); ok && l != "" {
+		return l
+	}
+	return "en"
+}
 
 type googleUserInfo struct {
 	ID    string `json:"id"`

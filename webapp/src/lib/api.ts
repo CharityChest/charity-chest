@@ -13,10 +13,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Reads the current locale from the URL path prefix (/en/... or /it/...).
+ * Falls back to "en" in non-browser environments (SSR) or unrecognised paths.
+ */
+function getLocale(): string {
+  if (typeof window === 'undefined') return 'en';
+  const [, segment] = window.location.pathname.split('/');
+  return segment === 'it' ? 'it' : 'en';
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
+      'Accept-Language': getLocale(),
       ...(options.headers as Record<string, string>),
     },
     ...options,

@@ -5,6 +5,7 @@ import (
 
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
+	"charity-chest/internal/middleware"
 	routesv1 "charity-chest/internal/routes/v1"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -41,9 +42,10 @@ func main() {
 
 	e.Use(echomw.Logger())
 	e.Use(echomw.Recover())
+	e.Use(middleware.Locale())
 	e.Use(echomw.CORSWithConfig(echomw.CORSConfig{
 		AllowOrigins: []string{"*"},
-		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAuthorization},
+		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAuthorization, "Accept-Language"},
 	}))
 
 	authHandler := handler.NewAuthHandler(db, cfg)

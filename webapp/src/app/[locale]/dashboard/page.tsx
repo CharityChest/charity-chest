@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '@/i18n/navigation';
 import { api, ApiError } from '@/lib/api';
 import { clearToken, isAuthenticated } from '@/lib/auth';
+import ErrorBanner from '@/components/ErrorBanner';
 import type { User } from '@/types/api';
 
 export default function DashboardPage() {
@@ -38,11 +39,13 @@ export default function DashboardPage() {
   if (error) {
     return (
       <main className="flex min-h-screen items-center justify-center p-8">
-        <div className="space-y-4 text-center">
-          <p className="text-red-600">{error}</p>
-          <Link href="/" className="text-sm text-emerald-600 hover:underline">
-            {t('common.goHome')}
-          </Link>
+        <div className="w-full max-w-sm space-y-4">
+          <ErrorBanner message={error} />
+          <p className="text-center">
+            <Link href="/" className="text-sm text-emerald-600 hover:underline">
+              {t('common.goHome')}
+            </Link>
+          </p>
         </div>
       </main>
     );

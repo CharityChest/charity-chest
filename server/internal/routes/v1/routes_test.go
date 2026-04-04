@@ -10,6 +10,7 @@ import (
 
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
+	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 	routesv1 "charity-chest/internal/routes/v1"
 
@@ -42,8 +43,8 @@ func testCfg() *config.Config {
 	}
 }
 
-// newServer wires the full Echo instance — all routes plus middleware — and
-// returns it alongside the DB so tests can seed state when needed.
+// newServer wires the full Echo instance — all routes plus middleware — mirroring
+// main.go so that locale detection and JWT enforcement behave identically in tests.
 func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 	t.Helper()
 	db := newTestDB(t)
@@ -52,6 +53,7 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 
 	e := echo.New()
 	e.HideBanner = true
+	e.Use(middleware.Locale())
 
 	routesv1.RegisterHealth(e)
 
@@ -63,19 +65,17 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 }
 
 // do fires an HTTP request through the full Echo pipeline.
-func do(e *echo.Echo, method, path, body, bearerToken string) *httptest.ResponseRecorder {
-	var bodyReader *strings.Reader
-	if body != "" {
-		bodyReader = strings.NewReader(body)
-	} else {
-		bodyReader = strings.NewReader("")
-	}
-	req := httptest.NewRequest(method, path, bodyReader)
+// Pass acceptLang="" to omit the Accept-Language header (defaults to "en" on the server).
+func do(e *echo.Echo, method, path, body, bearerToken, acceptLang string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if body != "" {
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	}
 	if bearerToken != "" {
 		req.Header.Set(echo.HeaderAuthorization, "Bearer "+bearerToken)
+	}
+	if acceptLang != "" {
+		req.Header.Set("Accept-Language", acceptLang)
 	}
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -96,7 +96,7 @@ func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 func registerUser(t *testing.T, e *echo.Echo, email, password, name string) string {
 	t.Helper()
 	body := fmt.Sprintf(`{"email":%q,"password":%q,"name":%q}`, email, password, name)
-	rec := do(e, http.MethodPost, "/v1/auth/register", body, "")
+	rec := do(e, http.MethodPost, "/v1/auth/register", body, "", "")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("registerUser: status = %d, body: %s", rec.Code, rec.Body.String())
 	}
@@ -112,7 +112,7 @@ func registerUser(t *testing.T, e *echo.Echo, email, password, name string) stri
 func loginUser(t *testing.T, e *echo.Echo, email, password string) string {
 	t.Helper()
 	body := fmt.Sprintf(`{"email":%q,"password":%q}`, email, password)
-	rec := do(e, http.MethodPost, "/v1/auth/login", body, "")
+	rec := do(e, http.MethodPost, "/v1/auth/login", body, "", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("loginUser: status = %d, body: %s", rec.Code, rec.Body.String())
 	}
@@ -128,7 +128,7 @@ func loginUser(t *testing.T, e *echo.Echo, email, password string) string {
 
 func TestHealth(t *testing.T) {
 	e, _ := newServer(t)
-	rec := do(e, http.MethodGet, "/health", "", "")
+	rec := do(e, http.MethodGet, "/health", "", "", "")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -144,7 +144,7 @@ func TestHealth(t *testing.T) {
 func TestRegister_Success(t *testing.T) {
 	e, _ := newServer(t)
 	rec := do(e, http.MethodPost, "/v1/auth/register",
-		`{"email":"alice@example.com","password":"password123","name":"Alice"}`, "")
+		`{"email":"alice@example.com","password":"password123","name":"Alice"}`, "", "")
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", rec.Code, rec.Body.String())
@@ -174,8 +174,8 @@ func TestRegister_Success(t *testing.T) {
 func TestRegister_DuplicateEmail(t *testing.T) {
 	e, _ := newServer(t)
 	body := `{"email":"dup@example.com","password":"password123","name":"Dup"}`
-	do(e, http.MethodPost, "/v1/auth/register", body, "")        // first — OK
-	rec := do(e, http.MethodPost, "/v1/auth/register", body, "") // duplicate
+	do(e, http.MethodPost, "/v1/auth/register", body, "", "")        // first — OK
+	rec := do(e, http.MethodPost, "/v1/auth/register", body, "", "") // duplicate
 
 	if rec.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409", rec.Code)
@@ -194,7 +194,7 @@ func TestRegister_MissingFields(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			e, _ := newServer(t)
-			rec := do(e, http.MethodPost, "/v1/auth/register", tc.body, "")
+			rec := do(e, http.MethodPost, "/v1/auth/register", tc.body, "", "")
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("status = %d, want 400", rec.Code)
 			}
@@ -205,7 +205,7 @@ func TestRegister_MissingFields(t *testing.T) {
 func TestRegister_ShortPassword(t *testing.T) {
 	e, _ := newServer(t)
 	rec := do(e, http.MethodPost, "/v1/auth/register",
-		`{"email":"a@b.com","password":"short","name":"User"}`, "")
+		`{"email":"a@b.com","password":"short","name":"User"}`, "", "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
@@ -218,7 +218,7 @@ func TestLogin_Success(t *testing.T) {
 	registerUser(t, e, "bob@example.com", "password123", "Bob")
 
 	rec := do(e, http.MethodPost, "/v1/auth/login",
-		`{"email":"bob@example.com","password":"password123"}`, "")
+		`{"email":"bob@example.com","password":"password123"}`, "", "")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
@@ -241,7 +241,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 	registerUser(t, e, "carol@example.com", "correct-password", "Carol")
 
 	rec := do(e, http.MethodPost, "/v1/auth/login",
-		`{"email":"carol@example.com","password":"wrong-password"}`, "")
+		`{"email":"carol@example.com","password":"wrong-password"}`, "", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
@@ -250,7 +250,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 func TestLogin_UnknownEmail(t *testing.T) {
 	e, _ := newServer(t)
 	rec := do(e, http.MethodPost, "/v1/auth/login",
-		`{"email":"ghost@example.com","password":"password123"}`, "")
+		`{"email":"ghost@example.com","password":"password123"}`, "", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
@@ -262,9 +262,9 @@ func TestLogin_WrongPassword_SameStatusAsUnknownEmail(t *testing.T) {
 	registerUser(t, e, "dave@example.com", "correct-password", "Dave")
 
 	recWrongPw := do(e, http.MethodPost, "/v1/auth/login",
-		`{"email":"dave@example.com","password":"wrong"}`, "")
+		`{"email":"dave@example.com","password":"wrong"}`, "", "")
 	recUnknown := do(e, http.MethodPost, "/v1/auth/login",
-		`{"email":"nobody@example.com","password":"password123"}`, "")
+		`{"email":"nobody@example.com","password":"password123"}`, "", "")
 
 	if recWrongPw.Code != http.StatusUnauthorized {
 		t.Errorf("wrong password: status = %d, want 401", recWrongPw.Code)
@@ -280,7 +280,7 @@ func TestLogin_GoogleOnlyAccount(t *testing.T) {
 	db.Create(&model.User{Email: "google@example.com", Name: "Google User", GoogleID: &googleID})
 
 	rec := do(e, http.MethodPost, "/v1/auth/login",
-		`{"email":"google@example.com","password":"any-password"}`, "")
+		`{"email":"google@example.com","password":"any-password"}`, "", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
@@ -290,7 +290,7 @@ func TestLogin_GoogleOnlyAccount(t *testing.T) {
 
 func TestGoogleLogin_Redirects(t *testing.T) {
 	e, _ := newServer(t)
-	rec := do(e, http.MethodGet, "/v1/auth/google", "", "")
+	rec := do(e, http.MethodGet, "/v1/auth/google", "", "", "")
 
 	if rec.Code != http.StatusTemporaryRedirect {
 		t.Errorf("status = %d, want 307", rec.Code)
@@ -303,7 +303,7 @@ func TestGoogleLogin_Redirects(t *testing.T) {
 
 func TestGoogleLogin_SetsStateCookie(t *testing.T) {
 	e, _ := newServer(t)
-	rec := do(e, http.MethodGet, "/v1/auth/google", "", "")
+	rec := do(e, http.MethodGet, "/v1/auth/google", "", "", "")
 
 	var stateCookie *http.Cookie
 	for _, c := range rec.Result().Cookies() {
@@ -325,7 +325,7 @@ func TestGoogleLogin_SetsStateCookie(t *testing.T) {
 
 func TestGoogleCallback_MissingStateCookie(t *testing.T) {
 	e, _ := newServer(t)
-	rec := do(e, http.MethodGet, "/v1/auth/google/callback?state=somestate&code=somecode", "", "")
+	rec := do(e, http.MethodGet, "/v1/auth/google/callback?state=somestate&code=somecode", "", "", "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
@@ -361,7 +361,7 @@ func TestMe_Success(t *testing.T) {
 	e, _ := newServer(t)
 	token := registerUser(t, e, "me@example.com", "password123", "Me User")
 
-	rec := do(e, http.MethodGet, "/v1/api/me", "", token)
+	rec := do(e, http.MethodGet, "/v1/api/me", "", token, "")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
@@ -380,7 +380,7 @@ func TestMe_Success(t *testing.T) {
 
 func TestMe_NoToken(t *testing.T) {
 	e, _ := newServer(t)
-	rec := do(e, http.MethodGet, "/v1/api/me", "", "")
+	rec := do(e, http.MethodGet, "/v1/api/me", "", "", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
@@ -388,7 +388,7 @@ func TestMe_NoToken(t *testing.T) {
 
 func TestMe_InvalidToken(t *testing.T) {
 	e, _ := newServer(t)
-	rec := do(e, http.MethodGet, "/v1/api/me", "", "this-is-not-a-valid-jwt")
+	rec := do(e, http.MethodGet, "/v1/api/me", "", "this-is-not-a-valid-jwt", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
@@ -401,11 +401,12 @@ func TestMe_TokenSignedWithWrongSecret(t *testing.T) {
 	db := newTestDB(t)
 	attackerHandler := handler.NewAuthHandler(db, cfg)
 	attackerEcho := echo.New()
+	attackerEcho.Use(middleware.Locale())
 	v1 := attackerEcho.Group("/v1")
 	routesv1.RegisterAuth(v1, attackerHandler)
 
 	rec := do(attackerEcho, http.MethodPost, "/v1/auth/register",
-		`{"email":"attacker@example.com","password":"password123","name":"Attacker"}`, "")
+		`{"email":"attacker@example.com","password":"password123","name":"Attacker"}`, "", "")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("attacker register: %d", rec.Code)
 	}
@@ -414,7 +415,7 @@ func TestMe_TokenSignedWithWrongSecret(t *testing.T) {
 
 	// Present that token to our legitimate server.
 	e, _ := newServer(t)
-	result := do(e, http.MethodGet, "/v1/api/me", "", foreignToken)
+	result := do(e, http.MethodGet, "/v1/api/me", "", foreignToken, "")
 	if result.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", result.Code)
 	}
@@ -425,8 +426,99 @@ func TestMe_TokenRefreshedAfterReLogin(t *testing.T) {
 	registerUser(t, e, "eve@example.com", "password123", "Eve")
 	token := loginUser(t, e, "eve@example.com", "password123")
 
-	rec := do(e, http.MethodGet, "/v1/api/me", "", token)
+	rec := do(e, http.MethodGet, "/v1/api/me", "", token, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestMe_TokenRefreshedAfterReLoginNotFoundITA(t *testing.T) {
+	e, _ := newServer(t)
+	email := "joe@example.com"
+	password := "password123"
+	body := fmt.Sprintf(`{"email":%q,"password":%q}`, email, password)
+	rec := do(e, http.MethodPost, "/v1/auth/login", body, "", "it")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	bodyMap := decodeBody(t, rec)
+	const want = "Credenziali non valide"
+	if bodyMap["message"] != want {
+		t.Errorf("message = %q, want %q", bodyMap["message"], want)
+	}
+}
+
+// --- i18n / locale ---
+
+func TestRegister_LocaleIT(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodPost, "/v1/auth/register",
+		`{"email":"a@b.com","password":"password123"}`, "", "it")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	body := decodeBody(t, rec)
+	const want = "email, password e nome sono obbligatori"
+	if body["message"] != want {
+		t.Errorf("message = %q, want %q", body["message"], want)
+	}
+}
+
+func TestLogin_LocaleIT(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodPost, "/v1/auth/login",
+		`{"email":"nobody@example.com","password":"password123"}`, "", "it")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	body := decodeBody(t, rec)
+	const want = "Credenziali non valide"
+	if body["message"] != want {
+		t.Errorf("message = %q, want %q", body["message"], want)
+	}
+}
+
+func TestMe_LocaleIT_NoToken(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodGet, "/v1/api/me", "", "", "it")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	body := decodeBody(t, rec)
+	const want = "intestazione di autorizzazione mancante o non valida"
+	if body["message"] != want {
+		t.Errorf("message = %q, want %q", body["message"], want)
+	}
+}
+
+func TestLocale_DefaultsToEN(t *testing.T) {
+	e, _ := newServer(t)
+	// No Accept-Language header → English
+	rec := do(e, http.MethodPost, "/v1/auth/login",
+		`{"email":"nobody@example.com","password":"p"}`, "", "")
+	body := decodeBody(t, rec)
+	if body["message"] != "invalid credentials" {
+		t.Errorf("message = %q, want \"invalid credentials\"", body["message"])
+	}
+}
+
+func TestLocale_UnknownLocale_DefaultsToEN(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodPost, "/v1/auth/login",
+		`{"email":"nobody@example.com","password":"p"}`, "", "fr")
+	body := decodeBody(t, rec)
+	if body["message"] != "invalid credentials" {
+		t.Errorf("message = %q, want \"invalid credentials\"", body["message"])
+	}
+}
+
+func TestLocale_SubtagIT(t *testing.T) {
+	// "it-IT" should resolve to Italian
+	e, _ := newServer(t)
+	rec := do(e, http.MethodPost, "/v1/auth/login",
+		`{"email":"nobody@example.com","password":"p"}`, "", "it-IT")
+	body := decodeBody(t, rec)
+	if body["message"] != "Credenziali non valide" {
+		t.Errorf("message = %q, want \"Credenziali non valide\"", body["message"])
 	}
 }
