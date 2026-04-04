@@ -33,6 +33,11 @@
     "alreadyHave": "Hai già un account?",
     "signIn": "Accedi"
   },
+  "authCallback": {
+    "completing": "Completamento accesso…",
+    "error": "Accesso con Google non riuscito. Riprova.",
+    "tryAgain": "Torna all'accesso"
+  },
   "dashboard": {
     "title": "Pannello",
     "id": "ID",

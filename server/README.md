@@ -45,14 +45,15 @@ Copy the example file and fill in your values:
 cp .env.example .env
 ```
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `JWT_SECRET` | Long random string — run `openssl rand -hex 32` |
-| `GOOGLE_CLIENT_ID` | From Google Cloud Console |
-| `GOOGLE_CLIENT_SECRET` | From Google Cloud Console |
-| `GOOGLE_REDIRECT_URL` | Must match the URI registered in Google Cloud Console |
-| `PORT` | HTTP port (default `8080`) |
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | yes | PostgreSQL connection string |
+| `JWT_SECRET` | yes | Long random string — run `openssl rand -hex 32` |
+| `GOOGLE_CLIENT_ID` | yes | From Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | yes | From Google Cloud Console |
+| `GOOGLE_REDIRECT_URL` | no | Server-side OAuth callback URI registered in Google Cloud Console (default `http://localhost:8080/v1/auth/google/callback`) |
+| `FRONTEND_URL` | no | Base URL of the webapp — used to redirect the browser back after Google login (default `http://localhost:3000`) |
+| `PORT` | no | HTTP listen port (default `8080`) |
 
 ---
 
@@ -148,32 +149,26 @@ curl http://localhost:8080/v1/api/me \
 
 ## 6. Test Google login
 
-Google OAuth requires a real browser redirect flow. The easiest way to test it locally:
+Google OAuth requires a real browser redirect flow. The full end-to-end flow is:
 
-### Option A — Browser
+1. Browser navigates to `GET /v1/auth/google` → server redirects to Google consent screen.
+2. User approves → Google redirects to `GET /v1/auth/google/callback?code=...&state=...`.
+3. Server exchanges the code for a JWT, then redirects the browser to `{FRONTEND_URL}/en/auth/callback?token=<jwt>`.
+4. The webapp callback page (`/en/auth/callback`) stores the token in `localStorage` and navigates to `/dashboard`.
 
-1. Start the server (`go run .`).
-2. Open `http://localhost:8080/v1/auth/google` in your browser.
-3. Complete the Google consent screen.
-4. The callback returns a JSON response with `token` and `user`.
+To test locally you need both the server and the webapp running:
 
-Copy the `token` value and use it as a Bearer token in subsequent requests.
+```bash
+# Terminal 1 — server
+go run .
 
-### Option B — curl (manual code exchange)
+# Terminal 2 — webapp (from charity-chest/webapp)
+npm run dev
+```
 
-1. Get the redirect URL:
-   ```bash
-   curl -v http://localhost:8080/v1/auth/google 2>&1 | grep Location
-   ```
-2. Open that URL in a browser and complete the Google login.
-3. Google redirects to your callback URL — copy the full URL from the browser address bar.
-4. Call the callback directly:
-   ```bash
-   curl "http://localhost:8080/v1/auth/google/callback?code=<code>&state=<state>" \
-     -H "Cookie: oauth_state=<state>"
-   ```
+Then open `http://localhost:8080/v1/auth/google` in your browser and complete the consent screen. You will land on the webapp dashboard automatically.
 
-> The `state` value and its matching cookie must match. In practice, Option A (browser) is far simpler for manual testing.
+> **`FRONTEND_URL`**: defaults to `http://localhost:3000`. Set it in `.env` if your webapp runs on a different port or domain.
 
 ---
 

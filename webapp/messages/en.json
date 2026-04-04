@@ -33,6 +33,11 @@
     "alreadyHave": "Already have an account?",
     "signIn": "Sign in"
   },
+  "authCallback": {
+    "completing": "Completing sign-in…",
+    "error": "Google sign-in failed. Please try again.",
+    "tryAgain": "Back to sign in"
+  },
   "dashboard": {
     "title": "Dashboard",
     "id": "ID",

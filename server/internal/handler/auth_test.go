@@ -235,12 +235,17 @@ func TestGoogleLogin_SetsStateCookie(t *testing.T) {
 func TestGoogleCallback_MissingStateCookie(t *testing.T) {
 	e, _, _ := newServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/v1/auth/google/callback?state=somestate&code=somecode", nil)
-	// No oauth_state cookie — should be rejected
+	// No oauth_state cookie — should redirect to webapp with error
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", rec.Code)
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Errorf("status = %d, want 307", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc == "" {
+		t.Error("Location header missing")
+	} else if !strings.Contains(loc, "error=sign_in_failed") {
+		t.Errorf("Location %q does not contain error=sign_in_failed", loc)
 	}
 }
 
@@ -251,8 +256,13 @@ func TestGoogleCallback_StateMismatch(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", rec.Code)
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Errorf("status = %d, want 307", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc == "" {
+		t.Error("Location header missing")
+	} else if !strings.Contains(loc, "error=sign_in_failed") {
+		t.Errorf("Location %q does not contain error=sign_in_failed", loc)
 	}
 }
 

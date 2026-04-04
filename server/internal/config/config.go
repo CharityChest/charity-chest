@@ -14,6 +14,7 @@ type Config struct {
 	GoogleClientID     string
 	GoogleClientSecret string
 	GoogleRedirectURL  string
+	FrontendURL        string
 	Port               string
 }
 
@@ -28,6 +29,7 @@ func Load() (*Config, error) {
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:  envOrDefault("GOOGLE_REDIRECT_URL", "http://localhost:8080/v1/auth/google/callback"),
+		FrontendURL:        envOrDefault("FRONTEND_URL", "http://localhost:3000"),
 		Port:               envOrDefault("PORT", "8080"),
 	}
 

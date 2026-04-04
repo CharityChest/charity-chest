@@ -155,39 +155,42 @@ func (h *AuthHandler) GoogleLogin(c echo.Context) error {
 }
 
 // GoogleCallback godoc
-// GET /auth/google/callback  — exchanges the code, finds-or-creates the user, returns a JWT
+// GET /auth/google/callback  — exchanges the code, finds-or-creates the user, redirects to the
+// webapp callback page with ?token=<jwt> on success or ?error=sign_in_failed on failure.
 func (h *AuthHandler) GoogleCallback(c echo.Context) error {
+	callbackBase := h.cfg.FrontendURL + "/en/auth/callback"
+
 	cookie, err := c.Cookie("oauth_state")
 	if err != nil || cookie.Value != c.QueryParam("state") {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyInvalidOAuthState))
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
 	}
 
 	code := c.QueryParam("code")
 	if code == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyMissingOAuthCode))
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
 	}
 
 	oauthToken, err := h.oauthConfig.Exchange(context.Background(), code)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyExchangeOAuthCode))
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
 	}
 
 	gUser, err := fetchGoogleUserInfo(oauthToken.AccessToken)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyFetchUserInfo))
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
 	}
 
 	user, err := h.findOrCreateGoogleUser(gUser)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyResolveUser))
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
 	}
 
 	jwtToken, err := h.generateJWT(user)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
 	}
 
-	return c.JSON(http.StatusOK, authResponse{Token: jwtToken, User: user})
+	return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?token="+jwtToken)
 }
 
 // Me godoc

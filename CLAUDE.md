@@ -44,6 +44,7 @@ charity-chest/
     │   │   ├── layout.tsx          # Minimal root layout
     │   │   ├── globals.css
     │   │   └── [locale]/           # All pages live here — locale prefix in URL
+    │   │       └── auth/callback/  # Google OAuth callback — reads ?token= and stores it
     │   ├── components/
     │   │   ├── ErrorBanner.tsx     # Styled error box (border-l-4, warning icon, role=alert)
     │   │   └── LanguageSwitcher.tsx
@@ -91,7 +92,7 @@ When a breaking change is needed, introduce a `/v2/` group in `main.go` alongsid
 | POST | `/v1/auth/register` | — | Create account (email + password) → JWT |
 | POST | `/v1/auth/login` | — | Password login → JWT |
 | GET | `/v1/auth/google` | — | Redirect to Google consent screen |
-| GET | `/v1/auth/google/callback` | — | Exchange OAuth code → JWT |
+| GET | `/v1/auth/google/callback` | — | Exchange OAuth code → redirect to webapp `/en/auth/callback?token=<jwt>` |
 | GET | `/v1/api/me` | Bearer JWT | Return current user |
 
 Protected routes live under `/v1/api/` and require a valid `Authorization: Bearer <token>` header. The JWT middleware (`internal/middleware/jwt.go`) validates the token and injects `user_id` (uint) and `email` (string) into the Echo context.
@@ -105,6 +106,8 @@ Protected routes live under `/v1/api/` and require a valid `Authorization: Beare
 - `server/.docker-dev/.env` is also git-ignored. Copy `server/.docker-dev/.env.example`.
 - `config.Load()` (`internal/config/config.go`) calls `godotenv.Load()` silently (ignored in production) then validates all required vars, returning an error that names every missing variable.
 - Required vars: `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+- Optional vars with defaults: `GOOGLE_REDIRECT_URL` (default `http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (default `http://localhost:3000`), `PORT` (default `8080`).
+- `FRONTEND_URL` is used by `GoogleCallback` to redirect the browser back to the webapp after the OAuth exchange.
 
 ---
 
@@ -236,7 +239,7 @@ docker compose -f webapp/.docker-dev/docker-compose.yml up --build
 
 - Supported locales: `en` (default), `it`. Defined in `webapp/src/i18n/routing.ts`.
 - All UI strings live in `webapp/messages/en.json` and `webapp/messages/it.json`. Both files must be kept in sync — every key present in one must exist in the other.
-- Namespaces: `common`, `home`, `login`, `register`, `dashboard`. Add new namespaces as the app grows.
+- Namespaces: `common`, `home`, `login`, `register`, `dashboard`, `authCallback`. Add new namespaces as the app grows.
 - To add a new language: add the locale to `routing.ts`, create `messages/<code>.json`, add its label to `LanguageSwitcher.tsx`, and extend the middleware matcher regex.
 
 ---
