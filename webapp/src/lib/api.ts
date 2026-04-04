@@ -16,8 +16,9 @@ export class ApiError extends Error {
 /**
  * Reads the current locale from the URL path prefix (/en/... or /it/...).
  * Falls back to "en" in non-browser environments (SSR) or unrecognised paths.
+ * Exported for testing.
  */
-function getLocale(): string {
+export function getLocale(): string {
   if (typeof window === 'undefined') return 'en';
   const [, segment] = window.location.pathname.split('/');
   return segment === 'it' ? 'it' : 'en';

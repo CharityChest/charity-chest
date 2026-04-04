@@ -38,16 +38,20 @@ charity-chest/
     ├── messages/                   # i18n string files
     │   ├── en.json
     │   └── it.json
+    ├── vitest.config.ts            # Vitest config (jsdom, @/* alias, React plugin)
     ├── src/
     │   ├── app/
     │   │   ├── layout.tsx          # Minimal root layout
     │   │   ├── globals.css
     │   │   └── [locale]/           # All pages live here — locale prefix in URL
     │   ├── components/
+    │   │   ├── ErrorBanner.tsx     # Styled error box (border-l-4, warning icon, role=alert)
     │   │   └── LanguageSwitcher.tsx
     │   ├── i18n/                   # next-intl wiring (routing, request, navigation)
     │   ├── middleware.ts            # Locale detection and redirect
-    │   ├── lib/                    # constants.ts, api.ts, auth.ts
+    │   ├── lib/                    # constants.ts, api.ts (with getLocale), auth.ts
+    │   ├── test/
+    │   │   └── setup.ts            # Vitest global setup — loads @testing-library/jest-dom
     │   └── types/api.ts            # TypeScript types mirroring server JSON responses
     ├── .env.example                # Template: NEXT_PUBLIC_API_URL
     └── .docker-dev/                # Docker Compose dev environment for the webapp
@@ -174,6 +178,7 @@ make clean
 | Language | TypeScript (strict) |
 | Styling | Tailwind CSS v3 |
 | Auth storage | `localStorage` (`cc_token`) |
+| Testing | Vitest + React Testing Library + jsdom |
 
 ---
 
@@ -199,6 +204,10 @@ npm run dev          # http://localhost:3000
 # Build
 npm run build
 
+# Test
+npm test             # run all tests once
+npm run test:watch   # watch mode
+
 # Lint
 npm run lint
 
@@ -211,6 +220,7 @@ docker compose -f webapp/.docker-dev/docker-compose.yml up --build
 ## Webapp code conventions
 
 - **API client**: all server calls go through `webapp/src/lib/api.ts`. No raw `fetch` calls in components. Every request automatically includes `Accept-Language` derived from the URL locale via `getLocale()`.
+- **Tests**: co-locate test files alongside the source (`*.test.ts` / `*.test.tsx`). Test setup lives in `src/test/setup.ts`. Config is `vitest.config.ts` at the webapp root.
 - **Error display**: use `<ErrorBanner message={error} />` (`src/components/ErrorBanner.tsx`) for all API error messages. Never use a bare `<p>` for server errors.
 - **Auth helpers**: token read/write/clear live in `webapp/src/lib/auth.ts`. No other file touches `localStorage` directly.
 - **Constants**: `NEXT_PUBLIC_API_URL` is accessed only via `webapp/src/lib/constants.ts#API_BASE_URL`.

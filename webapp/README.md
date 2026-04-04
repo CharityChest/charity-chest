@@ -22,6 +22,7 @@ All routes are prefixed with the active locale. Bare `/` redirects to `/en/` by 
 | Styling | Tailwind CSS v3 |
 | i18n | `next-intl` v3 |
 | Auth storage | `localStorage` (`cc_token`) |
+| Testing | Vitest + React Testing Library + jsdom |
 
 ## Project layout
 
@@ -30,6 +31,7 @@ webapp/
 ├── messages/
 │   ├── en.json                 # English strings
 │   └── it.json                 # Italian strings
+├── vitest.config.ts            # Vitest config (jsdom environment, @/* alias, React plugin)
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx          # Minimal root layout (delegates html/body to [locale])
@@ -41,6 +43,7 @@ webapp/
 │   │       ├── register/page.tsx
 │   │       └── dashboard/page.tsx  # Protected — redirects to /login if no token
 │   ├── components/
+│   │   ├── ErrorBanner.tsx         # Styled API error box — border-l-4, icon, role=alert
 │   │   └── LanguageSwitcher.tsx    # EN / IT toggle, rendered on every page
 │   ├── i18n/
 │   │   ├── routing.ts          # defineRouting — locales + defaultLocale
@@ -49,8 +52,10 @@ webapp/
 │   ├── middleware.ts            # next-intl middleware — locale detection and redirect
 │   ├── lib/
 │   │   ├── constants.ts        # API_BASE_URL from NEXT_PUBLIC_API_URL
-│   │   ├── api.ts              # Typed fetch wrappers for every server endpoint
-│   │   └── auth.ts             # Token get / set / clear helpers
+│   │   ├── api.ts              # Typed fetch wrappers; sends Accept-Language on every call
+│   │   └── auth.ts             # Token get / set / clear helpers (cc_token in localStorage)
+│   ├── test/
+│   │   └── setup.ts            # Vitest setup — imports @testing-library/jest-dom matchers
 │   └── types/
 │       └── api.ts              # TypeScript types mirroring the server's JSON
 ├── .env.example                # Template — copy to .env.local
@@ -89,6 +94,25 @@ Supported locales: **`en`** (default), **`it`**.
 | `NEXT_PUBLIC_API_URL` | `.env.local` | Base URL of the API server. `NEXT_PUBLIC_` prefix is required — Next.js inlines it into the browser bundle. |
 
 No other secrets are needed in the webapp. JWT signing keys and OAuth credentials live exclusively on the server.
+
+## Testing
+
+Unit tests run entirely in-process — no server, no browser needed.
+
+```bash
+npm test             # run all tests once (CI mode)
+npm run test:watch   # watch mode for development
+```
+
+| File | What it covers |
+|---|---|
+| `src/lib/auth.test.ts` | `getToken`, `setToken`, `clearToken`, `isAuthenticated` via jsdom `localStorage` |
+| `src/lib/api.test.ts` | `ApiError` shape; `getLocale` for all URL prefixes; `Accept-Language` header sent correctly; error body parsed into `ApiError` |
+| `src/components/ErrorBanner.test.tsx` | Renders null on empty message; message text; `role="alert"`; warning icon; border classes |
+
+Test files live alongside their source (`*.test.ts` / `*.test.tsx`). The Vitest config is `vitest.config.ts` at the repo root; global test setup is `src/test/setup.ts`.
+
+---
 
 ## Running locally
 
