@@ -12,6 +12,7 @@ import (
 
 	"charity-chest/internal/config"
 	"charity-chest/internal/i18n"
+	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -20,6 +21,18 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"gorm.io/gorm"
+)
+
+// Cookie names used during the OAuth flow.
+const (
+	CookieOAuthState  = "oauth_state"
+	CookieOAuthLocale = "oauth_locale"
+)
+
+// Query strings appended to the OAuth callback redirect URL.
+const (
+	callbackErrorQuery = "?error=sign_in_failed"
+	callbackTokenQuery = "?token="
 )
 
 type AuthHandler struct {
@@ -143,8 +156,8 @@ func (h *AuthHandler) GoogleLogin(c echo.Context) error {
 	}
 
 	oauthLocale := c.QueryParam("locale")
-	if oauthLocale != "it" {
-		oauthLocale = "en"
+	if oauthLocale != middleware.LocaleIT {
+		oauthLocale = middleware.LocaleEN
 	}
 
 	cookieDefaults := http.Cookie{
@@ -155,12 +168,12 @@ func (h *AuthHandler) GoogleLogin(c echo.Context) error {
 	}
 
 	stateCookie := cookieDefaults
-	stateCookie.Name = "oauth_state"
+	stateCookie.Name = CookieOAuthState
 	stateCookie.Value = state
 	c.SetCookie(&stateCookie)
 
 	localeCookie := cookieDefaults
-	localeCookie.Name = "oauth_locale"
+	localeCookie.Name = CookieOAuthLocale
 	localeCookie.Value = oauthLocale
 	c.SetCookie(&localeCookie)
 
@@ -171,49 +184,49 @@ func (h *AuthHandler) GoogleLogin(c echo.Context) error {
 // GET /auth/google/callback  — exchanges the code, finds-or-creates the user, redirects to the
 // webapp callback page with ?token=<jwt> on success or ?error=sign_in_failed on failure.
 func (h *AuthHandler) GoogleCallback(c echo.Context) error {
-	loc := "en"
-	if lc, err := c.Cookie("oauth_locale"); err == nil && lc.Value != "" {
+	loc := middleware.LocaleEN
+	if lc, err := c.Cookie(CookieOAuthLocale); err == nil && lc.Value != "" {
 		loc = lc.Value
 	}
 	callbackBase := h.cfg.FrontendURL + "/" + loc + "/auth/callback"
 
-	cookie, err := c.Cookie("oauth_state")
+	cookie, err := c.Cookie(CookieOAuthState)
 	if err != nil || cookie.Value != c.QueryParam("state") {
-		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
 	code := c.QueryParam("code")
 	if code == "" {
-		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
 	oauthToken, err := h.oauthConfig.Exchange(context.Background(), code)
 	if err != nil {
-		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
 	gUser, err := fetchGoogleUserInfo(oauthToken.AccessToken)
 	if err != nil {
-		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
 	user, err := h.findOrCreateGoogleUser(gUser)
 	if err != nil {
-		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
 	jwtToken, err := h.generateJWT(user)
 	if err != nil {
-		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?error=sign_in_failed")
+		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
-	return c.Redirect(http.StatusTemporaryRedirect, callbackBase+"?token="+jwtToken)
+	return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackTokenQuery+jwtToken)
 }
 
 // Me godoc
 // GET /api/me  — protected route, returns the current user
 func (h *AuthHandler) Me(c echo.Context) error {
-	userID := c.Get("user_id").(uint)
+	userID := c.Get(middleware.UserIDContextKey).(uint)
 
 	var user model.User
 	if err := h.db.First(&user, userID).Error; err != nil {
@@ -229,10 +242,10 @@ func (h *AuthHandler) Me(c echo.Context) error {
 // The Locale middleware always sets this key; the fallback guards against
 // tests or callers that bypass the middleware stack.
 func locale(c echo.Context) string {
-	if l, ok := c.Get("locale").(string); ok && l != "" {
+	if l, ok := c.Get(middleware.LocaleContextKey).(string); ok && l != "" {
 		return l
 	}
-	return "en"
+	return middleware.LocaleEN
 }
 
 type googleUserInfo struct {

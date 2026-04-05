@@ -9,6 +9,7 @@ import (
 
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
+	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 
 	"github.com/glebarez/sqlite"
@@ -216,19 +217,19 @@ func TestGoogleLogin_SetsStateCookie(t *testing.T) {
 
 	var stateCookie *http.Cookie
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == "oauth_state" {
+		if c.Name == handler.CookieOAuthState {
 			stateCookie = c
 			break
 		}
 	}
 	if stateCookie == nil {
-		t.Fatal("oauth_state cookie was not set")
+		t.Fatalf("%s cookie was not set", handler.CookieOAuthState)
 	}
 	if stateCookie.Value == "" {
-		t.Error("oauth_state cookie value is empty")
+		t.Errorf("%s cookie value is empty", handler.CookieOAuthState)
 	}
 	if !stateCookie.HttpOnly {
-		t.Error("oauth_state cookie must be HttpOnly")
+		t.Errorf("%s cookie must be HttpOnly", handler.CookieOAuthState)
 	}
 }
 
@@ -252,7 +253,7 @@ func TestGoogleCallback_MissingStateCookie(t *testing.T) {
 func TestGoogleCallback_StateMismatch(t *testing.T) {
 	e, _, _ := newServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/v1/auth/google/callback?state=state-from-url&code=somecode", nil)
-	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: "different-state-in-cookie"})
+	req.AddCookie(&http.Cookie{Name: handler.CookieOAuthState, Value: "different-state-in-cookie"})
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
@@ -281,7 +282,7 @@ func TestMe_ReturnsCurrentUser(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	c.Set("user_id", user.ID) // simulate what JWT middleware injects
+	c.Set(middleware.UserIDContextKey, user.ID) // simulate what JWT middleware injects
 
 	if err := h.Me(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -307,7 +308,7 @@ func TestMe_UserNotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	c.Set("user_id", uint(99999)) // ID that does not exist
+	c.Set(middleware.UserIDContextKey, uint(99999)) // ID that does not exist
 
 	err := h.Me(c)
 	if err == nil {

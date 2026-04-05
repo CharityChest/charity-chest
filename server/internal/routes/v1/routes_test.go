@@ -307,19 +307,19 @@ func TestGoogleLogin_SetsStateCookie(t *testing.T) {
 
 	var stateCookie *http.Cookie
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == "oauth_state" {
+		if c.Name == handler.CookieOAuthState {
 			stateCookie = c
 			break
 		}
 	}
 	if stateCookie == nil {
-		t.Fatal("oauth_state cookie was not set")
+		t.Fatalf("%s cookie was not set", handler.CookieOAuthState)
 	}
 	if stateCookie.Value == "" {
-		t.Error("oauth_state cookie value is empty")
+		t.Errorf("%s cookie value is empty", handler.CookieOAuthState)
 	}
 	if !stateCookie.HttpOnly {
-		t.Error("oauth_state cookie must be HttpOnly")
+		t.Errorf("%s cookie must be HttpOnly", handler.CookieOAuthState)
 	}
 }
 
@@ -337,7 +337,7 @@ func TestGoogleCallback_MissingStateCookie(t *testing.T) {
 func TestGoogleCallback_StateMismatch(t *testing.T) {
 	e, _ := newServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/v1/auth/google/callback?state=url-state&code=somecode", nil)
-	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: "different-cookie-state"})
+	req.AddCookie(&http.Cookie{Name: handler.CookieOAuthState, Value: "different-cookie-state"})
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
@@ -352,7 +352,7 @@ func TestGoogleCallback_StateMismatch(t *testing.T) {
 func TestGoogleCallback_MissingCode(t *testing.T) {
 	e, _ := newServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/v1/auth/google/callback?state=matching-state", nil)
-	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: "matching-state"})
+	req.AddCookie(&http.Cookie{Name: handler.CookieOAuthState, Value: "matching-state"})
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 

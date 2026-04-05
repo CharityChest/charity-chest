@@ -7,7 +7,11 @@ import (
 )
 
 // LocaleContextKey is the Echo context key under which the resolved locale is stored.
-const LocaleContextKey = "locale"
+const (
+	LocaleContextKey = "locale"
+	LocaleEN         = "en"
+	LocaleIT         = "it"
+)
 
 // Locale reads the Accept-Language request header, resolves it to a supported
 // locale ("en" or "it"), and stores the result in the Echo context under
@@ -36,8 +40,8 @@ func detectLocale(header string) string {
 	first, _, _ := strings.Cut(header, ",")
 	tag, _, _ := strings.Cut(first, ";")
 	tag = strings.TrimSpace(strings.ToLower(tag))
-	if tag == "it" || strings.HasPrefix(tag, "it-") {
-		return "it"
+	if tag == LocaleIT || strings.HasPrefix(tag, LocaleIT+"-") {
+		return LocaleIT
 	}
-	return "en"
+	return LocaleEN
 }

@@ -50,10 +50,10 @@ func invoke(t *testing.T, secret, authHeader string) (code int, userID uint, ema
 
 	h := middleware.JWT(secret)(func(c echo.Context) error {
 		nextCalled = true
-		if v, ok := c.Get("user_id").(uint); ok {
+		if v, ok := c.Get(middleware.UserIDContextKey).(uint); ok {
 			userID = v
 		}
-		if v, ok := c.Get("email").(string); ok {
+		if v, ok := c.Get(middleware.EmailContextKey).(string); ok {
 			email = v
 		}
 		return c.String(http.StatusOK, "ok")

@@ -18,8 +18,8 @@ charity-chest/
 │   │   ├── config/config.go        # Loads env vars via godotenv; fails fast on missing required vars
 │   │   ├── handler/auth.go         # Register, Login, GoogleLogin, GoogleCallback, Me
 │   │   ├── i18n/messages.go        # Message keys + EN/IT translations; T(locale, key) lookup
-│   │   ├── middleware/jwt.go       # Bearer token validation; injects user_id + email into context
-│   │   ├── middleware/locale.go    # Accept-Language parser; stores resolved locale in context
+│   │   ├── middleware/jwt.go       # Bearer token validation; injects UserIDContextKey + EmailContextKey into context
+│   │   ├── middleware/locale.go    # Accept-Language parser; stores resolved locale in context; defines LocaleEN/LocaleIT
 │   │   ├── model/user.go           # GORM User model (supports password + Google OAuth)
 │   │   └── routes/
 │   │       └── v1/                 # Route registration for the v1 API (one file per group)
@@ -95,7 +95,7 @@ When a breaking change is needed, introduce a `/v2/` group in `main.go` alongsid
 | GET | `/v1/auth/google/callback` | — | Exchange OAuth code → redirect to webapp `/<locale>/auth/callback?token=<jwt>` |
 | GET | `/v1/api/me` | Bearer JWT | Return current user |
 
-Protected routes live under `/v1/api/` and require a valid `Authorization: Bearer <token>` header. The JWT middleware (`internal/middleware/jwt.go`) validates the token and injects `user_id` (uint) and `email` (string) into the Echo context.
+Protected routes live under `/v1/api/` and require a valid `Authorization: Bearer <token>` header. The JWT middleware (`internal/middleware/jwt.go`) validates the token and injects `middleware.UserIDContextKey` (uint) and `middleware.EmailContextKey` (string) into the Echo context.
 
 ---
 
@@ -152,7 +152,8 @@ make clean
 - **Package layout**: all non-main code lives under `internal/`. No `pkg/` directory.
 - **Error handling**: handlers return `echo.NewHTTPError(statusCode, message)`. Errors are never swallowed silently.
 - **No user enumeration**: login returns a generic 401 for both "user not found" and "wrong password".
-- **i18n**: all error messages are translated via `internal/i18n`. The `Locale` middleware (global) reads `Accept-Language`, resolves it to `"en"` or `"it"` (default `"en"`), and stores it under `"locale"` in the Echo context. Handlers call `i18n.T(locale(c), i18n.KeyXxx)`. When adding a new error message, add its key constant to `internal/i18n/messages.go` and provide both EN and IT translations.
+- **i18n**: all error messages are translated via `internal/i18n`. The `Locale` middleware (global) reads `Accept-Language`, resolves it to `middleware.LocaleEN` or `middleware.LocaleIT` (default `LocaleEN`), and stores it under `middleware.LocaleContextKey` in the Echo context. Handlers call `i18n.T(locale(c), i18n.KeyXxx)`. When adding a new error message, add its key constant to `internal/i18n/messages.go` and provide both EN and IT translations.
+- **Named constants over magic strings**: use `middleware.UserIDContextKey` / `middleware.EmailContextKey` when reading JWT context values; `middleware.LocaleContextKey` / `middleware.LocaleEN` / `middleware.LocaleIT` for locale keys; `handler.CookieOAuthState` / `handler.CookieOAuthLocale` for OAuth cookie names. Never repeat bare string literals for these values.
 - **Sensitive fields**: `PasswordHash` and `GoogleID` are tagged `json:"-"` — they must never appear in API responses.
 - **Nullable columns**: `PasswordHash` and `GoogleID` are `*string`; nil means that auth method is not configured for that user.
 - **Unit tests**: one `_test.go` file per source file, in `package foo_test` (black-box). Each test gets a fresh in-memory SQLite DB via `newTestDB(t)`. No external services, no global state.
