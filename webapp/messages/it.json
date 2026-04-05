@@ -4,11 +4,22 @@
     "tagline": "Donare è semplice.",
     "loading": "Caricamento…",
     "logout": "Esci",
-    "goHome": "Torna alla home"
+    "goHome": "Torna alla home",
+    "userMenu": "Il tuo account"
   },
   "home": {
     "login": "Accedi",
-    "register": "Crea account"
+    "register": "Crea account",
+    "headline": "Tieni traccia di ogni donazione, ovunque.",
+    "description": "Charity Chest è una piattaforma no profit per catalogare, archiviare e tracciare pacchi di beneficenza — dal cibo ai beni essenziali — in tutto il mondo.",
+    "getStarted": "Inizia gratuitamente",
+    "dashboard": "Vai alla dashboard",
+    "feature1Title": "Cataloga",
+    "feature1Desc": "Registra ogni donazione con tutti i dettagli — tipo, quantità, donatore e destinazione.",
+    "feature2Title": "Archivia",
+    "feature2Desc": "Organizza i pacchi per luogo, magazzino o punto di distribuzione con inventario in tempo reale.",
+    "feature3Title": "Traccia",
+    "feature3Desc": "Segui ogni pacco dalla raccolta alla consegna, in qualsiasi parte del mondo."
   },
   "login": {
     "subtitle": "Accedi al tuo account",

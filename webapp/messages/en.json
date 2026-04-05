@@ -4,11 +4,22 @@
     "tagline": "Giving made easy.",
     "loading": "Loading…",
     "logout": "Log out",
-    "goHome": "Go home"
+    "goHome": "Go home",
+    "userMenu": "Your account"
   },
   "home": {
     "login": "Log in",
-    "register": "Create account"
+    "register": "Create account",
+    "headline": "Track Every Gift, Everywhere.",
+    "description": "Charity Chest is a non-profit platform to catalog, store, and track charity packages — from food to essentials — across the world.",
+    "getStarted": "Get started for free",
+    "dashboard": "Go to Dashboard",
+    "feature1Title": "Catalog",
+    "feature1Desc": "Register every donation with full details — type, quantity, donor, and destination.",
+    "feature2Title": "Store",
+    "feature2Desc": "Organise packages by location, warehouse, or distribution point with real-time inventory.",
+    "feature3Title": "Track",
+    "feature3Desc": "Follow every package from collection to delivery, anywhere in the world."
   },
   "login": {
     "subtitle": "Sign in to your account",
