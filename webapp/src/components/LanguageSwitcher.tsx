@@ -17,7 +17,7 @@ export default function LanguageSwitcher() {
         <button
           key={l}
           onClick={() => router.replace(pathname, { locale: l })}
-          className={`rounded px-2 py-1 text-xs font-semibold transition-colors ${
+          className={`rounded px-3 py-2 text-xs font-semibold transition-colors ${
             l === locale
               ? 'bg-emerald-600 text-white'
               : 'text-gray-400 hover:text-gray-600'

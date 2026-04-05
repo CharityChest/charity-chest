@@ -26,7 +26,7 @@ export default function AuthCallbackPage() {
 
   if (error) {
     return (
-      <main className="flex min-h-screen items-center justify-center p-8">
+      <main className="flex min-h-screen items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
         <div className="w-full max-w-sm space-y-4">
           <ErrorBanner message={t('error')} />
           <p className="text-center">

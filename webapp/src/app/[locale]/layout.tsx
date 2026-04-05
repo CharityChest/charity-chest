@@ -32,7 +32,7 @@ export default async function LocaleLayout({
 
   return (
     <html lang={locale}>
-      <body className="min-h-screen bg-gray-50 text-gray-900 antialiased">
+      <body className="min-h-screen bg-gray-50 pt-14 text-gray-900 antialiased">
         <NextIntlClientProvider messages={messages}>
           <div className="fixed right-4 top-4 z-50">
             <LanguageSwitcher />

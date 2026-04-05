@@ -110,7 +110,7 @@ func TestRegister_Success(t *testing.T) {
 func TestRegister_DuplicateEmail(t *testing.T) {
 	e, _, _ := newServer(t)
 	body := `{"email":"dup@example.com","password":"password123","name":"Dup"}`
-	postJSON(e, "/v1/auth/register", body) // first — succeeds
+	postJSON(e, "/v1/auth/register", body)        // first — succeeds
 	rec := postJSON(e, "/v1/auth/register", body) // second — duplicate
 
 	if rec.Code != http.StatusConflict {

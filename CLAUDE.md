@@ -233,6 +233,7 @@ docker compose -f webapp/.docker-dev/docker-compose.yml up --build
 - **No secrets in the browser**: JWT signing keys and OAuth credentials live exclusively on the server.
 - **Navigation**: always import `Link`, `useRouter`, and `usePathname` from `@/i18n/navigation` — never from `next/link` or `next/navigation`. This ensures the current locale is preserved on every navigation.
 - **Translations**: call `useTranslations()` (or `useTranslations('namespace')`) inside components. Never hardcode UI strings directly in JSX.
+- **Responsive design**: all pages are mobile-first. Use `px-4 py-12 sm:px-6 lg:px-8` as the standard `<main>` padding. Form inputs must use `text-base sm:text-sm` (prevents iOS auto-zoom). Buttons and interactive elements use `py-3 sm:py-2` for adequate touch targets on mobile. The `<body>` has `pt-14` (set in `[locale]/layout.tsx`) to prevent content from sitting under the fixed `LanguageSwitcher`. Never add fixed pixel widths that break on narrow screens.
 
 ---
 
@@ -252,3 +253,4 @@ docker compose -f webapp/.docker-dev/docker-compose.yml up --build
 3. Add translations for every new string to both `messages/en.json` and `messages/it.json`.
 4. If the page calls a new API endpoint, add a typed wrapper to `webapp/src/lib/api.ts` and the corresponding TypeScript types to `webapp/src/types/api.ts`.
 5. Protected pages must redirect to `/login` when `isAuthenticated()` returns false.
+6. Wrap page content in `<main className="flex min-h-screen items-center justify-center px-4 py-12 sm:px-6 lg:px-8">` (or the equivalent column variant for the home page) to stay consistent with the responsive layout.

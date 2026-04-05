@@ -38,7 +38,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-8">
+    <main className="flex min-h-screen items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-emerald-700">{t('common.appName')}</h1>
@@ -59,7 +59,7 @@ export default function LoginPage() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base focus:border-emerald-500 focus:outline-none sm:text-sm"
               placeholder="you@example.com"
             />
           </div>
@@ -75,7 +75,7 @@ export default function LoginPage() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base focus:border-emerald-500 focus:outline-none sm:text-sm"
               placeholder="••••••••"
             />
           </div>
@@ -83,7 +83,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            className="w-full rounded-md bg-emerald-600 py-3 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 sm:py-2"
           >
             {loading ? t('login.submitting') : t('login.submit')}
           </button>
@@ -97,7 +97,7 @@ export default function LoginPage() {
 
         <a
           href={api.googleAuthUrl(locale)}
-          className="flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 sm:py-2"
         >
           <GoogleIcon />
           {t('login.google')}

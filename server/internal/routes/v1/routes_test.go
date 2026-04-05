@@ -364,6 +364,79 @@ func TestGoogleCallback_MissingCode(t *testing.T) {
 	}
 }
 
+func TestGoogleLogin_SetsLocaleCookie_IT(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodGet, "/v1/auth/google?locale=it", "", "", "")
+
+	var localeCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == handler.CookieOAuthLocale {
+			localeCookie = c
+			break
+		}
+	}
+	if localeCookie == nil {
+		t.Fatalf("%s cookie was not set", handler.CookieOAuthLocale)
+	}
+	if localeCookie.Value != middleware.LocaleIT {
+		t.Errorf("%s cookie value = %q, want %q", handler.CookieOAuthLocale, localeCookie.Value, middleware.LocaleIT)
+	}
+	if !localeCookie.HttpOnly {
+		t.Errorf("%s cookie must be HttpOnly", handler.CookieOAuthLocale)
+	}
+}
+
+func TestGoogleLogin_SetsLocaleCookie_DefaultEN(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodGet, "/v1/auth/google", "", "", "")
+
+	var localeCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == handler.CookieOAuthLocale {
+			localeCookie = c
+			break
+		}
+	}
+	if localeCookie == nil {
+		t.Fatalf("%s cookie was not set", handler.CookieOAuthLocale)
+	}
+	if localeCookie.Value != middleware.LocaleEN {
+		t.Errorf("%s cookie value = %q, want %q", handler.CookieOAuthLocale, localeCookie.Value, middleware.LocaleEN)
+	}
+}
+
+func TestGoogleCallback_UsesLocaleFromCookie(t *testing.T) {
+	e, _ := newServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/v1/auth/google/callback?state=some-state&code=some-code", nil)
+	req.AddCookie(&http.Cookie{Name: handler.CookieOAuthState, Value: "some-state"})
+	req.AddCookie(&http.Cookie{Name: handler.CookieOAuthLocale, Value: middleware.LocaleIT})
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Errorf("status = %d, want 307", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "/"+middleware.LocaleIT+"/auth/callback") {
+		t.Errorf("Location %q does not contain /%s/auth/callback", loc, middleware.LocaleIT)
+	}
+}
+
+func TestGoogleCallback_DefaultsToENLocale_WhenCookieMissing(t *testing.T) {
+	e, _ := newServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/v1/auth/google/callback?state=some-state", nil)
+	req.AddCookie(&http.Cookie{Name: handler.CookieOAuthState, Value: "some-state"})
+	// no oauth_locale cookie — should default to "en"
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Errorf("status = %d, want 307", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "/"+middleware.LocaleEN+"/auth/callback") {
+		t.Errorf("Location %q does not contain /%s/auth/callback", loc, middleware.LocaleEN)
+	}
+}
+
 // --- Me ---
 
 func TestMe_Success(t *testing.T) {
