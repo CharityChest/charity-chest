@@ -1,16 +1,22 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Link, useRouter } from '@/i18n/navigation';
 import { api, ApiError } from '@/lib/api';
-import { setToken } from '@/lib/auth';
+import { isAuthenticated, setToken } from '@/lib/auth';
 import ErrorBanner from '@/components/ErrorBanner';
 
 export default function LoginPage() {
   const t = useTranslations();
   const locale = useLocale();
   const router = useRouter();
+
+  useEffect(() => {
+    if (isAuthenticated()) {
+      router.replace('/dashboard');
+    }
+  }, [router]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');

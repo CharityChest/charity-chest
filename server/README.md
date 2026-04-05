@@ -151,7 +151,7 @@ curl http://localhost:8080/v1/api/me \
 
 Google OAuth requires a real browser redirect flow. The full end-to-end flow is:
 
-1. Browser navigates to `GET /v1/auth/google` → server redirects to Google consent screen.
+1. Browser navigates to `GET /v1/auth/google?locale=<en|it>` → server stores locale in an `oauth_locale` cookie and redirects to Google consent screen.
 2. User approves → Google redirects to `GET /v1/auth/google/callback?code=...&state=...`.
 3. Server exchanges the code for a JWT, then redirects the browser to `{FRONTEND_URL}/en/auth/callback?token=<jwt>`.
 4. The webapp callback page (`/en/auth/callback`) stores the token in `localStorage` and navigates to `/dashboard`.
@@ -166,7 +166,7 @@ go run .
 npm run dev
 ```
 
-Then open `http://localhost:8080/v1/auth/google` in your browser and complete the consent screen. You will land on the webapp dashboard automatically.
+Then open `http://localhost:8080/v1/auth/google?locale=en` (or `?locale=it`) in your browser and complete the consent screen. You will land on the webapp dashboard in the correct locale automatically.
 
 > **`FRONTEND_URL`**: defaults to `http://localhost:3000`. Set it in `.env` if your webapp runs on a different port or domain.
 

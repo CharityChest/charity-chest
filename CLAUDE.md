@@ -91,8 +91,8 @@ When a breaking change is needed, introduce a `/v2/` group in `main.go` alongsid
 | GET | `/health` | — | Liveness probe (unversioned) |
 | POST | `/v1/auth/register` | — | Create account (email + password) → JWT |
 | POST | `/v1/auth/login` | — | Password login → JWT |
-| GET | `/v1/auth/google` | — | Redirect to Google consent screen |
-| GET | `/v1/auth/google/callback` | — | Exchange OAuth code → redirect to webapp `/en/auth/callback?token=<jwt>` |
+| GET | `/v1/auth/google?locale=<en\|it>` | — | Redirect to Google consent screen; stores locale in `oauth_locale` cookie |
+| GET | `/v1/auth/google/callback` | — | Exchange OAuth code → redirect to webapp `/<locale>/auth/callback?token=<jwt>` |
 | GET | `/v1/api/me` | Bearer JWT | Return current user |
 
 Protected routes live under `/v1/api/` and require a valid `Authorization: Bearer <token>` header. The JWT middleware (`internal/middleware/jwt.go`) validates the token and injects `user_id` (uint) and `email` (string) into the Echo context.
