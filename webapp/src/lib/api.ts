@@ -26,12 +26,12 @@ export function getLocale(): string {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
-      'Accept-Language': getLocale(),
+      'X-Locale': getLocale(),
       ...(options.headers as Record<string, string>),
     },
-    ...options,
   });
 
   if (!res.ok) {

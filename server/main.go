@@ -45,7 +45,7 @@ func main() {
 	e.Use(middleware.Locale())
 	e.Use(echomw.CORSWithConfig(echomw.CORSConfig{
 		AllowOrigins: []string{"*"},
-		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAuthorization, "Accept-Language"},
+		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAuthorization, "X-Locale"},
 	}))
 
 	authHandler := handler.NewAuthHandler(db, cfg)

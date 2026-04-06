@@ -13,34 +13,30 @@ const (
 	LocaleIT         = "it"
 )
 
-// Locale reads the Accept-Language request header, resolves it to a supported
+// Locale reads the X-Locale request header, resolves it to a supported
 // locale ("en" or "it"), and stores the result in the Echo context under
 // LocaleContextKey. Register it as a global middleware so it runs before any
 // group-level middleware (e.g. JWT).
 func Locale() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			c.Set(LocaleContextKey, detectLocale(c.Request().Header.Get("Accept-Language")))
+			c.Set(LocaleContextKey, detectLocale(c.Request().Header.Get("X-Locale")))
 			return next(c)
 		}
 	}
 }
 
-// detectLocale parses the first language tag from an Accept-Language header
-// value. It supports only "en" and "it"; everything else maps to "en".
+// detectLocale maps an X-Locale header value to a supported locale.
+// It supports only "en" and "it"; everything else maps to "en".
 //
 // Examples:
 //
-//	"it,en;q=0.9"  → "it"
-//	"it-IT"        → "it"
-//	"en-GB"        → "en"
-//	""             → "en"
-//	"fr"           → "en"
+//	"it" → "it"
+//	"en" → "en"
+//	""   → "en"
+//	"fr" → "en"
 func detectLocale(header string) string {
-	first, _, _ := strings.Cut(header, ",")
-	tag, _, _ := strings.Cut(first, ";")
-	tag = strings.TrimSpace(strings.ToLower(tag))
-	if tag == LocaleIT || strings.HasPrefix(tag, LocaleIT+"-") {
+	if strings.ToLower(strings.TrimSpace(header)) == LocaleIT {
 		return LocaleIT
 	}
 	return LocaleEN

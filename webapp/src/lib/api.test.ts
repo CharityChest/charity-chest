@@ -59,7 +59,7 @@ describe('getLocale', () => {
 
 // --- request (via api methods) ---
 
-describe('api — Accept-Language header', () => {
+describe('api — X-Locale header', () => {
   beforeEach(() => {
     vi.stubGlobal('location', { pathname: '/it/login' });
     vi.stubGlobal(
@@ -79,23 +79,23 @@ describe('api — Accept-Language header', () => {
     vi.unstubAllGlobals();
   });
 
-  it('sends Accept-Language: it when the locale is Italian', async () => {
+  it('sends X-Locale: it when the locale is Italian', async () => {
     await api.login('a@b.com', 'pass');
     const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
       string,
       RequestInit,
     ];
-    expect((options.headers as Record<string, string>)['Accept-Language']).toBe('it');
+    expect((options.headers as Record<string, string>)['X-Locale']).toBe('it');
   });
 
-  it('sends Accept-Language: en when the locale is English', async () => {
+  it('sends X-Locale: en when the locale is English', async () => {
     vi.stubGlobal('location', { pathname: '/en/login' });
     await api.login('a@b.com', 'pass');
     const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
       string,
       RequestInit,
     ];
-    expect((options.headers as Record<string, string>)['Accept-Language']).toBe('en');
+    expect((options.headers as Record<string, string>)['X-Locale']).toBe('en');
   });
 });
 

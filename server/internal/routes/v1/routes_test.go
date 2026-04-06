@@ -115,8 +115,8 @@ func makeOrg(t *testing.T, db *gorm.DB, name string) model.Organization {
 }
 
 // do fires an HTTP request through the full Echo pipeline.
-// Pass acceptLang="" to omit the Accept-Language header (defaults to "en" on the server).
-func do(e *echo.Echo, method, path, body, bearerToken, acceptLang string) *httptest.ResponseRecorder {
+// Pass locale="" to omit the X-Locale header (defaults to "en" on the server).
+func do(e *echo.Echo, method, path, body, bearerToken, locale string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if body != "" {
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -124,8 +124,8 @@ func do(e *echo.Echo, method, path, body, bearerToken, acceptLang string) *httpt
 	if bearerToken != "" {
 		req.Header.Set(echo.HeaderAuthorization, "Bearer "+bearerToken)
 	}
-	if acceptLang != "" {
-		req.Header.Set("Accept-Language", acceptLang)
+	if locale != "" {
+		req.Header.Set("X-Locale", locale)
 	}
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -625,7 +625,7 @@ func TestMe_LocaleIT_NoToken(t *testing.T) {
 
 func TestLocale_DefaultsToEN(t *testing.T) {
 	e, _ := newServer(t)
-	// No Accept-Language header → English
+	// No X-Locale header → English
 	rec := do(e, http.MethodPost, "/v1/auth/login",
 		`{"email":"nobody@example.com","password":"p"}`, "", "")
 	body := decodeBody(t, rec)
@@ -644,11 +644,11 @@ func TestLocale_UnknownLocale_DefaultsToEN(t *testing.T) {
 	}
 }
 
-func TestLocale_SubtagIT(t *testing.T) {
-	// "it-IT" should resolve to Italian
+func TestLocale_IT(t *testing.T) {
+	// X-Locale: it should resolve to Italian
 	e, _ := newServer(t)
 	rec := do(e, http.MethodPost, "/v1/auth/login",
-		`{"email":"nobody@example.com","password":"p"}`, "", "it-IT")
+		`{"email":"nobody@example.com","password":"p"}`, "", "it")
 	body := decodeBody(t, rec)
 	if body["message"] != "Credenziali non valide" {
 		t.Errorf("message = %q, want \"Credenziali non valide\"", body["message"])
