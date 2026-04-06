@@ -310,16 +310,11 @@ func (h *AuthHandler) findOrCreateGoogleUser(gUser *googleUserInfo) (*model.User
 	return &user, h.db.Create(&user).Error
 }
 
-type jwtClaims struct {
-	UserID uint   `json:"user_id"`
-	Email  string `json:"email"`
-	jwt.RegisteredClaims
-}
-
 func (h *AuthHandler) generateJWT(user *model.User) (string, error) {
-	claims := jwtClaims{
+	claims := middleware.Claims{
 		UserID: user.ID,
 		Email:  user.Email,
+		Role:   user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

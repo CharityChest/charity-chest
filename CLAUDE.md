@@ -17,19 +17,32 @@ charity-chest/
 │   ├── internal/
 │   │   ├── config/config.go        # Loads env vars via godotenv; fails fast on missing required vars
 │   │   ├── handler/auth.go         # Register, Login, GoogleLogin, GoogleCallback, Me
+│   │   ├── handler/system.go       # SystemStatus (public), AssignSystemRole (root only)
+│   │   ├── handler/organization.go # Org CRUD + member management (role hierarchy enforced)
 │   │   ├── i18n/messages.go        # Message keys + EN/IT translations; T(locale, key) lookup
-│   │   ├── middleware/jwt.go       # Bearer token validation; injects UserIDContextKey + EmailContextKey into context
+│   │   ├── middleware/jwt.go       # Bearer token validation; injects UserIDContextKey + EmailContextKey + RoleContextKey
 │   │   ├── middleware/locale.go    # Accept-Language parser; stores resolved locale in context; defines LocaleEN/LocaleIT
-│   │   ├── model/user.go           # GORM User model (supports password + Google OAuth)
+│   │   ├── middleware/acl.go       # RequireSystemRole(...) and RequireOrgRole(db, ...) middleware factories
+│   │   ├── model/user.go           # GORM User model (supports password + Google OAuth + Role)
+│   │   ├── model/organization.go   # Organization + OrgMember GORM models
+│   │   ├── model/role.go           # Role constants + CanAssignOrgRole + ValidOrgRole
 │   │   └── routes/
 │   │       └── v1/                 # Route registration for the v1 API (one file per group)
 │   │           ├── health.go       # RegisterHealth(e) — GET /health
 │   │           ├── auth.go         # RegisterAuth(v1, h) — public /v1/auth/* routes
 │   │           ├── api.go          # RegisterAPI(v1, h, jwtSecret) — protected /v1/api/* routes
+│   │           ├── system.go       # RegisterSystem(v1, db, jwtSecret) — system status + role assignment
+│   │           ├── organization.go # RegisterOrgs(v1, db, jwtSecret) — org CRUD + member management
 │   │           └── routes_test.go  # E2e tests for every endpoint (full stack, in-memory SQLite)
 │   ├── migrations/                 # Raw SQL migrations (golang-migrate, file source)
 │   │   ├── 000001_create_users_table.up.sql
-│   │   └── 000001_create_users_table.down.sql
+│   │   ├── 000001_create_users_table.down.sql
+│   │   ├── 000002_add_role_to_users.up.sql
+│   │   ├── 000002_add_role_to_users.down.sql
+│   │   ├── 000003_create_organizations.up.sql
+│   │   ├── 000003_create_organizations.down.sql
+│   │   ├── 000004_create_org_members.up.sql
+│   │   └── 000004_create_org_members.down.sql
 │   └── .docker-dev/                # Docker Compose demo environment
 │       ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
 │       ├── docker-compose.yml      # Postgres + server; server waits for DB health check
@@ -44,9 +57,11 @@ charity-chest/
     │   │   ├── layout.tsx          # Minimal root layout
     │   │   ├── globals.css
     │   │   └── [locale]/           # All pages live here — locale prefix in URL
+    │   │       ├── setup/          # "System not configured" waiting page
     │   │       └── auth/callback/  # Google OAuth callback — reads ?token= and stores it
     │   ├── components/
     │   │   ├── ErrorBanner.tsx     # Styled error box (border-l-4, warning icon, role=alert)
+    │   │   ├── SystemGuard.tsx     # Checks system status on mount; redirects to /setup if no root user
     │   │   └── LanguageSwitcher.tsx
     │   ├── i18n/                   # next-intl wiring (routing, request, navigation)
     │   ├── middleware.ts            # Locale detection and redirect
@@ -86,16 +101,27 @@ When a breaking change is needed, introduce a `/v2/` group in `main.go` alongsid
 
 ## API surface
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/health` | — | Liveness probe (unversioned) |
-| POST | `/v1/auth/register` | — | Create account (email + password) → JWT |
-| POST | `/v1/auth/login` | — | Password login → JWT |
-| GET | `/v1/auth/google?locale=<en\|it>` | — | Redirect to Google consent screen; stores locale in `oauth_locale` cookie |
-| GET | `/v1/auth/google/callback` | — | Exchange OAuth code → redirect to webapp `/<locale>/auth/callback?token=<jwt>` |
-| GET | `/v1/api/me` | Bearer JWT | Return current user |
+| Method | Path | Auth | Role | Description |
+|---|---|---|---|---|
+| GET | `/health` | — | — | Liveness probe (unversioned) |
+| POST | `/v1/auth/register` | — | — | Create account (email + password) → JWT |
+| POST | `/v1/auth/login` | — | — | Password login → JWT |
+| GET | `/v1/auth/google?locale=<en\|it>` | — | — | Redirect to Google consent screen |
+| GET | `/v1/auth/google/callback` | — | — | Exchange OAuth code → redirect to webapp with JWT |
+| GET | `/v1/system/status` | — | — | Returns `{"configured": bool}` — true if a root user exists |
+| GET | `/v1/api/me` | Bearer JWT | any | Return current user (includes `role` field) |
+| POST | `/v1/api/system/assign-role` | Bearer JWT | root | Assign/remove `system` role on a user |
+| GET | `/v1/api/orgs` | Bearer JWT | system, root | List all organisations |
+| POST | `/v1/api/orgs` | Bearer JWT | system, root | Create an organisation |
+| GET | `/v1/api/orgs/:orgID` | Bearer JWT | any org member, system, root | Get an organisation |
+| PUT | `/v1/api/orgs/:orgID` | Bearer JWT | system, root | Update an organisation |
+| DELETE | `/v1/api/orgs/:orgID` | Bearer JWT | system, root | Delete an organisation |
+| GET | `/v1/api/orgs/:orgID/members` | Bearer JWT | any org member, system, root | List members |
+| POST | `/v1/api/orgs/:orgID/members` | Bearer JWT | hierarchy enforced | Add a member (role hierarchy applies) |
+| PUT | `/v1/api/orgs/:orgID/members/:userID` | Bearer JWT | hierarchy enforced | Update a member's role |
+| DELETE | `/v1/api/orgs/:orgID/members/:userID` | Bearer JWT | hierarchy enforced | Remove a member |
 
-Protected routes live under `/v1/api/` and require a valid `Authorization: Bearer <token>` header. The JWT middleware (`internal/middleware/jwt.go`) validates the token and injects `middleware.UserIDContextKey` (uint) and `middleware.EmailContextKey` (string) into the Echo context.
+Protected routes live under `/v1/api/` and require a valid `Authorization: Bearer <token>` header. The JWT middleware (`internal/middleware/jwt.go`) validates the token and injects `middleware.UserIDContextKey` (uint), `middleware.EmailContextKey` (string), and `middleware.RoleContextKey` (*string, nil for roleless users) into the Echo context.
 
 ---
 
@@ -153,13 +179,51 @@ make clean
 - **Error handling**: handlers return `echo.NewHTTPError(statusCode, message)`. Errors are never swallowed silently.
 - **No user enumeration**: login returns a generic 401 for both "user not found" and "wrong password".
 - **i18n**: all error messages are translated via `internal/i18n`. The `Locale` middleware (global) reads `Accept-Language`, resolves it to `middleware.LocaleEN` or `middleware.LocaleIT` (default `LocaleEN`), and stores it under `middleware.LocaleContextKey` in the Echo context. Handlers call `i18n.T(locale(c), i18n.KeyXxx)`. When adding a new error message, add its key constant to `internal/i18n/messages.go` and provide both EN and IT translations.
-- **Named constants over magic strings**: use `middleware.UserIDContextKey` / `middleware.EmailContextKey` when reading JWT context values; `middleware.LocaleContextKey` / `middleware.LocaleEN` / `middleware.LocaleIT` for locale keys; `handler.CookieOAuthState` / `handler.CookieOAuthLocale` for OAuth cookie names. Never repeat bare string literals for these values.
+- **Named constants over magic strings**: use `middleware.UserIDContextKey` / `middleware.EmailContextKey` / `middleware.RoleContextKey` when reading JWT context values; `middleware.LocaleContextKey` / `middleware.LocaleEN` / `middleware.LocaleIT` for locale keys; `handler.CookieOAuthState` / `handler.CookieOAuthLocale` for OAuth cookie names; `model.RoleRoot` / `model.RoleSystem` / `model.OrgRoleOwner` etc. for role strings. Never repeat bare string literals for these values.
 - **Sensitive fields**: `PasswordHash` and `GoogleID` are tagged `json:"-"` — they must never appear in API responses.
-- **Nullable columns**: `PasswordHash` and `GoogleID` are `*string`; nil means that auth method is not configured for that user.
+- **Nullable columns**: `PasswordHash`, `GoogleID`, and `Role` are `*string`; nil means that field is not set for that user.
 - **Unit tests**: one `_test.go` file per source file, in `package foo_test` (black-box). Each test gets a fresh in-memory SQLite DB via `newTestDB(t)`. No external services, no global state.
-- **E2e tests**: `internal/routes/v1/routes_test.go` exercises every endpoint through the full Echo stack (all middleware in the chain). `newServer(t)` wires `RegisterHealth` + `RegisterAuth` + `RegisterAPI` against an in-memory SQLite DB — no external services required.
+- **E2e tests**: `internal/routes/v1/routes_test.go` exercises every endpoint through the full Echo stack (all middleware in the chain). `newServer(t)` wires `RegisterHealth` + `RegisterAuth` + `RegisterAPI` + `RegisterSystem` + `RegisterOrgs` against an in-memory SQLite DB — no external services required.
 - **No testify**: tests use only the standard `testing` package.
 - **Migrations**: always add a matching `.down.sql` for every `.up.sql`.
+
+---
+
+## ACL — roles and access control
+
+### Role model
+
+Two tiers of roles are in use:
+
+**System-level roles** (stored on `users.role`, embedded in JWT at login):
+- `root` — set **only** via direct database write. No API endpoint can create or promote a root user. Manages system-level users.
+- `system` — assigned by root via `POST /v1/api/system/assign-role`. Manages organisations and owners.
+
+**Org-level roles** (stored in `org_members.role`, looked up from DB on org-scoped requests):
+- `owner` — can add/remove admins and operationals within their org.
+- `admin` — can add/remove operationals within their org.
+- `operational` — no member management; handles day-to-day operations.
+
+A user with a system-level role (`root`/`system`) can also be an org member — the two tiers are not mutually exclusive.
+
+### Adding a new role
+
+1. Add a constant to `server/internal/model/role.go`.
+2. If it is an org-level role, update `CanAssignOrgRole` and `ValidOrgRole` in the same file.
+3. No migration needed — roles are stored as `VARCHAR(50)`.
+
+### Middleware
+
+- `middleware.RequireSystemRole(roles ...string)` — reads `RoleContextKey` from the JWT context. Returns 403 if the caller's role is not in the allowed set. Use on routes that require a system-level role.
+- `middleware.RequireOrgRole(db, roles ...string)` — reads `RoleContextKey`; root/system bypass automatically. For all other callers, queries `org_members` by `:orgID` path parameter. Returns 403 if the caller is not a member with an allowed role. Injects `"org_member_role"` into the Echo context so handlers can reuse it for hierarchy checks without a second DB query.
+
+### Hierarchy enforcement
+
+`model.CanAssignOrgRole(actorRole, targetRole)` is the single source of truth for which org role may assign another. Handlers call this (via `enforceCanAssign`) for `AddMember`, `UpdateMember`, and `RemoveMember`. Root and system users bypass the check entirely.
+
+### System configuration check
+
+`GET /v1/system/status` returns `{"configured": bool}`. The webapp `SystemGuard` component calls this on every page mount and redirects to `/setup` if `configured` is false. The `/setup` page shows a static notice and a "Check Again" button.
 
 ---
 
@@ -230,6 +294,7 @@ docker compose -f webapp/.docker-dev/docker-compose.yml up --build
 - **Constants**: `NEXT_PUBLIC_API_URL` is accessed only via `webapp/src/lib/constants.ts#API_BASE_URL`.
 - **Error handling**: `api.ts` throws `ApiError` (carries HTTP status). Components catch it and branch on `err.status` (e.g. 401 → clear token + redirect to `/login`).
 - **Protected pages**: check `isAuthenticated()` in a `useEffect`, then call `router.replace('/login')` if false. Do not rely on server-side session checks.
+- **System configuration gate**: `SystemGuard` (in the locale layout) calls `api.systemStatus()` on every page mount. If `configured` is false and the user is not already on `/setup`, it redirects to `/setup`. The `/setup` page has a "Check Again" button. No page needs to implement this check individually.
 - **No secrets in the browser**: JWT signing keys and OAuth credentials live exclusively on the server.
 - **Navigation**: always import `Link`, `useRouter`, and `usePathname` from `@/i18n/navigation` — never from `next/link` or `next/navigation`. This ensures the current locale is preserved on every navigation.
 - **Translations**: call `useTranslations()` (or `useTranslations('namespace')`) inside components. Never hardcode UI strings directly in JSX.
@@ -241,7 +306,7 @@ docker compose -f webapp/.docker-dev/docker-compose.yml up --build
 
 - Supported locales: `en` (default), `it`. Defined in `webapp/src/i18n/routing.ts`.
 - All UI strings live in `webapp/messages/en.json` and `webapp/messages/it.json`. Both files must be kept in sync — every key present in one must exist in the other.
-- Namespaces: `common`, `home`, `login`, `register`, `dashboard`, `authCallback`. Add new namespaces as the app grows.
+- Namespaces: `common`, `home`, `login`, `register`, `dashboard`, `authCallback`, `setup`. Add new namespaces as the app grows.
 - To add a new language: add the locale to `routing.ts`, create `messages/<code>.json`, add its label to `LanguageSwitcher.tsx`, and extend the middleware matcher regex.
 
 ---

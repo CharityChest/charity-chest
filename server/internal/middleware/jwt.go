@@ -10,16 +10,18 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// UserIDContextKey and EmailContextKey are the Echo context keys injected by the JWT middleware.
+// Context keys injected by the JWT middleware.
 const (
 	UserIDContextKey = "user_id"
 	EmailContextKey  = "email"
+	RoleContextKey   = "role"
 )
 
 // Claims holds the JWT payload stored in each token.
 type Claims struct {
-	UserID uint   `json:"user_id"`
-	Email  string `json:"email"`
+	UserID uint    `json:"user_id"`
+	Email  string  `json:"email"`
+	Role   *string `json:"role,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -57,6 +59,7 @@ func JWT(secret string) echo.MiddlewareFunc {
 
 			c.Set(UserIDContextKey, claims.UserID)
 			c.Set(EmailContextKey, claims.Email)
+			c.Set(RoleContextKey, claims.Role)
 
 			return next(c)
 		}

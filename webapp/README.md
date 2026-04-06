@@ -12,6 +12,9 @@ All routes are prefixed with the active locale. Bare `/` redirects to `/en/` by 
 | `/:locale/login` | — | Email/password login + Google OAuth button |
 | `/:locale/register` | — | Account creation |
 | `/:locale/dashboard` | JWT | Current user profile (calls `GET /v1/api/me`) |
+| `/:locale/setup` | — | "System not configured" waiting page — shown when no root user exists |
+
+> **System configuration gate**: `SystemGuard` (mounted in the locale layout) calls `GET /v1/system/status` on every page mount. If the server reports `configured: false`, all pages are redirected to `/setup` until a root user is created directly in the database.
 
 ## Tech stack
 
@@ -41,9 +44,11 @@ webapp/
 │   │       ├── page.tsx        # Landing
 │   │       ├── login/page.tsx
 │   │       ├── register/page.tsx
-│   │       └── dashboard/page.tsx  # Protected — redirects to /login if no token
+│   │       ├── dashboard/page.tsx  # Protected — redirects to /login if no token
+│   │       └── setup/page.tsx      # Shown when system is unconfigured; "Check Again" button
 │   ├── components/
 │   │   ├── ErrorBanner.tsx         # Styled API error box — border-l-4, icon, role=alert
+│   │   ├── SystemGuard.tsx         # Polls /v1/system/status; redirects to /setup if unconfigured
 │   │   └── LanguageSwitcher.tsx    # EN / IT toggle, rendered on every page
 │   ├── i18n/
 │   │   ├── routing.ts          # defineRouting — locales + defaultLocale
@@ -109,6 +114,7 @@ npm run test:watch   # watch mode for development
 | `src/lib/auth.test.ts` | `getToken`, `setToken`, `clearToken`, `isAuthenticated` via jsdom `localStorage` |
 | `src/lib/api.test.ts` | `ApiError` shape; `getLocale` for all URL prefixes; `Accept-Language` header sent correctly; error body parsed into `ApiError` |
 | `src/components/ErrorBanner.test.tsx` | Renders null on empty message; message text; `role="alert"`; warning icon; border classes |
+| `src/components/SystemGuard.test.tsx` | Redirects to `/setup` when unconfigured; redirects away from `/setup` when configured; no redirect on network error |
 
 Test files live alongside their source (`*.test.ts` / `*.test.tsx`). The Vitest config is `vitest.config.ts` at the repo root; global test setup is `src/test/setup.ts`.
 

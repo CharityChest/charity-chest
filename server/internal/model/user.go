@@ -14,6 +14,7 @@ type User struct {
 	PasswordHash *string        `gorm:"column:password_hash"  json:"-"`
 	GoogleID     *string        `gorm:"uniqueIndex"           json:"-"`
 	Name         string         `gorm:"not null;default:''"   json:"name"`
+	Role         *string        `gorm:"column:role"           json:"role,omitempty"`
 	CreatedAt    time.Time      `                             json:"created_at"`
 	UpdatedAt    time.Time      `                             json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"index"                 json:"-"`

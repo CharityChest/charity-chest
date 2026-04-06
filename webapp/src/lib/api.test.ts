@@ -99,6 +99,148 @@ describe('api — Accept-Language header', () => {
   });
 });
 
+// --- New ACL methods ---
+
+describe('api — systemStatus', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('calls GET /v1/system/status with no auth header', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ configured: true }),
+    }));
+    const result = await api.systemStatus();
+    expect(result).toEqual({ configured: true });
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/system/status');
+    expect((opts.headers as Record<string, string>)['Authorization']).toBeUndefined();
+  });
+});
+
+describe('api — assignSystemRole', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('calls POST /v1/api/system/assign-role with the token and body', async () => {
+    localStorage.setItem('cc_token', 'root-jwt');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ id: 5, email: 'u@u.com', name: 'U', role: 'system', created_at: '', updated_at: '' }),
+    }));
+    await api.assignSystemRole(5, 'system');
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/system/assign-role');
+    expect(opts.method).toBe('POST');
+    expect((opts.headers as Record<string, string>)['Authorization']).toBe('Bearer root-jwt');
+    expect(JSON.parse(opts.body as string)).toEqual({ user_id: 5, role: 'system' });
+    localStorage.clear();
+  });
+});
+
+describe('api — org CRUD', () => {
+  afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+
+  beforeEach(() => {
+    localStorage.setItem('cc_token', 'sys-jwt');
+  });
+
+  function mockFetch(body: unknown) {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(body),
+    }));
+  }
+
+  it('listOrgs calls GET /v1/api/orgs', async () => {
+    mockFetch([]);
+    await api.listOrgs();
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/orgs');
+    expect(opts.method).toBeUndefined(); // GET is default
+    expect((opts.headers as Record<string, string>)['Authorization']).toBe('Bearer sys-jwt');
+  });
+
+  it('createOrg calls POST /v1/api/orgs with name', async () => {
+    mockFetch({ id: 1, name: 'Org A', created_at: '', updated_at: '' });
+    await api.createOrg('Org A');
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/orgs');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body as string)).toEqual({ name: 'Org A' });
+  });
+
+  it('getOrg calls GET /v1/api/orgs/3', async () => {
+    mockFetch({ id: 3, name: 'Org C', created_at: '', updated_at: '' });
+    await api.getOrg(3);
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/orgs/3');
+  });
+
+  it('updateOrg calls PUT /v1/api/orgs/3 with name', async () => {
+    mockFetch({ id: 3, name: 'New Name', created_at: '', updated_at: '' });
+    await api.updateOrg(3, 'New Name');
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/orgs/3');
+    expect(opts.method).toBe('PUT');
+    expect(JSON.parse(opts.body as string)).toEqual({ name: 'New Name' });
+  });
+
+  it('deleteOrg calls DELETE /v1/api/orgs/3', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(null) }));
+    await api.deleteOrg(3);
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/orgs/3');
+    expect(opts.method).toBe('DELETE');
+  });
+});
+
+describe('api — member management', () => {
+  afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+
+  beforeEach(() => {
+    localStorage.setItem('cc_token', 'owner-jwt');
+  });
+
+  function mockFetch(body: unknown) {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(body),
+    }));
+  }
+
+  it('listMembers calls GET /v1/api/orgs/7/members', async () => {
+    mockFetch([]);
+    await api.listMembers(7);
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/orgs/7/members');
+  });
+
+  it('addMember calls POST /v1/api/orgs/7/members with user_id and role', async () => {
+    mockFetch({ id: 1, org_id: 7, user_id: 9, role: 'operational', created_at: '', updated_at: '' });
+    await api.addMember(7, 9, 'operational');
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/orgs/7/members');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body as string)).toEqual({ user_id: 9, role: 'operational' });
+  });
+
+  it('updateMember calls PUT /v1/api/orgs/7/members/9 with role', async () => {
+    mockFetch({ id: 1, org_id: 7, user_id: 9, role: 'admin', created_at: '', updated_at: '' });
+    await api.updateMember(7, 9, 'admin');
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/orgs/7/members/9');
+    expect(opts.method).toBe('PUT');
+    expect(JSON.parse(opts.body as string)).toEqual({ role: 'admin' });
+  });
+
+  it('removeMember calls DELETE /v1/api/orgs/7/members/9', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(null) }));
+    await api.removeMember(7, 9);
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/orgs/7/members/9');
+    expect(opts.method).toBe('DELETE');
+  });
+});
+
 describe('api — error handling', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

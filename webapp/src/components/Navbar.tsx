@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link, usePathname, useRouter } from '@/i18n/navigation';
-import { clearToken, isAuthenticated } from '@/lib/auth';
+import { clearToken, getRole, isAuthenticated } from '@/lib/auth';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 
 export default function Navbar() {
@@ -11,11 +11,14 @@ export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
   const [loggedIn, setLoggedIn] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setLoggedIn(isAuthenticated());
+    const authed = isAuthenticated();
+    setLoggedIn(authed);
+    setRole(authed ? getRole() : null);
   }, [pathname]);
 
   useEffect(() => {
@@ -31,6 +34,7 @@ export default function Navbar() {
   function handleLogout() {
     clearToken();
     setLoggedIn(false);
+    setRole(null);
     setMenuOpen(false);
     router.push('/');
   }
@@ -63,7 +67,7 @@ export default function Navbar() {
             {menuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 mt-2 w-44 rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+                className="absolute right-0 mt-2 w-48 rounded-md border border-gray-200 bg-white py-1 shadow-lg"
               >
                 <Link
                   href="/dashboard"
@@ -73,6 +77,26 @@ export default function Navbar() {
                 >
                   {t('dashboard.title')}
                 </Link>
+                {(role === 'root' || role === 'system') && (
+                  <Link
+                    href="/orgs"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    {t('orgs.title')}
+                  </Link>
+                )}
+                {role === 'root' && (
+                  <Link
+                    href="/admin/users"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    {t('adminUsers.title')}
+                  </Link>
+                )}
                 <button
                   role="menuitem"
                   onClick={handleLogout}

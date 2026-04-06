@@ -114,6 +114,15 @@ All application endpoints are versioned under `/v1/`. The health probe is unvers
 curl http://localhost:8080/health
 ```
 
+### System status (public)
+
+Returns whether the system has been bootstrapped (at least one `root` user exists in the database).
+
+```bash
+curl http://localhost:8080/v1/system/status
+# {"configured":false}
+```
+
 ### Register (email + password)
 
 ```bash
@@ -138,6 +147,8 @@ curl -X POST http://localhost:8080/v1/auth/login \
   -d '{"email":"you@example.com","password":"secret123"}'
 ```
 
+The returned JWT embeds the user's system-level role (`role` claim). Role changes take effect after re-login.
+
 ### Access a protected route
 
 ```bash
@@ -145,9 +156,72 @@ curl http://localhost:8080/v1/api/me \
   -H "Authorization: Bearer <token>"
 ```
 
+### Assign system role (root only)
+
+```bash
+curl -X POST http://localhost:8080/v1/api/system/assign-role \
+  -H "Authorization: Bearer <root-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 2, "role": "system"}'
+# Pass "role": "" to remove the system role
+```
+
+### Organisation management (system/root)
+
+```bash
+# Create an organisation
+curl -X POST http://localhost:8080/v1/api/orgs \
+  -H "Authorization: Bearer <system-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Acme NGO"}'
+
+# List organisations
+curl http://localhost:8080/v1/api/orgs \
+  -H "Authorization: Bearer <system-token>"
+
+# Add a member
+curl -X POST http://localhost:8080/v1/api/orgs/1/members \
+  -H "Authorization: Bearer <system-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 3, "role": "owner"}'
+```
+
+Role hierarchy for member assignment: `owner` → can assign `admin`, `operational`; `admin` → can assign `operational`; `operational` → no assignment rights. Root and system bypass the check.
+
 ---
 
-## 6. Test Google login
+## 6. Roles and initial setup
+
+The system uses two tiers of roles:
+
+**System-level** (stored on `users.role`, embedded in JWT):
+
+| Role | Set by | Can do |
+|---|---|---|
+| `root` | Direct DB write only | Assign `system` role |
+| `system` | `root` via API | Create orgs, assign org members |
+
+**Org-level** (stored in `org_members`):
+
+| Role | Assigned by | Can do |
+|---|---|---|
+| `owner` | `system`/`root` | Manage `admin` and `operational` members |
+| `admin` | `owner`/`system`/`root` | Manage `operational` members |
+| `operational` | `admin`/`owner`/`system`/`root` | Day-to-day operations |
+
+### Bootstrap a fresh deployment
+
+```sql
+-- Run once directly on the database after first deploy:
+INSERT INTO users (email, name, role, created_at, updated_at)
+VALUES ('admin@example.com', 'Root Admin', 'root', NOW(), NOW());
+```
+
+After the root user exists, `GET /v1/system/status` returns `{"configured":true}` and the webapp allows normal access.
+
+---
+
+## 7. Test Google login
 
 Google OAuth requires a real browser redirect flow. The full end-to-end flow is:
 
@@ -172,7 +246,7 @@ Then open `http://localhost:8080/v1/auth/google?locale=en` (or `?locale=it`) in 
 
 ---
 
-## 7. Deploy to production
+## 8. Deploy to production
 
 ```bash
 make build-release

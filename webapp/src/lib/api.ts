@@ -1,6 +1,6 @@
 import { API_BASE_URL } from './constants';
 import { getToken } from './auth';
-import type { AuthResponse, User } from '@/types/api';
+import type { AuthResponse, User, SystemStatus, Organization, OrganizationMember } from '@/types/api';
 
 // Carries the HTTP status code so callers can branch on it (e.g. 401 → redirect to login).
 export class ApiError extends Error {
@@ -81,5 +81,92 @@ export const api = {
   /** GET /health */
   health(): Promise<{ status: string }> {
     return request('/health');
+  },
+
+  /** GET /v1/system/status — public, no token required */
+  systemStatus(): Promise<SystemStatus> {
+    return request('/v1/system/status');
+  },
+
+  // --- System management (root only) ---
+
+  /** POST /v1/api/system/assign-role — pass role="" to remove system role */
+  assignSystemRole(userId: number, role: string): Promise<User> {
+    return request('/v1/api/system/assign-role', {
+      method: 'POST',
+      headers: bearerHeader(),
+      body: JSON.stringify({ user_id: userId, role }),
+    });
+  },
+
+  // --- Organisation CRUD (system/root) ---
+
+  /** GET /v1/api/orgs */
+  listOrgs(): Promise<Organization[]> {
+    return request('/v1/api/orgs', { headers: bearerHeader() });
+  },
+
+  /** POST /v1/api/orgs */
+  createOrg(name: string): Promise<Organization> {
+    return request('/v1/api/orgs', {
+      method: 'POST',
+      headers: bearerHeader(),
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  /** GET /v1/api/orgs/:orgID */
+  getOrg(orgId: number): Promise<Organization> {
+    return request(`/v1/api/orgs/${orgId}`, { headers: bearerHeader() });
+  },
+
+  /** PUT /v1/api/orgs/:orgID */
+  updateOrg(orgId: number, name: string): Promise<Organization> {
+    return request(`/v1/api/orgs/${orgId}`, {
+      method: 'PUT',
+      headers: bearerHeader(),
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  /** DELETE /v1/api/orgs/:orgID */
+  deleteOrg(orgId: number): Promise<void> {
+    return request(`/v1/api/orgs/${orgId}`, {
+      method: 'DELETE',
+      headers: bearerHeader(),
+    });
+  },
+
+  // --- Member management ---
+
+  /** GET /v1/api/orgs/:orgID/members */
+  listMembers(orgId: number): Promise<OrganizationMember[]> {
+    return request(`/v1/api/orgs/${orgId}/members`, { headers: bearerHeader() });
+  },
+
+  /** POST /v1/api/orgs/:orgID/members */
+  addMember(orgId: number, userId: number, role: string): Promise<OrganizationMember> {
+    return request(`/v1/api/orgs/${orgId}/members`, {
+      method: 'POST',
+      headers: bearerHeader(),
+      body: JSON.stringify({ user_id: userId, role }),
+    });
+  },
+
+  /** PUT /v1/api/orgs/:orgID/members/:userID */
+  updateMember(orgId: number, userId: number, role: string): Promise<OrganizationMember> {
+    return request(`/v1/api/orgs/${orgId}/members/${userId}`, {
+      method: 'PUT',
+      headers: bearerHeader(),
+      body: JSON.stringify({ role }),
+    });
+  },
+
+  /** DELETE /v1/api/orgs/:orgID/members/:userID */
+  removeMember(orgId: number, userId: number): Promise<void> {
+    return request(`/v1/api/orgs/${orgId}/members/${userId}`, {
+      method: 'DELETE',
+      headers: bearerHeader(),
+    });
   },
 };

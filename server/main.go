@@ -55,6 +55,8 @@ func main() {
 	v1 := e.Group("/v1")
 	routesv1.RegisterAuth(v1, authHandler)
 	routesv1.RegisterAPI(v1, authHandler, cfg.JWTSecret)
+	routesv1.RegisterSystem(v1, db, cfg.JWTSecret)
+	routesv1.RegisterOrgs(v1, db, cfg.JWTSecret)
 
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(e.Start(":" + cfg.Port))

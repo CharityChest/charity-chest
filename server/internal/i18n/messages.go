@@ -25,6 +25,14 @@ const (
 	KeyUnexpectedSigning  Key = "unexpected_signing"
 	KeyInvalidToken       Key = "invalid_token"
 	KeyInvalidClaims      Key = "invalid_claims"
+
+	KeyForbidden           Key = "forbidden"
+	KeyOrgNotFound         Key = "org_not_found"
+	KeyMemberExists        Key = "member_exists"
+	KeyMemberNotFound      Key = "member_not_found"
+	KeyInvalidRole         Key = "invalid_role"
+	KeyCannotManageRole    Key = "cannot_manage_role"
+	KeySystemNotConfigured Key = "system_not_configured"
 )
 
 // messages maps locale → Key → translated string.
@@ -51,6 +59,14 @@ var messages = map[string]map[Key]string{
 		KeyUnexpectedSigning:  "unexpected signing method",
 		KeyInvalidToken:       "invalid or expired token",
 		KeyInvalidClaims:      "invalid token claims",
+
+		KeyForbidden:           "forbidden",
+		KeyOrgNotFound:         "organization not found",
+		KeyMemberExists:        "user is already a member",
+		KeyMemberNotFound:      "member not found",
+		KeyInvalidRole:         "invalid role",
+		KeyCannotManageRole:    "you do not have permission to assign this role",
+		KeySystemNotConfigured: "system not yet configured",
 	},
 	"it": {
 		KeyInvalidBody:        "corpo della richiesta non valido",
@@ -73,6 +89,14 @@ var messages = map[string]map[Key]string{
 		KeyUnexpectedSigning:  "metodo di firma non previsto",
 		KeyInvalidToken:       "token non valido o scaduto",
 		KeyInvalidClaims:      "claim del token non validi",
+
+		KeyForbidden:           "accesso negato",
+		KeyOrgNotFound:         "organizzazione non trovata",
+		KeyMemberExists:        "l'utente è già membro",
+		KeyMemberNotFound:      "membro non trovato",
+		KeyInvalidRole:         "ruolo non valido",
+		KeyCannotManageRole:    "non hai i permessi per assegnare questo ruolo",
+		KeySystemNotConfigured: "sistema non ancora configurato",
 	},
 }
 

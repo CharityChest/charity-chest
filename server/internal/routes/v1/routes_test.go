@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
@@ -15,6 +16,7 @@ import (
 	routesv1 "charity-chest/internal/routes/v1"
 
 	"github.com/glebarez/sqlite"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
@@ -27,7 +29,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.User{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrgMember{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db
@@ -60,8 +62,56 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 	v1 := e.Group("/v1")
 	routesv1.RegisterAuth(v1, h)
 	routesv1.RegisterAPI(v1, h, cfg.JWTSecret)
+	routesv1.RegisterSystem(v1, db, cfg.JWTSecret)
+	routesv1.RegisterOrgs(v1, db, cfg.JWTSecret)
 
 	return e, db
+}
+
+// makeUserWithRole creates a user in the DB with the given system-level role and
+// returns a signed JWT for that user.
+func makeUserWithRole(t *testing.T, db *gorm.DB, email, name, role string) (string, *model.User) {
+	t.Helper()
+	r := role
+	user := &model.User{Email: email, Name: name, Role: &r}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("makeUserWithRole: %v", err)
+	}
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: user.ID,
+		Email:  user.Email,
+		Role:   user.Role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	if err != nil {
+		t.Fatalf("makeUserWithRole sign: %v", err)
+	}
+	return tok, user
+}
+
+// makeOrgMember creates an org_member row and returns the OrgMember.
+func makeOrgMember(t *testing.T, db *gorm.DB, orgID, userID uint, role string) model.OrgMember {
+	t.Helper()
+	m := model.OrgMember{OrgID: orgID, UserID: userID, Role: role}
+	if err := db.Create(&m).Error; err != nil {
+		t.Fatalf("makeOrgMember: %v", err)
+	}
+	return m
+}
+
+// makeOrg creates an organisation and returns it.
+func makeOrg(t *testing.T, db *gorm.DB, name string) model.Organization {
+	t.Helper()
+	org := model.Organization{Name: name}
+	if err := db.Create(&org).Error; err != nil {
+		t.Fatalf("makeOrg: %v", err)
+	}
+	return org
 }
 
 // do fires an HTTP request through the full Echo pipeline.
@@ -602,5 +652,523 @@ func TestLocale_SubtagIT(t *testing.T) {
 	body := decodeBody(t, rec)
 	if body["message"] != "Credenziali non valide" {
 		t.Errorf("message = %q, want \"Credenziali non valide\"", body["message"])
+	}
+}
+
+// --- System Status ---
+
+func TestSystemStatus_Unconfigured(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodGet, "/v1/system/status", "", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := decodeBody(t, rec)
+	if body["configured"] != false {
+		t.Errorf("configured = %v, want false", body["configured"])
+	}
+}
+
+func TestSystemStatus_Configured(t *testing.T) {
+	e, db := newServer(t)
+	makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+
+	rec := do(e, http.MethodGet, "/v1/system/status", "", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := decodeBody(t, rec)
+	if body["configured"] != true {
+		t.Errorf("configured = %v, want true", body["configured"])
+	}
+}
+
+// --- Assign System Role ---
+
+func TestAssignSystemRole_RootCanAssignSystem(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	token := registerUser(t, e, "target@example.com", "password123", "Target")
+	_ = token
+
+	// Get the target user's ID.
+	var target model.User
+	db.Where("email = ?", "target@example.com").First(&target)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"system"}`, target.ID)
+	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", body, rootToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	resp := decodeBody(t, rec)
+	if resp["role"] != "system" {
+		t.Errorf("role = %v, want system", resp["role"])
+	}
+}
+
+func TestAssignSystemRole_NonRootForbidden(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+	var target model.User
+	db.Where("email = ?", "sys@example.com").First(&target)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"system"}`, target.ID)
+	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", body, sysToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestAssignSystemRole_NoJWTUnauthorized(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", `{"user_id":1,"role":"system"}`, "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestAssignSystemRole_CannotPromoteRoot(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, rootUser := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	body := fmt.Sprintf(`{"user_id":%d,"role":"system"}`, rootUser.ID)
+	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", body, rootToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestAssignSystemRole_InvalidRole(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	registerUser(t, e, "target@example.com", "password123", "Target")
+	var target model.User
+	db.Where("email = ?", "target@example.com").First(&target)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"owner"}`, target.ID) // owner is not a system role
+	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", body, rootToken, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+// --- Org CRUD ---
+
+func TestCreateOrg_SystemRole(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+
+	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"Test Org"}`, sysToken, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec)
+	if body["name"] != "Test Org" {
+		t.Errorf("name = %v, want Test Org", body["name"])
+	}
+}
+
+func TestCreateOrg_RootRole(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+
+	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"Root Org"}`, rootToken, "")
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201", rec.Code)
+	}
+}
+
+func TestCreateOrg_NoRoleForbidden(t *testing.T) {
+	e, _ := newServer(t)
+	token := registerUser(t, e, "user@example.com", "password123", "User")
+
+	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"Org"}`, token, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestCreateOrg_NoJWTUnauthorized(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"Org"}`, "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestListOrgs_SystemRole(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+	makeOrg(t, db, "Org 1")
+	makeOrg(t, db, "Org 2")
+
+	rec := do(e, http.MethodGet, "/v1/api/orgs", "", sysToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestDeleteOrg_SystemRole(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+	org := makeOrg(t, db, "ToDelete")
+
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", sysToken, "")
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", rec.Code)
+	}
+}
+
+// --- GetOrg and access control ---
+
+func TestGetOrg_OrgMemberCanAccess(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+
+	// Create org via API so we get a real ID.
+	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"Members Org"}`, sysToken, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create org: %d", rec.Code)
+	}
+	orgBody := decodeBody(t, rec)
+	orgID := uint(orgBody["id"].(float64))
+
+	// Create an owner user and add as member directly in DB.
+	ownerToken, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
+	// Clear the empty role so user has no system role.
+	db.Model(ownerUser).Update("role", nil)
+	// Re-sign token without role for this user.
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: ownerUser.ID,
+		Email:  ownerUser.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	ownerToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	makeOrgMember(t, db, orgID, ownerUser.ID, model.OrgRoleOwner)
+
+	rec = do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", orgID), "", ownerToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetOrg_NonMemberForbidden(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+
+	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"Private Org"}`, sysToken, "")
+	orgBody := decodeBody(t, rec)
+	orgID := uint(orgBody["id"].(float64))
+
+	// A regular registered user (no org membership).
+	userToken := registerUser(t, e, "outsider@example.com", "password123", "Outsider")
+
+	rec = do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", orgID), "", userToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestGetOrg_SystemBypassesMembership(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+	org := makeOrg(t, db, "Any Org")
+
+	rec := do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", sysToken, "")
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+// --- Member management hierarchy ---
+
+func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
+	e, db := newServer(t)
+	org := makeOrg(t, db, "Hierarchy Org")
+
+	ownerToken, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
+	db.Model(ownerUser).Update("role", nil)
+	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
+
+	// Sign a token without system role for the owner.
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: ownerUser.ID,
+		Email:  ownerUser.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	ownerToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	adminToken := registerUser(t, e, "admin@example.com", "password123", "Admin")
+	_ = adminToken
+	var adminUser model.User
+	db.Where("email = ?", "admin@example.com").First(&adminUser)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"admin"}`, adminUser.ID)
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, ownerToken, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAddMember_AdminCanAddOperational(t *testing.T) {
+	e, db := newServer(t)
+	org := makeOrg(t, db, "Hierarchy Org")
+
+	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	db.Model(adminUser).Update("role", nil)
+	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
+
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: adminUser.ID,
+		Email:  adminUser.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	registerUser(t, e, "op@example.com", "password123", "Operational")
+	var opUser model.User
+	db.Where("email = ?", "op@example.com").First(&opUser)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, opUser.ID)
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, adminToken, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAddMember_AdminCannotAddOwner(t *testing.T) {
+	e, db := newServer(t)
+	org := makeOrg(t, db, "Hierarchy Org")
+
+	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	db.Model(adminUser).Update("role", nil)
+	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
+
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: adminUser.ID,
+		Email:  adminUser.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	registerUser(t, e, "newowner@example.com", "password123", "NewOwner")
+	var newOwner model.User
+	db.Where("email = ?", "newowner@example.com").First(&newOwner)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"owner"}`, newOwner.ID)
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, adminToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestAddMember_AdminCannotAddAdmin(t *testing.T) {
+	e, db := newServer(t)
+	org := makeOrg(t, db, "Hierarchy Org")
+
+	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	db.Model(adminUser).Update("role", nil)
+	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
+
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: adminUser.ID,
+		Email:  adminUser.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	registerUser(t, e, "another@example.com", "password123", "Another")
+	var another model.User
+	db.Where("email = ?", "another@example.com").First(&another)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"admin"}`, another.ID)
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, adminToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestAddMember_OperationalCannotAddAnyone(t *testing.T) {
+	e, db := newServer(t)
+	org := makeOrg(t, db, "Hierarchy Org")
+
+	opToken, opUser := makeUserWithRole(t, db, "op@example.com", "Op", "")
+	db.Model(opUser).Update("role", nil)
+	makeOrgMember(t, db, org.ID, opUser.ID, model.OrgRoleOperational)
+
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: opUser.ID,
+		Email:  opUser.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	opToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	registerUser(t, e, "another@example.com", "password123", "Another")
+	var another model.User
+	db.Where("email = ?", "another@example.com").First(&another)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, another.ID)
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, opToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestAddMember_DuplicateMemberConflict(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+
+	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"DupOrg"}`, sysToken, "")
+	orgBody := decodeBody(t, rec)
+	orgID := uint(orgBody["id"].(float64))
+
+	registerUser(t, e, "dup@example.com", "password123", "Dup")
+	var dupUser model.User
+	db.Where("email = ?", "dup@example.com").First(&dupUser)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, dupUser.ID)
+	rec = do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", orgID), body, sysToken, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("first add: status = %d; body: %s", rec.Code, rec.Body.String())
+	}
+	rec = do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", orgID), body, sysToken, "")
+	if rec.Code != http.StatusConflict {
+		t.Errorf("duplicate: status = %d, want 409", rec.Code)
+	}
+}
+
+func TestAddMember_InvalidRole(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+	org := makeOrg(t, db, "Org")
+
+	body := fmt.Sprintf(`{"user_id":99,"role":"superadmin"}`)
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, sysToken, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestRemoveMember_OwnerCanRemoveAdmin(t *testing.T) {
+	e, db := newServer(t)
+	org := makeOrg(t, db, "Org")
+
+	ownerToken, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
+	db.Model(ownerUser).Update("role", nil)
+	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
+
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: ownerUser.ID,
+		Email:  ownerUser.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	ownerToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	registerUser(t, e, "admin@example.com", "password123", "Admin")
+	var adminUser model.User
+	db.Where("email = ?", "admin@example.com").First(&adminUser)
+	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
+
+	rec := do(e, http.MethodDelete,
+		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, adminUser.ID), "", ownerToken, "")
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", rec.Code)
+	}
+}
+
+func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
+	e, db := newServer(t)
+	org := makeOrg(t, db, "Org")
+
+	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	db.Model(adminUser).Update("role", nil)
+	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
+
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: adminUser.ID,
+		Email:  adminUser.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	_, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
+	db.Model(ownerUser).Update("role", nil)
+	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
+
+	rec := do(e, http.MethodDelete,
+		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, ownerUser.ID), "", adminToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestListMembers_OrgMemberCanList(t *testing.T) {
+	e, db := newServer(t)
+	org := makeOrg(t, db, "Org")
+
+	opToken, opUser := makeUserWithRole(t, db, "op@example.com", "Op", "")
+	db.Model(opUser).Update("role", nil)
+	makeOrgMember(t, db, org.ID, opUser.ID, model.OrgRoleOperational)
+
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: opUser.ID,
+		Email:  opUser.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	opToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	rec := do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", opToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMe_RoleIncludedInResponse(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+
+	rec := do(e, http.MethodGet, "/v1/api/me", "", sysToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := decodeBody(t, rec)
+	if body["role"] != model.RoleSystem {
+		t.Errorf("role = %v, want %s", body["role"], model.RoleSystem)
 	}
 }
