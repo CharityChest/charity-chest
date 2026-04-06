@@ -1,0 +1,12 @@
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <!-- Chest lid — arched top -->
+  <path d="M2 14 Q2 3 16 3 Q30 3 30 14Z" fill="#059669"/>
+  <!-- Lid / body divider -->
+  <line x1="2" y1="14" x2="30" y2="14" stroke="white" stroke-width="1" opacity="0.5"/>
+  <!-- Chest body -->
+  <rect x="2" y="14" width="28" height="14" rx="2" fill="#047857"/>
+  <!-- Amber clasp straddling the seam -->
+  <rect x="12" y="11" width="8" height="7" rx="2" fill="#F59E0B"/>
+  <!-- Heart -->
+  <path d="M16 26 C16 26 10 22 10 18.5 C10 16.5 11.5 15.8 16 18 C20.5 15.8 22 16.5 22 18.5 C22 22 16 26 16 26Z" fill="white"/>
+</svg>

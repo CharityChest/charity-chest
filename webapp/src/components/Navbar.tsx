@@ -39,8 +39,9 @@ export default function Navbar() {
     <nav className="fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-gray-200 bg-white/90 px-4 backdrop-blur sm:px-6 lg:px-8">
       <Link
         href="/"
-        className="text-base font-bold text-emerald-700 hover:text-emerald-800"
+        className="flex items-center gap-2 text-base font-bold text-emerald-700 hover:text-emerald-800"
       >
+        <ChestIcon className="h-7 w-auto" />
         {t('common.appName')}
       </Link>
 
@@ -100,6 +101,31 @@ export default function Navbar() {
         )}
       </div>
     </nav>
+  );
+}
+
+function ChestIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 28 26"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      {/* Chest lid — arched top */}
+      <path d="M2 13 Q2 3 14 3 Q26 3 26 13Z" fill="currentColor" />
+      {/* Lid / body divider */}
+      <line x1="2" y1="13" x2="26" y2="13" stroke="white" strokeWidth="1" opacity="0.5" />
+      {/* Chest body */}
+      <rect x="2" y="13" width="24" height="11" rx="2" fill="currentColor" opacity="0.82" />
+      {/* Clasp — amber latch spanning the seam */}
+      <rect x="11" y="10.5" width="6" height="6" rx="1.5" fill="#F59E0B" />
+      {/* Heart */}
+      <path
+        d="M14 22.5 C14 22.5 9 19 9 16.3 C9 14.8 10.2 14.2 14 16.2 C17.8 14.2 19 14.8 19 16.3 C19 19 14 22.5 14 22.5Z"
+        fill="white"
+      />
+    </svg>
   );
 }
 
