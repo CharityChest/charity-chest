@@ -9,9 +9,10 @@ All routes are prefixed with the active locale. Bare `/` redirects to `/en/` by 
 | Route | Auth required | Description |
 |---|---|---|
 | `/:locale/` | — | Landing page |
-| `/:locale/login` | — | Email/password login + Google OAuth button |
+| `/:locale/login` | — | Email/password login + Google OAuth button; TOTP step when MFA is enabled |
 | `/:locale/register` | — | Account creation |
 | `/:locale/dashboard` | JWT | Current user profile (calls `GET /v1/api/me`) |
+| `/:locale/profile` | JWT | User profile + MFA enable/disable |
 | `/:locale/setup` | — | "System not configured" waiting page — shown when no root user exists |
 
 > **System configuration gate**: `SystemGuard` (mounted in the locale layout) calls `GET /v1/system/status` on every page mount. If the server reports `configured: false`, all pages are redirected to `/setup` until a root user is created directly in the database.
@@ -25,6 +26,7 @@ All routes are prefixed with the active locale. Bare `/` redirects to `/en/` by 
 | Styling | Tailwind CSS v3 |
 | i18n | `next-intl` v3 |
 | Auth storage | `localStorage` (`cc_token`) |
+| QR code | `react-qr-code` (TOTP enrollment) |
 | Testing | Vitest + React Testing Library + jsdom |
 
 ## Project layout

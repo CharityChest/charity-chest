@@ -18,7 +18,8 @@ charity-chest/
 │   │   └── seed-root/main.go       # CLI to create the first root user (accepts -email/-password flags or SEED_ROOT_EMAIL/SEED_ROOT_PASSWORD env vars; blocked by APP_ENV=production only after a root user already exists)
 │   ├── internal/
 │   │   ├── config/config.go        # Loads env vars via godotenv; fails fast on missing required vars
-│   │   ├── handler/auth.go         # Register, Login, GoogleLogin, GoogleCallback, Me
+│   │   ├── handler/auth.go         # Register, Login, VerifyMFA, GoogleLogin, GoogleCallback, Me
+│   │   ├── handler/profile.go      # SetupMFA, EnableMFA, DisableMFA
 │   │   ├── handler/system.go       # SystemStatus (public), AssignSystemRole (root only)
 │   │   ├── handler/organization.go # Org CRUD + member management (role hierarchy enforced)
 │   │   ├── i18n/messages.go        # Message keys + EN/IT translations; T(locale, key) lookup
@@ -35,6 +36,7 @@ charity-chest/
 │   │           ├── api.go          # RegisterAPI(v1, h, jwtSecret) — protected /v1/api/* routes
 │   │           ├── system.go       # RegisterSystem(v1, db, jwtSecret) — system status + role assignment
 │   │           ├── organization.go # RegisterOrgs(v1, db, jwtSecret) — org CRUD + member management
+│   │           ├── profile.go      # RegisterProfile(v1, db, cfg, jwtSecret) — MFA management
 │   │           └── routes_test.go  # E2e tests for every endpoint (full stack, in-memory SQLite)
 │   ├── migrations/                 # Raw SQL migrations (golang-migrate, file source)
 │   │   ├── 000001_create_users_table.up.sql
@@ -44,7 +46,9 @@ charity-chest/
 │   │   ├── 000003_create_organizations.up.sql
 │   │   ├── 000003_create_organizations.down.sql
 │   │   ├── 000004_create_org_members.up.sql
-│   │   └── 000004_create_org_members.down.sql
+│   │   ├── 000004_create_org_members.down.sql
+│   │   ├── 000005_add_mfa_to_users.up.sql
+│   │   └── 000005_add_mfa_to_users.down.sql
 │   └── .docker-dev/                # Docker Compose demo environment
 │       ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
 │       ├── docker-compose.yml      # Postgres + server; server waits for DB health check
@@ -60,6 +64,7 @@ charity-chest/
     │   │   ├── globals.css
     │   │   └── [locale]/           # All pages live here — locale prefix in URL
     │   │       ├── setup/          # "System not configured" waiting page
+    │   │       ├── profile/        # User profile + MFA enable/disable
     │   │       └── auth/callback/  # Google OAuth callback — reads ?token= and stores it
     │   ├── components/
     │   │   ├── ErrorBanner.tsx     # Styled error box (border-l-4, warning icon, role=alert)
@@ -87,7 +92,8 @@ charity-chest/
 | HTTP framework | `github.com/labstack/echo/v4` |
 | ORM | `gorm.io/gorm` + `gorm.io/driver/postgres` |
 | Migrations | `github.com/golang-migrate/migrate/v4` (SQL files in `migrations/`) |
-| Auth tokens | `github.com/golang-jwt/jwt/v5` (HS256, 24 h expiry) |
+| Auth tokens | `github.com/golang-jwt/jwt/v5` (HS256, 24 h expiry; MFA-pending tokens expire in 5 min) |
+| TOTP / MFA | `github.com/pquerna/otp/totp` (RFC 6238) |
 | Password hashing | `golang.org/x/crypto/bcrypt` (DefaultCost) |
 | Google OAuth | `golang.org/x/oauth2` + `golang.org/x/oauth2/google` |
 | Config / secrets | `github.com/joho/godotenv` (dev only) + `os.Getenv` |
@@ -107,11 +113,15 @@ When a breaking change is needed, introduce a `/v2/` group in `main.go` alongsid
 |---|---|---|---|---|
 | GET | `/health` | — | — | Liveness probe (unversioned) |
 | POST | `/v1/auth/register` | — | — | Create account (email + password) → JWT |
-| POST | `/v1/auth/login` | — | — | Password login → JWT |
+| POST | `/v1/auth/login` | — | — | Password login → JWT or MFA challenge |
+| POST | `/v1/auth/mfa/verify` | MFA-pending JWT | — | Submit TOTP code to complete login → full JWT |
 | GET | `/v1/auth/google?locale=<en\|it>` | — | — | Redirect to Google consent screen |
 | GET | `/v1/auth/google/callback` | — | — | Exchange OAuth code → redirect to webapp with JWT |
 | GET | `/v1/system/status` | — | — | Returns `{"configured": bool}` — true if a root user exists |
-| GET | `/v1/api/me` | Bearer JWT | any | Return current user (includes `role` field) |
+| GET | `/v1/api/me` | Bearer JWT | any | Return current user (includes `role` and `mfa_enabled` fields) |
+| GET | `/v1/api/profile/mfa/setup` | Bearer JWT | any | Generate TOTP secret + QR URI for enrollment |
+| POST | `/v1/api/profile/mfa/enable` | Bearer JWT | any | Verify TOTP code and activate MFA |
+| DELETE | `/v1/api/profile/mfa` | Bearer JWT | any | Verify TOTP code and deactivate MFA |
 | POST | `/v1/api/system/assign-role` | Bearer JWT | root | Assign/remove `system` role on a user |
 | GET | `/v1/api/orgs` | Bearer JWT | system, root | List all organisations |
 | POST | `/v1/api/orgs` | Bearer JWT | system, root | Create an organisation |
@@ -251,6 +261,7 @@ A user with a system-level role (`root`/`system`) can also be an org member — 
 | Language | TypeScript (strict) |
 | Styling | Tailwind CSS v3 |
 | Auth storage | `localStorage` (`cc_token`) |
+| QR code | `react-qr-code` (TOTP enrollment) |
 | Testing | Vitest + React Testing Library + jsdom |
 
 ---

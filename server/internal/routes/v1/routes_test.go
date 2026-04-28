@@ -18,6 +18,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
+	"github.com/pquerna/otp/totp"
 	"gorm.io/gorm"
 )
 
@@ -64,6 +65,7 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 	routesv1.RegisterAPI(v1, h, cfg.JWTSecret)
 	routesv1.RegisterSystem(v1, db, cfg.JWTSecret)
 	routesv1.RegisterOrgs(v1, db, cfg.JWTSecret)
+	routesv1.RegisterProfile(v1, db, cfg, cfg.JWTSecret)
 
 	return e, db
 }
@@ -1170,5 +1172,193 @@ func TestMe_RoleIncludedInResponse(t *testing.T) {
 	body := decodeBody(t, rec)
 	if body["role"] != model.RoleSystem {
 		t.Errorf("role = %v, want %s", body["role"], model.RoleSystem)
+	}
+}
+
+// --- MFA E2E ---
+
+func TestMFA_LoginNoMFA_ReturnsTokenDirectly(t *testing.T) {
+	e, _ := newServer(t)
+	registerUser(t, e, "nomfa@example.com", "password123", "No MFA")
+
+	rec := do(e, http.MethodPost, "/v1/auth/login",
+		`{"email":"nomfa@example.com","password":"password123"}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec)
+	if body["token"] == nil || body["token"] == "" {
+		t.Error("token missing for user without MFA")
+	}
+	if body["mfa_required"] == true {
+		t.Error("mfa_required must not be true for users without MFA")
+	}
+}
+
+func TestMFA_FullFlow(t *testing.T) {
+	e, db := newServer(t)
+	token := registerUser(t, e, "fullmfa@example.com", "password123", "Full MFA")
+
+	// 1. Setup MFA — generates secret and QR URI.
+	rec := do(e, http.MethodGet, "/v1/api/profile/mfa/setup", "", token, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup: status = %d; body: %s", rec.Code, rec.Body.String())
+	}
+	setupBody := decodeBody(t, rec)
+	secret, _ := setupBody["secret"].(string)
+	if secret == "" {
+		t.Fatal("setup: secret missing")
+	}
+
+	// 2. Enable MFA with a valid TOTP code.
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("generate code: %v", err)
+	}
+	rec = do(e, http.MethodPost, "/v1/api/profile/mfa/enable",
+		`{"code":"`+code+`"}`, token, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enable: status = %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	// 3. Verify MFA is reflected in GET /api/me.
+	rec = do(e, http.MethodGet, "/v1/api/me", "", token, "")
+	meBody := decodeBody(t, rec)
+	if meBody["mfa_enabled"] != true {
+		t.Errorf("me.mfa_enabled = %v, want true", meBody["mfa_enabled"])
+	}
+
+	// 4. Login now returns mfa_required.
+	rec = do(e, http.MethodPost, "/v1/auth/login",
+		`{"email":"fullmfa@example.com","password":"password123"}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login: status = %d; body: %s", rec.Code, rec.Body.String())
+	}
+	loginBody := decodeBody(t, rec)
+	if loginBody["mfa_required"] != true {
+		t.Errorf("mfa_required = %v, want true", loginBody["mfa_required"])
+	}
+	mfaToken, _ := loginBody["mfa_token"].(string)
+	if mfaToken == "" {
+		t.Fatal("mfa_token missing")
+	}
+
+	// 5. Verify MFA — issue a fresh code (same 30-second window).
+	code2, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("generate code2: %v", err)
+	}
+	rec = do(e, http.MethodPost, "/v1/auth/mfa/verify",
+		`{"mfa_token":"`+mfaToken+`","code":"`+code2+`"}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("verify: status = %d; body: %s", rec.Code, rec.Body.String())
+	}
+	verifyBody := decodeBody(t, rec)
+	fullToken, _ := verifyBody["token"].(string)
+	if fullToken == "" {
+		t.Fatal("full token missing after MFA verify")
+	}
+
+	// 6. Full token must work on protected routes.
+	rec = do(e, http.MethodGet, "/v1/api/me", "", fullToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me with full token: status = %d", rec.Code)
+	}
+
+	// 7. Disable MFA.
+	code3, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("generate code3: %v", err)
+	}
+	rec = do(e, http.MethodDelete, "/v1/api/profile/mfa",
+		`{"code":"`+code3+`"}`, fullToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable: status = %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	// 8. Verify login now returns a direct token again.
+	rec = do(e, http.MethodPost, "/v1/auth/login",
+		`{"email":"fullmfa@example.com","password":"password123"}`, "", "")
+	afterBody := decodeBody(t, rec)
+	if afterBody["mfa_required"] == true {
+		t.Error("mfa_required still true after disable")
+	}
+	if afterBody["token"] == nil || afterBody["token"] == "" {
+		t.Error("token missing after MFA disabled")
+	}
+	_ = db
+}
+
+func TestMFA_VerifyMFA_WrongCode(t *testing.T) {
+	e, db := newServer(t)
+	registerUser(t, e, "wrongcode@example.com", "password123", "Wrong Code")
+
+	secret := "JBSWY3DPEHPK3PXP"
+	db.Model(&model.User{}).Where("email = ?", "wrongcode@example.com").Updates(map[string]any{
+		"mfa_enabled": true,
+		"totp_secret": secret,
+	})
+
+	rec := do(e, http.MethodPost, "/v1/auth/login",
+		`{"email":"wrongcode@example.com","password":"password123"}`, "", "")
+	loginBody := decodeBody(t, rec)
+	mfaToken, _ := loginBody["mfa_token"].(string)
+
+	rec = do(e, http.MethodPost, "/v1/auth/mfa/verify",
+		`{"mfa_token":"`+mfaToken+`","code":"000000"}`, "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestMFAPendingToken_CannotAccessProtectedRoutes(t *testing.T) {
+	e, _ := newServer(t)
+	registerUser(t, e, "pending@example.com", "password123", "Pending")
+
+	cfg := testCfg()
+	pending := true
+	var user model.User
+	e2, db2 := newServer(t)
+	registerUser(t, e2, "pending2@example.com", "password123", "P2")
+	db2.Where("email = ?", "pending2@example.com").First(&user)
+
+	claims := middleware.Claims{
+		UserID:     user.ID,
+		Email:      user.Email,
+		MFAPending: &pending,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	pendingTok, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	rec := do(e2, http.MethodGet, "/v1/api/me", "", pendingTok, "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("pending token used on protected route: status = %d, want 401", rec.Code)
+	}
+}
+
+func TestSetupMFA_Unauthorized(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodGet, "/v1/api/profile/mfa/setup", "", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestEnableMFA_Unauthorized(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodPost, "/v1/api/profile/mfa/enable", `{"code":"123456"}`, "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestDisableMFA_Unauthorized(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodDelete, "/v1/api/profile/mfa", `{"code":"123456"}`, "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
 	}
 }

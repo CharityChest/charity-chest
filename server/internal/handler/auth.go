@@ -17,6 +17,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
+	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -69,8 +70,15 @@ type loginRequest struct {
 }
 
 type authResponse struct {
-	Token string      `json:"token"`
-	User  *model.User `json:"user"`
+	Token       string      `json:"token,omitempty"`
+	User        *model.User `json:"user,omitempty"`
+	MFARequired bool        `json:"mfa_required,omitempty"`
+	MFAToken    string      `json:"mfa_token,omitempty"`
+}
+
+type mfaVerifyRequest struct {
+	MFAToken string `json:"mfa_token"`
+	Code     string `json:"code"`
 }
 
 // --- Handlers ---
@@ -139,12 +147,63 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyInvalidCredentials))
 	}
 
+	if user.MFAEnabled {
+		mfaToken, err := h.generateMFAPendingJWT(&user)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
+		}
+		return c.JSON(http.StatusOK, authResponse{MFARequired: true, MFAToken: mfaToken})
+	}
+
 	token, err := h.generateJWT(&user)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
 	}
 
 	return c.JSON(http.StatusOK, authResponse{Token: token, User: &user})
+}
+
+// VerifyMFA godoc
+// POST /auth/mfa/verify  — validates a TOTP code against a pending MFA token and issues a full JWT
+func (h *AuthHandler) VerifyMFA(c echo.Context) error {
+	var req mfaVerifyRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyInvalidBody))
+	}
+	if req.MFAToken == "" || req.Code == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyMFACodeRequired))
+	}
+
+	token, err := jwt.ParseWithClaims(req.MFAToken, &middleware.Claims{}, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyMFAInvalidPendingToken))
+		}
+		return []byte(h.cfg.JWTSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyMFAInvalidPendingToken))
+	}
+
+	claims, ok := token.Claims.(*middleware.Claims)
+	if !ok || claims.MFAPending == nil || !*claims.MFAPending {
+		return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyMFAInvalidPendingToken))
+	}
+
+	var user model.User
+	if err := h.db.First(&user, claims.UserID).Error; err != nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyMFAInvalidPendingToken))
+	}
+
+	if user.TOTPSecret == nil || !totp.Validate(req.Code, *user.TOTPSecret) {
+		return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyMFAInvalidCode))
+	}
+
+	fullToken, err := h.generateJWT(&user)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
+	}
+
+	return c.JSON(http.StatusOK, authResponse{Token: fullToken, User: &user})
 }
 
 // GoogleLogin godoc
@@ -317,6 +376,21 @@ func (h *AuthHandler) generateJWT(user *model.User) (string, error) {
 		Role:   user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(h.cfg.JWTSecret))
+}
+
+// generateMFAPendingJWT issues a short-lived token (5 min) that signals the second auth step is required.
+// The JWT middleware rejects these tokens, preventing them from being used as full auth tokens.
+func (h *AuthHandler) generateMFAPendingJWT(user *model.User) (string, error) {
+	claims := middleware.Claims{
+		UserID:     user.ID,
+		Email:      user.Email,
+		MFAPending: new(true),
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}

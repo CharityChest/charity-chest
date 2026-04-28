@@ -30,7 +30,12 @@
     "google": "Continue with Google",
     "noAccount": "Don't have an account?",
     "createOne": "Create one",
-    "or": "or"
+    "or": "or",
+    "mfaPrompt": "Enter the code from your authenticator app.",
+    "mfaStep": "6-digit code",
+    "verify": "Verify",
+    "verifying": "Verifying…",
+    "backToLogin": "Back to sign in"
   },
   "register": {
     "subtitle": "Create your account",
@@ -108,5 +113,21 @@
     "description": "No administrator account exists yet. Please configure the system by setting a root user directly in the database.",
     "checkAgain": "Check Again",
     "checking": "Checking…"
+  },
+  "profile": {
+    "title": "Profile",
+    "mfaSection": "Two-Factor Authentication",
+    "mfaEnabled": "Enabled",
+    "mfaDisabled": "Two-factor authentication is disabled.",
+    "enableMFA": "Enable MFA",
+    "disableMFA": "Disable MFA",
+    "scanQR": "Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.).",
+    "orEnterKey": "Or enter the key manually:",
+    "verifyCode": "Enter the 6-digit code to confirm:",
+    "verifyEnable": "Verify & Enable",
+    "verifyDisable": "Confirm Disable",
+    "cancel": "Cancel",
+    "codePlaceholder": "000000",
+    "backToDashboard": "Back to Dashboard"
   }
 }

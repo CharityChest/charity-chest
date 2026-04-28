@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
@@ -13,7 +14,9 @@ import (
 	"charity-chest/internal/model"
 
 	"github.com/glebarez/sqlite"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
+	"github.com/pquerna/otp/totp"
 	"gorm.io/gorm"
 )
 
@@ -52,10 +55,32 @@ func newServer(t *testing.T) (*echo.Echo, *handler.AuthHandler, *gorm.DB) {
 	auth := v1.Group("/auth")
 	auth.POST("/register", h.Register)
 	auth.POST("/login", h.Login)
+	auth.POST("/mfa/verify", h.VerifyMFA)
 	auth.GET("/google", h.GoogleLogin)
 	auth.GET("/google/callback", h.GoogleCallback)
 
 	return e, h, db
+}
+
+// makeMFAPendingToken creates a valid MFA-pending JWT for the given user.
+func makeMFAPendingToken(t *testing.T, userID uint, email string) string {
+	t.Helper()
+	cfg := testCfg()
+	pending := true
+	claims := middleware.Claims{
+		UserID:     userID,
+		Email:      email,
+		MFAPending: &pending,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	if err != nil {
+		t.Fatalf("makeMFAPendingToken: %v", err)
+	}
+	return tok
 }
 
 // postJSON fires a POST request with a JSON body through the full Echo pipeline.
@@ -317,5 +342,157 @@ func TestMe_UserNotFound(t *testing.T) {
 	he, ok := err.(*echo.HTTPError)
 	if !ok || he.Code != http.StatusNotFound {
 		t.Errorf("expected 404 HTTPError, got %v", err)
+	}
+}
+
+// --- Login with MFA ---
+
+func TestLogin_MFAEnabled_ReturnsMFAPending(t *testing.T) {
+	e, _, db := newServer(t)
+
+	// Register a user first so we have a valid bcrypt hash, then enable MFA directly.
+	postJSON(e, "/v1/auth/register", `{"email":"mfa@example.com","password":"password123","name":"MFA User"}`)
+	secret := "JBSWY3DPEHPK3PXP"
+	db.Model(&model.User{}).Where("email = ?", "mfa@example.com").Updates(map[string]any{
+		"mfa_enabled": true,
+		"totp_secret": secret,
+	})
+
+	rec := postJSON(e, "/v1/auth/login", `{"email":"mfa@example.com","password":"password123"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec)
+	if body["mfa_required"] != true {
+		t.Errorf("mfa_required = %v, want true", body["mfa_required"])
+	}
+	if body["mfa_token"] == nil || body["mfa_token"] == "" {
+		t.Error("mfa_token missing in response")
+	}
+	if body["token"] != nil {
+		t.Error("full token must not be returned when MFA is required")
+	}
+}
+
+// --- VerifyMFA ---
+
+func TestVerifyMFA_ValidCode_ReturnsToken(t *testing.T) {
+	e, _, db := newServer(t)
+
+	// Generate a real TOTP secret and a valid code.
+	key, err := totp.Generate(totp.GenerateOpts{Issuer: "test", AccountName: "test@example.com"})
+	if err != nil {
+		t.Fatalf("generate totp key: %v", err)
+	}
+	secret := key.Secret()
+	user := &model.User{
+		Email:      "mfaverify@example.com",
+		Name:       "MFA Verify",
+		MFAEnabled: true,
+		TOTPSecret: &secret,
+	}
+	db.Create(user)
+
+	mfaToken := makeMFAPendingToken(t, user.ID, user.Email)
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("generate totp code: %v", err)
+	}
+
+	body := `{"mfa_token":"` + mfaToken + `","code":"` + code + `"}`
+	rec := postJSON(e, "/v1/auth/mfa/verify", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	resp := decodeBody(t, rec)
+	if resp["token"] == nil || resp["token"] == "" {
+		t.Error("token missing in response")
+	}
+	if resp["user"] == nil {
+		t.Error("user missing in response")
+	}
+}
+
+func TestVerifyMFA_InvalidCode_Returns401(t *testing.T) {
+	e, _, db := newServer(t)
+
+	secret := "JBSWY3DPEHPK3PXP"
+	user := &model.User{
+		Email:      "mfabad@example.com",
+		Name:       "MFA Bad",
+		MFAEnabled: true,
+		TOTPSecret: &secret,
+	}
+	db.Create(user)
+
+	mfaToken := makeMFAPendingToken(t, user.ID, user.Email)
+	body := `{"mfa_token":"` + mfaToken + `","code":"000000"}`
+	rec := postJSON(e, "/v1/auth/mfa/verify", body)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestVerifyMFA_NonPendingToken_Returns401(t *testing.T) {
+	e, _, db := newServer(t)
+
+	user := &model.User{Email: "regular@example.com", Name: "Regular"}
+	db.Create(user)
+
+	// Issue a full JWT (not pending).
+	cfg := testCfg()
+	claims := middleware.Claims{
+		UserID: user.ID,
+		Email:  user.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	fullToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	body := `{"mfa_token":"` + fullToken + `","code":"123456"}`
+	rec := postJSON(e, "/v1/auth/mfa/verify", body)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestVerifyMFA_MissingCode_Returns400(t *testing.T) {
+	e, _, db := newServer(t)
+	user := &model.User{Email: "u@example.com", Name: "U"}
+	db.Create(user)
+	mfaToken := makeMFAPendingToken(t, user.ID, user.Email)
+
+	body := `{"mfa_token":"` + mfaToken + `"}`
+	rec := postJSON(e, "/v1/auth/mfa/verify", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestVerifyMFA_ExpiredPendingToken_Returns401(t *testing.T) {
+	e, _, db := newServer(t)
+	user := &model.User{Email: "expired@example.com", Name: "Expired"}
+	db.Create(user)
+
+	// Craft an already-expired MFA-pending JWT.
+	cfg := testCfg()
+	pending := true
+	claims := middleware.Claims{
+		UserID:     user.ID,
+		Email:      user.Email,
+		MFAPending: &pending,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-1 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-6 * time.Minute)),
+		},
+	}
+	expiredToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+
+	body := `{"mfa_token":"` + expiredToken + `","code":"123456"}`
+	rec := postJSON(e, "/v1/auth/mfa/verify", body)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
 	}
 }

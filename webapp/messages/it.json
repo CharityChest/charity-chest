@@ -30,7 +30,12 @@
     "google": "Continua con Google",
     "noAccount": "Non hai un account?",
     "createOne": "Creane uno",
-    "or": "oppure"
+    "or": "oppure",
+    "mfaPrompt": "Inserisci il codice dall'app di autenticazione.",
+    "mfaStep": "Codice a 6 cifre",
+    "verify": "Verifica",
+    "verifying": "Verifica in corso…",
+    "backToLogin": "Torna all'accesso"
   },
   "register": {
     "subtitle": "Crea il tuo account",
@@ -108,5 +113,21 @@
     "description": "Non esiste ancora un account amministratore. Configura il sistema impostando un utente root direttamente nel database.",
     "checkAgain": "Ricontrolla",
     "checking": "Controllo in corso…"
+  },
+  "profile": {
+    "title": "Profilo",
+    "mfaSection": "Autenticazione a due fattori",
+    "mfaEnabled": "Abilitata",
+    "mfaDisabled": "L'autenticazione a due fattori è disabilitata.",
+    "enableMFA": "Abilita MFA",
+    "disableMFA": "Disabilita MFA",
+    "scanQR": "Scansiona questo codice QR con la tua app di autenticazione (Google Authenticator, Authy, ecc.).",
+    "orEnterKey": "Oppure inserisci la chiave manualmente:",
+    "verifyCode": "Inserisci il codice a 6 cifre per confermare:",
+    "verifyEnable": "Verifica e abilita",
+    "verifyDisable": "Conferma disabilitazione",
+    "cancel": "Annulla",
+    "codePlaceholder": "000000",
+    "backToDashboard": "Torna alla dashboard"
   }
 }

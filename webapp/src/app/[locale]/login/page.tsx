@@ -7,6 +7,8 @@ import { api, ApiError } from '@/lib/api';
 import { isAuthenticated, setToken } from '@/lib/auth';
 import ErrorBanner from '@/components/ErrorBanner';
 
+type Step = 'credentials' | 'mfa';
+
 export default function LoginPage() {
   const t = useTranslations();
   const locale = useLocale();
@@ -17,24 +19,103 @@ export default function LoginPage() {
       router.replace('/dashboard');
     }
   }, [router]);
+
+  const [step, setStep] = useState<Step>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaToken, setMfaToken] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleCredentials(e: FormEvent) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const { token } = await api.login(email, password);
-      setToken(token);
-      router.push('/dashboard');
+      const res = await api.login(email, password);
+      if (res.mfa_required && res.mfa_token) {
+        setMfaToken(res.mfa_token);
+        setStep('mfa');
+      } else if (res.token) {
+        setToken(res.token);
+        router.push('/dashboard');
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('login.submit'));
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleMFA(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const res = await api.mfaVerify(mfaToken, mfaCode);
+      if (res.token) {
+        setToken(res.token);
+        router.push('/dashboard');
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('login.verify'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (step === 'mfa') {
+    return (
+      <main className="flex min-h-screen items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
+        <div className="w-full max-w-sm space-y-6">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-emerald-700">{t('common.appName')}</h1>
+            <p className="mt-1 text-sm text-gray-500">{t('login.mfaPrompt')}</p>
+          </div>
+
+          <form onSubmit={handleMFA} className="space-y-4">
+            <ErrorBanner message={error} />
+
+            <div>
+              <label htmlFor="mfa-code" className="block text-sm font-medium text-gray-700">
+                {t('login.mfaStep')}
+              </label>
+              <input
+                id="mfa-code"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                required
+                autoComplete="one-time-code"
+                autoFocus
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-center text-xl tracking-widest focus:border-emerald-500 focus:outline-none"
+                placeholder={t('profile.codePlaceholder')}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || mfaCode.length !== 6}
+              className="w-full rounded-md bg-emerald-600 py-3 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 sm:py-2"
+            >
+              {loading ? t('login.verifying') : t('login.verify')}
+            </button>
+          </form>
+
+          <p className="text-center text-sm text-gray-500">
+            <button
+              onClick={() => { setStep('credentials'); setError(''); setMfaCode(''); }}
+              className="text-emerald-600 hover:underline"
+            >
+              {t('login.backToLogin')}
+            </button>
+          </p>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -45,7 +126,7 @@ export default function LoginPage() {
           <p className="mt-1 text-sm text-gray-500">{t('login.subtitle')}</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleCredentials} className="space-y-4">
           <ErrorBanner message={error} />
 
           <div>
