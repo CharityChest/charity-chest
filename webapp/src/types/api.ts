@@ -1,18 +1,38 @@
 // Mirrors the JSON-serialised User model from the Go server.
-// Fields tagged `json:"-"` on the server (PasswordHash, GoogleID) are never present here.
+// Fields tagged `json:"-"` on the server (PasswordHash, GoogleID, TOTPSecret) are never present here.
 export interface User {
   id: number;
   email: string;
   name: string;
   role?: string | null;
+  mfa_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
 
-// Returned by POST /v1/auth/register and POST /v1/auth/login.
+// Returned by POST /v1/auth/register.
 export interface AuthResponse {
   token: string;
   user: User;
+}
+
+// Returned by POST /v1/auth/login — either a full token or an MFA challenge.
+export interface LoginResponse {
+  token?: string;
+  user?: User;
+  mfa_required?: boolean;
+  mfa_token?: string;
+}
+
+// Returned by GET /v1/api/profile/mfa/setup.
+export interface MFASetupResponse {
+  uri: string;
+  secret: string;
+}
+
+// Returned by POST /v1/api/profile/mfa/enable and DELETE /v1/api/profile/mfa.
+export interface MFAStatusResponse {
+  mfa_enabled: boolean;
 }
 
 // Returned by GET /v1/system/status.

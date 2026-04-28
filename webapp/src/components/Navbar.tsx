@@ -77,6 +77,14 @@ export default function Navbar() {
                 >
                   {t('dashboard.title')}
                 </Link>
+                <Link
+                  href="/profile"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  {t('profile.title')}
+                </Link>
                 {(role === 'root' || role === 'system') && (
                   <Link
                     href="/orgs"

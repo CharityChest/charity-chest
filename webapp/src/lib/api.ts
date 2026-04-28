@@ -1,6 +1,15 @@
 import { API_BASE_URL } from './constants';
 import { getToken } from './auth';
-import type { AuthResponse, User, SystemStatus, Organization, OrganizationMember } from '@/types/api';
+import type {
+  AuthResponse,
+  LoginResponse,
+  MFASetupResponse,
+  MFAStatusResponse,
+  User,
+  SystemStatus,
+  Organization,
+  OrganizationMember,
+} from '@/types/api';
 
 // Carries the HTTP status code so callers can branch on it (e.g. 401 → redirect to login).
 export class ApiError extends Error {
@@ -56,11 +65,19 @@ export const api = {
     });
   },
 
-  /** POST /v1/auth/login */
-  login(email: string, password: string): Promise<AuthResponse> {
+  /** POST /v1/auth/login — returns a full token or an MFA challenge */
+  login(email: string, password: string): Promise<LoginResponse> {
     return request('/v1/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
+    });
+  },
+
+  /** POST /v1/auth/mfa/verify — submit TOTP code to complete login */
+  mfaVerify(mfaToken: string, code: string): Promise<LoginResponse> {
+    return request('/v1/auth/mfa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ mfa_token: mfaToken, code }),
     });
   },
 
@@ -167,6 +184,31 @@ export const api = {
     return request(`/v1/api/orgs/${orgId}/members/${userId}`, {
       method: 'DELETE',
       headers: bearerHeader(),
+    });
+  },
+
+  // --- MFA / Profile ---
+
+  /** GET /v1/api/profile/mfa/setup — generate a new TOTP secret and QR URI */
+  mfaSetup(): Promise<MFASetupResponse> {
+    return request('/v1/api/profile/mfa/setup', { headers: bearerHeader() });
+  },
+
+  /** POST /v1/api/profile/mfa/enable — verify code and activate MFA */
+  mfaEnable(code: string): Promise<MFAStatusResponse> {
+    return request('/v1/api/profile/mfa/enable', {
+      method: 'POST',
+      headers: bearerHeader(),
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  /** DELETE /v1/api/profile/mfa — verify code and deactivate MFA */
+  mfaDisable(code: string): Promise<MFAStatusResponse> {
+    return request('/v1/api/profile/mfa', {
+      method: 'DELETE',
+      headers: bearerHeader(),
+      body: JSON.stringify({ code }),
     });
   },
 };

@@ -18,10 +18,13 @@ const (
 )
 
 // Claims holds the JWT payload stored in each token.
+// MFAPending, when true, marks a short-lived token issued mid-login for MFA verification;
+// the JWT middleware rejects these so they cannot be used as full auth tokens.
 type Claims struct {
-	UserID uint    `json:"user_id"`
-	Email  string  `json:"email"`
-	Role   *string `json:"role,omitempty"`
+	UserID     uint    `json:"user_id"`
+	Email      string  `json:"email"`
+	Role       *string `json:"role,omitempty"`
+	MFAPending *bool   `json:"mfa_pending,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -55,6 +58,11 @@ func JWT(secret string) echo.MiddlewareFunc {
 			claims, ok := token.Claims.(*Claims)
 			if !ok {
 				return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(loc, i18n.KeyInvalidClaims))
+			}
+
+			// Reject MFA-pending tokens — they may not be used as full auth tokens.
+			if claims.MFAPending != nil && *claims.MFAPending {
+				return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(loc, i18n.KeyInvalidToken))
 			}
 
 			c.Set(UserIDContextKey, claims.UserID)

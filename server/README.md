@@ -156,6 +156,45 @@ curl http://localhost:8080/v1/api/me \
   -H "Authorization: Bearer <token>"
 ```
 
+### Login with MFA enabled
+
+When a user has MFA enabled, `POST /v1/auth/login` returns an MFA challenge instead of a token:
+
+```json
+{ "mfa_required": true, "mfa_token": "<short-lived-jwt>" }
+```
+
+Submit the TOTP code to complete the login:
+
+```bash
+curl -X POST http://localhost:8080/v1/auth/mfa/verify \
+  -H "Content-Type: application/json" \
+  -d '{"mfa_token": "<mfa-token>", "code": "123456"}'
+```
+
+Response on success: `{"token": "<jwt>", "user": {...}}`.
+
+### MFA setup and management (authenticated)
+
+```bash
+# Generate a TOTP secret and QR code URI
+curl http://localhost:8080/v1/api/profile/mfa/setup \
+  -H "Authorization: Bearer <token>"
+# Returns {"uri": "otpauth://...", "secret": "BASE32SECRET"}
+
+# Verify a code and activate MFA
+curl -X POST http://localhost:8080/v1/api/profile/mfa/enable \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"code": "123456"}'
+
+# Deactivate MFA (requires current TOTP code)
+curl -X DELETE http://localhost:8080/v1/api/profile/mfa \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"code": "123456"}'
+```
+
 ### Assign system role (root only)
 
 ```bash

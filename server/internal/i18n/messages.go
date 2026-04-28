@@ -33,6 +33,14 @@ const (
 	KeyInvalidRole         Key = "invalid_role"
 	KeyCannotManageRole    Key = "cannot_manage_role"
 	KeySystemNotConfigured Key = "system_not_configured"
+
+	KeyMFACodeRequired        Key = "mfa_code_required"
+	KeyMFAInvalidCode         Key = "mfa_invalid_code"
+	KeyMFANotEnabled          Key = "mfa_not_enabled"
+	KeyMFAAlreadyEnabled      Key = "mfa_already_enabled"
+	KeyMFASetupRequired       Key = "mfa_setup_required"
+	KeyMFAGenerateSecret      Key = "mfa_generate_secret"
+	KeyMFAInvalidPendingToken Key = "mfa_invalid_pending_token"
 )
 
 // messages maps locale → Key → translated string.
@@ -67,6 +75,14 @@ var messages = map[string]map[Key]string{
 		KeyInvalidRole:         "invalid role",
 		KeyCannotManageRole:    "you do not have permission to assign this role",
 		KeySystemNotConfigured: "system not yet configured",
+
+		KeyMFACodeRequired:        "mfa code is required",
+		KeyMFAInvalidCode:         "invalid mfa code",
+		KeyMFANotEnabled:          "mfa is not enabled",
+		KeyMFAAlreadyEnabled:      "mfa is already enabled",
+		KeyMFASetupRequired:       "complete mfa setup first",
+		KeyMFAGenerateSecret:      "failed to generate mfa secret",
+		KeyMFAInvalidPendingToken: "invalid or expired mfa session",
 	},
 	"it": {
 		KeyInvalidBody:        "corpo della richiesta non valido",
@@ -97,6 +113,14 @@ var messages = map[string]map[Key]string{
 		KeyInvalidRole:         "ruolo non valido",
 		KeyCannotManageRole:    "non hai i permessi per assegnare questo ruolo",
 		KeySystemNotConfigured: "sistema non ancora configurato",
+
+		KeyMFACodeRequired:        "il codice mfa è obbligatorio",
+		KeyMFAInvalidCode:         "codice mfa non valido",
+		KeyMFANotEnabled:          "mfa non è abilitato",
+		KeyMFAAlreadyEnabled:      "mfa è già abilitato",
+		KeyMFASetupRequired:       "completa prima la configurazione mfa",
+		KeyMFAGenerateSecret:      "errore nella generazione del segreto mfa",
+		KeyMFAInvalidPendingToken: "sessione mfa non valida o scaduta",
 	},
 }
 
