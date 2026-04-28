@@ -14,7 +14,7 @@ type User struct {
 	PasswordHash *string        `gorm:"column:password_hash"  json:"-"`
 	GoogleID     *string        `gorm:"uniqueIndex"           json:"-"`
 	Name         string         `gorm:"not null;default:''"   json:"name"`
-	Role         *string        `gorm:"column:role"           json:"role,omitempty"`
+	Role         *AdministrativeRole `gorm:"column:role"           json:"role,omitempty"`
 	TOTPSecret   *string        `gorm:"column:totp_secret"    json:"-"`
 	MFAEnabled   bool           `gorm:"column:mfa_enabled"    json:"mfa_enabled"`
 	CreatedAt    time.Time      `                             json:"created_at"`

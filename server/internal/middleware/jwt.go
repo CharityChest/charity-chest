@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charity-chest/internal/i18n"
+	"charity-chest/internal/model"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
@@ -23,7 +24,7 @@ const (
 type Claims struct {
 	UserID     uint    `json:"user_id"`
 	Email      string  `json:"email"`
-	Role       *string `json:"role,omitempty"`
+	Role       *model.AdministrativeRole `json:"role,omitempty"`
 	MFAPending *bool   `json:"mfa_pending,omitempty"`
 	jwt.RegisteredClaims
 }

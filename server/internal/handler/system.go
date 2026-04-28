@@ -34,8 +34,8 @@ func (h *SystemHandler) SystemStatus(c echo.Context) error {
 }
 
 type assignSystemRoleRequest struct {
-	UserID uint   `json:"user_id"`
-	Role   string `json:"role"`
+	UserID uint                `json:"user_id"`
+	Role   model.AdministrativeRole `json:"role"`
 }
 
 // AssignSystemRole godoc
@@ -65,7 +65,7 @@ func (h *SystemHandler) AssignSystemRole(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, i18n.T(loc, i18n.KeyForbidden))
 	}
 
-	var roleVal *string
+	var roleVal *model.AdministrativeRole
 	if req.Role != "" {
 		roleVal = &req.Role
 	}

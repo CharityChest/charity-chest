@@ -19,11 +19,11 @@ type Organization struct {
 // OrgMember links a User to an Organization with an org-level role.
 // Hard deletes are used — membership removal is final and the slot is reusable.
 type OrgMember struct {
-	ID        uint      `gorm:"primaryKey"                       json:"id"`
-	OrgID     uint      `gorm:"not null;uniqueIndex:idx_org_user" json:"org_id"`
-	UserID    uint      `gorm:"not null;uniqueIndex:idx_org_user" json:"user_id"`
-	Role      string    `gorm:"not null"                         json:"role"`
-	CreatedAt time.Time `                                         json:"created_at"`
-	UpdatedAt time.Time `                                         json:"updated_at"`
-	User      *User     `gorm:"foreignKey:UserID"                json:"user,omitempty"`
+	ID        uint       `gorm:"primaryKey"                       json:"id"`
+	OrgID     uint       `gorm:"not null;uniqueIndex:idx_org_user" json:"org_id"`
+	UserID    uint       `gorm:"not null;uniqueIndex:idx_org_user" json:"user_id"`
+	Role      MemberRole `gorm:"not null"                         json:"role"`
+	CreatedAt time.Time  `                                         json:"created_at"`
+	UpdatedAt time.Time  `                                         json:"updated_at"`
+	User      *User      `gorm:"foreignKey:UserID"                json:"user,omitempty"`
 }

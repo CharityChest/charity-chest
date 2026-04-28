@@ -13,14 +13,14 @@ import (
 // RequireSystemRole returns middleware that passes only when the caller's JWT role
 // matches one of the allowed system-level roles.
 // Must be used after the JWT middleware on the same group or route.
-func RequireSystemRole(allowed ...string) echo.MiddlewareFunc {
-	set := make(map[string]struct{}, len(allowed))
+func RequireSystemRole(allowed ...model.AdministrativeRole) echo.MiddlewareFunc {
+	set := make(map[model.AdministrativeRole]struct{}, len(allowed))
 	for _, r := range allowed {
 		set[r] = struct{}{}
 	}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			rolePtr, _ := c.Get(RoleContextKey).(*string)
+			rolePtr, _ := c.Get(RoleContextKey).(*model.AdministrativeRole)
 			if rolePtr == nil {
 				return echo.NewHTTPError(http.StatusForbidden, i18n.T(localeFrom(c), i18n.KeyForbidden))
 			}
@@ -39,8 +39,8 @@ func RequireSystemRole(allowed ...string) echo.MiddlewareFunc {
 //
 // On success, injects "org_member_role" (string) into the Echo context so handlers
 // can reuse it for hierarchy checks without an additional DB query.
-func RequireOrgRole(db *gorm.DB, allowed ...string) echo.MiddlewareFunc {
-	set := make(map[string]struct{}, len(allowed))
+func RequireOrgRole(db *gorm.DB, allowed ...model.MemberRole) echo.MiddlewareFunc {
+	set := make(map[model.MemberRole]struct{}, len(allowed))
 	for _, r := range allowed {
 		set[r] = struct{}{}
 	}
@@ -49,7 +49,7 @@ func RequireOrgRole(db *gorm.DB, allowed ...string) echo.MiddlewareFunc {
 			loc := localeFrom(c)
 
 			// System-level users bypass org membership.
-			rolePtr, _ := c.Get(RoleContextKey).(*string)
+			rolePtr, _ := c.Get(RoleContextKey).(*model.AdministrativeRole)
 			if rolePtr != nil && (*rolePtr == model.RoleRoot || *rolePtr == model.RoleSystem) {
 				return next(c)
 			}

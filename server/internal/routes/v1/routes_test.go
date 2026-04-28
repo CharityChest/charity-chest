@@ -72,7 +72,7 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 
 // makeUserWithRole creates a user in the DB with the given system-level role and
 // returns a signed JWT for that user.
-func makeUserWithRole(t *testing.T, db *gorm.DB, email, name, role string) (string, *model.User) {
+func makeUserWithRole(t *testing.T, db *gorm.DB, email, name string, role model.AdministrativeRole) (string, *model.User) {
 	t.Helper()
 	r := role
 	user := &model.User{Email: email, Name: name, Role: &r}
@@ -97,7 +97,7 @@ func makeUserWithRole(t *testing.T, db *gorm.DB, email, name, role string) (stri
 }
 
 // makeOrgMember creates an org_member row and returns the OrgMember.
-func makeOrgMember(t *testing.T, db *gorm.DB, orgID, userID uint, role string) model.OrgMember {
+func makeOrgMember(t *testing.T, db *gorm.DB, orgID, userID uint, role model.MemberRole) model.OrgMember {
 	t.Helper()
 	m := model.OrgMember{OrgID: orgID, UserID: userID, Role: role}
 	if err := db.Create(&m).Error; err != nil {
@@ -1170,7 +1170,7 @@ func TestMe_RoleIncludedInResponse(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := decodeBody(t, rec)
-	if body["role"] != model.RoleSystem {
+	if body["role"] != string(model.RoleSystem) {
 		t.Errorf("role = %v, want %s", body["role"], model.RoleSystem)
 	}
 }

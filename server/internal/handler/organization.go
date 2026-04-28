@@ -34,12 +34,12 @@ type updateOrgRequest struct {
 }
 
 type addMemberRequest struct {
-	UserID uint   `json:"user_id"`
-	Role   string `json:"role"`
+	UserID uint             `json:"user_id"`
+	Role   model.MemberRole `json:"role"`
 }
 
 type updateMemberRequest struct {
-	Role string `json:"role"`
+	Role model.MemberRole `json:"role"`
 }
 
 // --- Org CRUD (system/root only) ---
@@ -228,16 +228,16 @@ func (h *OrgHandler) RemoveMember(c echo.Context) error {
 
 // enforceCanAssign checks whether the caller may assign targetRole within the org.
 // Root/system users are always allowed. Org members are checked against CanAssignOrgRole.
-func (h *OrgHandler) enforceCanAssign(c echo.Context, orgID uint, targetRole string) error {
+func (h *OrgHandler) enforceCanAssign(c echo.Context, orgID uint, targetRole model.MemberRole) error {
 	loc := locale(c)
 
-	rolePtr, _ := c.Get(middleware.RoleContextKey).(*string)
+	rolePtr, _ := c.Get(middleware.RoleContextKey).(*model.AdministrativeRole)
 	if rolePtr != nil && (*rolePtr == model.RoleRoot || *rolePtr == model.RoleSystem) {
 		return nil
 	}
 
 	// Use the role injected by RequireOrgRole middleware to avoid an extra DB query.
-	actorOrgRole, _ := c.Get("org_member_role").(string)
+	actorOrgRole, _ := c.Get("org_member_role").(model.MemberRole)
 	if actorOrgRole == "" {
 		// Fallback: query directly (should not occur if middleware is wired correctly).
 		userID, _ := c.Get(middleware.UserIDContextKey).(uint)

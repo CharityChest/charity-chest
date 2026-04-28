@@ -8,8 +8,8 @@ import (
 
 func TestCanAssignOrgRole(t *testing.T) {
 	tests := []struct {
-		actor  string
-		target string
+		actor  model.MemberRole
+		target model.MemberRole
 		want   bool
 	}{
 		// Owner can assign below
@@ -41,13 +41,13 @@ func TestCanAssignOrgRole(t *testing.T) {
 }
 
 func TestValidOrgRole(t *testing.T) {
-	valid := []string{model.OrgRoleOwner, model.OrgRoleAdmin, model.OrgRoleOperational}
+	valid := []model.MemberRole{model.OrgRoleOwner, model.OrgRoleAdmin, model.OrgRoleOperational}
 	for _, r := range valid {
 		if !model.ValidOrgRole(r) {
 			t.Errorf("ValidOrgRole(%q) = false, want true", r)
 		}
 	}
-	invalid := []string{"root", "system", "", "superadmin", "OWNER"}
+	invalid := []model.MemberRole{"root", "system", "", "superadmin", "OWNER"}
 	for _, r := range invalid {
 		if model.ValidOrgRole(r) {
 			t.Errorf("ValidOrgRole(%q) = true, want false", r)
