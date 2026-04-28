@@ -21,8 +21,8 @@ vi.mock('@/lib/auth', () => ({
   clearToken: vi.fn(),
 }));
 
-vi.mock('react-qr-code', () => ({
-  default: ({ value }: { value: string }) => <div data-testid="qr-code" data-value={value} />,
+vi.mock('qrcode.react', () => ({
+  QRCodeSVG: ({ value }: { value: string }) => <div data-testid="qr-code" data-value={value} />,
 }));
 
 vi.mock('@/lib/api', () => {
