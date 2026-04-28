@@ -54,6 +54,7 @@ cp .env.example .env
 | `GOOGLE_REDIRECT_URL` | no | Server-side OAuth callback URI registered in Google Cloud Console (default `http://localhost:8080/v1/auth/google/callback`) |
 | `FRONTEND_URL` | no | Base URL of the webapp — used to redirect the browser back after Google login (default `http://localhost:3000`) |
 | `PORT` | no | HTTP listen port (default `8080`) |
+| `APP_ENV` | no | Set to `production` to signal a production environment. The `seed-root` command refuses to run when this is set to `production`. |
 
 ---
 
@@ -79,6 +80,7 @@ A `Makefile` is provided with the following targets:
 | `make build` | both | Builds debug and release |
 | `make build-debug` | `dist/debug/server` | Race detector on, optimisations off — debugger-friendly |
 | `make build-release` | `dist/release/server` | Static binary, debug info stripped, optimised for deployment |
+| `make seed-root EMAIL=… PASSWORD=…` | — | Creates the first root user in the database |
 | `make tidy` | — | Runs `go mod tidy` |
 | `make clean` | — | Removes the `dist/` directory |
 
@@ -211,11 +213,38 @@ The system uses two tiers of roles:
 
 ### Bootstrap a fresh deployment
 
-```sql
--- Run once directly on the database after first deploy:
-INSERT INTO users (email, name, role, created_at, updated_at)
-VALUES ('admin@example.com', 'Root Admin', 'root', NOW(), NOW());
+Use the `seed-root` Makefile target to create the first root user (runs migrations automatically before inserting):
+
+```bash
+# From server/
+make seed-root EMAIL=admin@example.com PASSWORD=secret
 ```
+
+Or run it directly with flags or environment variables:
+
+```bash
+go run ./cmd/seed-root/main.go -email admin@example.com -password secret
+# or
+SEED_ROOT_EMAIL=admin@example.com SEED_ROOT_PASSWORD=secret go run ./cmd/seed-root/main.go
+```
+
+If a root user already exists the command exits cleanly without making any changes.
+
+With Docker, run it as a one-off container or exec into a running server container:
+
+```bash
+# one-off container (shares the same network and DB as the compose stack)
+docker compose -f .docker-dev/docker-compose.yml run --rm \
+  -e SEED_ROOT_EMAIL=admin@example.com \
+  -e SEED_ROOT_PASSWORD=secret \
+  server ./seed-root
+
+# exec into a running server container
+docker compose -f .docker-dev/docker-compose.yml exec server \
+  env SEED_ROOT_EMAIL=admin@example.com SEED_ROOT_PASSWORD=secret ./seed-root
+```
+
+> **Production guard**: when `APP_ENV=production` is set the command is allowed only while no root user exists (bootstrap path). Once a root user is present it exits with an error, preventing accidental creation of additional root users on a live deployment.
 
 After the root user exists, `GET /v1/system/status` returns `{"configured":true}` and the webapp allows normal access.
 

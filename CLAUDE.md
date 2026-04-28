@@ -14,6 +14,8 @@ charity-chest/
 │   ├── Makefile                    # Build, test, and utility targets
 │   ├── .env.example                # Template for local secrets (never commit .env)
 │   ├── .gitignore
+│   ├── cmd/
+│   │   └── seed-root/main.go       # CLI to create the first root user (accepts -email/-password flags or SEED_ROOT_EMAIL/SEED_ROOT_PASSWORD env vars; blocked by APP_ENV=production only after a root user already exists)
 │   ├── internal/
 │   │   ├── config/config.go        # Loads env vars via godotenv; fails fast on missing required vars
 │   │   ├── handler/auth.go         # Register, Login, GoogleLogin, GoogleCallback, Me
@@ -132,7 +134,7 @@ Protected routes live under `/v1/api/` and require a valid `Authorization: Beare
 - `server/.docker-dev/.env` is also git-ignored. Copy `server/.docker-dev/.env.example`.
 - `config.Load()` (`internal/config/config.go`) calls `godotenv.Load()` silently (ignored in production) then validates all required vars, returning an error that names every missing variable.
 - Required vars: `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
-- Optional vars with defaults: `GOOGLE_REDIRECT_URL` (default `http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (default `http://localhost:3000`), `PORT` (default `8080`).
+- Optional vars with defaults: `GOOGLE_REDIRECT_URL` (default `http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (default `http://localhost:3000`), `PORT` (default `8080`), `APP_ENV` (set to `production` on live deployments — currently used only to block `seed-root`).
 - `FRONTEND_URL` is used by `GoogleCallback` to redirect the browser back to the webapp after the OAuth exchange.
 
 ---
@@ -163,6 +165,9 @@ make build-release  # dist/release/server — static, stripped
 # Test (no external services needed — uses SQLite in-memory)
 make test                                          # all tests
 go test -race -run TestFunctionName ./internal/... # single test by name
+
+# Seed the first root user (requires DATABASE_URL in .env or environment)
+make seed-root EMAIL=admin@example.com PASSWORD=secret
 
 # Tidy dependencies
 make tidy

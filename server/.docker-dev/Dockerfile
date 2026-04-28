@@ -11,7 +11,8 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/server .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/server . && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/seed-root ./cmd/seed-root
 
 # ---- runtime stage ----
 FROM alpine:latest
@@ -22,8 +23,9 @@ RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
 
-COPY --from=builder /bin/server   ./server
-COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /bin/server      ./server
+COPY --from=builder /bin/seed-root   ./seed-root
+COPY --from=builder /app/migrations  ./migrations
 
 EXPOSE 8080
 

@@ -2,7 +2,7 @@ BINARY  := server
 DEBUG   := dist/debug/$(BINARY)
 RELEASE := dist/release/$(BINARY)
 
-.PHONY: all build build-debug build-release test clean tidy
+.PHONY: all build build-debug build-release test clean tidy seed-root
 
 # ── Default ───────────────────────────────────────────────────────────────────
 
@@ -44,3 +44,13 @@ tidy:
 
 clean:
 	rm -rf dist
+
+# ── Seed ──────────────────────────────────────────────────────────────────────
+# Creates a root user in the database.
+# Usage: make seed-root EMAIL=admin@example.com PASSWORD=secret
+
+seed-root:
+	@test -n "$(EMAIL)"    || (echo "ERROR: EMAIL is required";    exit 1)
+	@test -n "$(PASSWORD)" || (echo "ERROR: PASSWORD is required"; exit 1)
+	SEED_ROOT_EMAIL=$(EMAIL) SEED_ROOT_PASSWORD=$(PASSWORD) \
+	  go run ./cmd/seed-root/main.go -migrations migrations
