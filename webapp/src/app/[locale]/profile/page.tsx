@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import QRCode from 'react-qr-code';
+import { QRCodeSVG } from 'qrcode.react';
 import { Link, useRouter } from '@/i18n/navigation';
 import { api, ApiError } from '@/lib/api';
 import { clearToken, isAuthenticated } from '@/lib/auth';
@@ -140,7 +140,7 @@ export default function ProfilePage() {
             <div className="space-y-4">
               <p className="text-sm text-gray-600">{t('profile.scanQR')}</p>
               <div className="flex justify-center rounded-lg border border-gray-200 bg-white p-4">
-                <QRCode value={setupData.uri} size={180} />
+                <QRCodeSVG value={setupData.uri} size={180} />
               </div>
               <div>
                 <p className="mb-1 text-xs text-gray-500">{t('profile.orEnterKey')}</p>
