@@ -144,6 +144,28 @@ func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	return m
 }
 
+// decodeDataBody unwraps the {"data": {...}} envelope for single-object responses.
+func decodeDataBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	outer := decodeBody(t, rec)
+	data, ok := outer["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("response missing 'data' key or not an object; body: %s", rec.Body.String())
+	}
+	return data
+}
+
+// decodeDataArray unwraps the {"data": [...]} envelope for array responses.
+func decodeDataArray(t *testing.T, rec *httptest.ResponseRecorder) []any {
+	t.Helper()
+	outer := decodeBody(t, rec)
+	data, ok := outer["data"].([]any)
+	if !ok {
+		t.Fatalf("response missing 'data' key or not an array; body: %s", rec.Body.String())
+	}
+	return data
+}
+
 // registerUser registers a user and returns the JWT from the response.
 func registerUser(t *testing.T, e *echo.Echo, email, password, name string) string {
 	t.Helper()
@@ -152,8 +174,8 @@ func registerUser(t *testing.T, e *echo.Echo, email, password, name string) stri
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("registerUser: status = %d, body: %s", rec.Code, rec.Body.String())
 	}
-	m := decodeBody(t, rec)
-	token, ok := m["token"].(string)
+	data := decodeDataBody(t, rec)
+	token, ok := data["token"].(string)
 	if !ok || token == "" {
 		t.Fatal("registerUser: missing token in response")
 	}
@@ -168,8 +190,8 @@ func loginUser(t *testing.T, e *echo.Echo, email, password string) string {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("loginUser: status = %d, body: %s", rec.Code, rec.Body.String())
 	}
-	m := decodeBody(t, rec)
-	token, ok := m["token"].(string)
+	data := decodeDataBody(t, rec)
+	token, ok := data["token"].(string)
 	if !ok || token == "" {
 		t.Fatal("loginUser: missing token in response")
 	}
@@ -185,7 +207,7 @@ func TestHealth(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	body := decodeBody(t, rec)
+	body := decodeDataBody(t, rec)
 	if body["status"] != "ok" {
 		t.Errorf("status = %v, want ok", body["status"])
 	}
@@ -201,7 +223,7 @@ func TestRegister_Success(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", rec.Code, rec.Body.String())
 	}
-	body := decodeBody(t, rec)
+	body := decodeDataBody(t, rec)
 	if body["token"] == nil || body["token"] == "" {
 		t.Error("missing token in response")
 	}
@@ -275,7 +297,7 @@ func TestLogin_Success(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
-	body := decodeBody(t, rec)
+	body := decodeDataBody(t, rec)
 	if body["token"] == nil {
 		t.Error("missing token in response")
 	}
@@ -500,7 +522,7 @@ func TestMe_Success(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
-	body := decodeBody(t, rec)
+	body := decodeDataBody(t, rec)
 	if body["email"] != "me@example.com" {
 		t.Errorf("email = %v, want me@example.com", body["email"])
 	}
@@ -544,7 +566,7 @@ func TestMe_TokenSignedWithWrongSecret(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("attacker register: %d", rec.Code)
 	}
-	m := decodeBody(t, rec)
+	m := decodeDataBody(t, rec)
 	foreignToken := m["token"].(string)
 
 	// Present that token to our legitimate server.
@@ -665,7 +687,7 @@ func TestSystemStatus_Unconfigured(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	body := decodeBody(t, rec)
+	body := decodeDataBody(t, rec)
 	if body["configured"] != false {
 		t.Errorf("configured = %v, want false", body["configured"])
 	}
@@ -679,7 +701,7 @@ func TestSystemStatus_Configured(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	body := decodeBody(t, rec)
+	body := decodeDataBody(t, rec)
 	if body["configured"] != true {
 		t.Errorf("configured = %v, want true", body["configured"])
 	}
@@ -702,7 +724,7 @@ func TestAssignSystemRole_RootCanAssignSystem(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
-	resp := decodeBody(t, rec)
+	resp := decodeDataBody(t, rec)
 	if resp["role"] != "system" {
 		t.Errorf("role = %v, want system", resp["role"])
 	}
@@ -763,7 +785,7 @@ func TestCreateOrg_SystemRole(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", rec.Code, rec.Body.String())
 	}
-	body := decodeBody(t, rec)
+	body := decodeDataBody(t, rec)
 	if body["name"] != "Test Org" {
 		t.Errorf("name = %v, want Test Org", body["name"])
 	}
@@ -831,7 +853,7 @@ func TestGetOrg_OrgMemberCanAccess(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create org: %d", rec.Code)
 	}
-	orgBody := decodeBody(t, rec)
+	orgBody := decodeDataBody(t, rec)
 	orgID := uint(orgBody["id"].(float64))
 
 	// Create an owner user and add as member directly in DB.
@@ -863,7 +885,7 @@ func TestGetOrg_NonMemberForbidden(t *testing.T) {
 	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
 
 	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"Private Org"}`, sysToken, "")
-	orgBody := decodeBody(t, rec)
+	orgBody := decodeDataBody(t, rec)
 	orgID := uint(orgBody["id"].(float64))
 
 	// A regular registered user (no org membership).
@@ -1045,7 +1067,7 @@ func TestAddMember_DuplicateMemberConflict(t *testing.T) {
 	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
 
 	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"DupOrg"}`, sysToken, "")
-	orgBody := decodeBody(t, rec)
+	orgBody := decodeDataBody(t, rec)
 	orgID := uint(orgBody["id"].(float64))
 
 	registerUser(t, e, "dup@example.com", "password123", "Dup")
@@ -1169,7 +1191,7 @@ func TestMe_RoleIncludedInResponse(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	body := decodeBody(t, rec)
+	body := decodeDataBody(t, rec)
 	if body["role"] != string(model.RoleSystem) {
 		t.Errorf("role = %v, want %s", body["role"], model.RoleSystem)
 	}
@@ -1186,7 +1208,7 @@ func TestMFA_LoginNoMFA_ReturnsTokenDirectly(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
-	body := decodeBody(t, rec)
+	body := decodeDataBody(t, rec)
 	if body["token"] == nil || body["token"] == "" {
 		t.Error("token missing for user without MFA")
 	}
@@ -1204,7 +1226,7 @@ func TestMFA_FullFlow(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("setup: status = %d; body: %s", rec.Code, rec.Body.String())
 	}
-	setupBody := decodeBody(t, rec)
+	setupBody := decodeDataBody(t, rec)
 	secret, _ := setupBody["secret"].(string)
 	if secret == "" {
 		t.Fatal("setup: secret missing")
@@ -1223,7 +1245,7 @@ func TestMFA_FullFlow(t *testing.T) {
 
 	// 3. Verify MFA is reflected in GET /api/me.
 	rec = do(e, http.MethodGet, "/v1/api/me", "", token, "")
-	meBody := decodeBody(t, rec)
+	meBody := decodeDataBody(t, rec)
 	if meBody["mfa_enabled"] != true {
 		t.Errorf("me.mfa_enabled = %v, want true", meBody["mfa_enabled"])
 	}
@@ -1234,7 +1256,7 @@ func TestMFA_FullFlow(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("login: status = %d; body: %s", rec.Code, rec.Body.String())
 	}
-	loginBody := decodeBody(t, rec)
+	loginBody := decodeDataBody(t, rec)
 	if loginBody["mfa_required"] != true {
 		t.Errorf("mfa_required = %v, want true", loginBody["mfa_required"])
 	}
@@ -1253,7 +1275,7 @@ func TestMFA_FullFlow(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("verify: status = %d; body: %s", rec.Code, rec.Body.String())
 	}
-	verifyBody := decodeBody(t, rec)
+	verifyBody := decodeDataBody(t, rec)
 	fullToken, _ := verifyBody["token"].(string)
 	if fullToken == "" {
 		t.Fatal("full token missing after MFA verify")
@@ -1279,7 +1301,7 @@ func TestMFA_FullFlow(t *testing.T) {
 	// 8. Verify login now returns a direct token again.
 	rec = do(e, http.MethodPost, "/v1/auth/login",
 		`{"email":"fullmfa@example.com","password":"password123"}`, "", "")
-	afterBody := decodeBody(t, rec)
+	afterBody := decodeDataBody(t, rec)
 	if afterBody["mfa_required"] == true {
 		t.Error("mfa_required still true after disable")
 	}
@@ -1301,7 +1323,7 @@ func TestMFA_VerifyMFA_WrongCode(t *testing.T) {
 
 	rec := do(e, http.MethodPost, "/v1/auth/login",
 		`{"email":"wrongcode@example.com","password":"password123"}`, "", "")
-	loginBody := decodeBody(t, rec)
+	loginBody := decodeDataBody(t, rec)
 	mfaToken, _ := loginBody["mfa_token"].(string)
 
 	rec = do(e, http.MethodPost, "/v1/auth/mfa/verify",

@@ -50,7 +50,7 @@ func (h *OrgHandler) ListOrgs(c echo.Context) error {
 	if err := h.db.Find(&orgs).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list organizations")
 	}
-	return c.JSON(http.StatusOK, orgs)
+	return dataJSON(c, http.StatusOK, orgs)
 }
 
 // CreateOrg godoc — POST /v1/api/orgs
@@ -67,7 +67,7 @@ func (h *OrgHandler) CreateOrg(c echo.Context) error {
 	if err := h.db.Create(&org).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create organization")
 	}
-	return c.JSON(http.StatusCreated, &org)
+	return dataJSON(c, http.StatusCreated, &org)
 }
 
 // GetOrg godoc — GET /v1/api/orgs/:orgID
@@ -77,7 +77,7 @@ func (h *OrgHandler) GetOrg(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
-	return c.JSON(http.StatusOK, org)
+	return dataJSON(c, http.StatusOK, org)
 }
 
 // UpdateOrg godoc — PUT /v1/api/orgs/:orgID
@@ -97,7 +97,7 @@ func (h *OrgHandler) UpdateOrg(c echo.Context) error {
 	if err := h.db.Save(org).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update organization")
 	}
-	return c.JSON(http.StatusOK, org)
+	return dataJSON(c, http.StatusOK, org)
 }
 
 // DeleteOrg godoc — DELETE /v1/api/orgs/:orgID
@@ -126,7 +126,7 @@ func (h *OrgHandler) ListMembers(c echo.Context) error {
 	if err := h.db.Preload("User").Where("org_id = ?", orgID).Find(&members).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list members")
 	}
-	return c.JSON(http.StatusOK, members)
+	return dataJSON(c, http.StatusOK, members)
 }
 
 // AddMember godoc — POST /v1/api/orgs/:orgID/members
@@ -161,7 +161,7 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 	if err := h.db.Create(&member).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to add member")
 	}
-	return c.JSON(http.StatusCreated, &member)
+	return dataJSON(c, http.StatusCreated, &member)
 }
 
 // UpdateMember godoc — PUT /v1/api/orgs/:orgID/members/:userID
@@ -194,7 +194,7 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 	if err := h.db.Save(&member).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update member")
 	}
-	return c.JSON(http.StatusOK, &member)
+	return dataJSON(c, http.StatusOK, &member)
 }
 
 // RemoveMember godoc — DELETE /v1/api/orgs/:orgID/members/:userID

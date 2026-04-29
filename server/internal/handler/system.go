@@ -30,7 +30,7 @@ type systemStatusResponse struct {
 func (h *SystemHandler) SystemStatus(c echo.Context) error {
 	var count int64
 	h.db.Model(&model.User{}).Where("role = ? AND deleted_at IS NULL", model.RoleRoot).Count(&count)
-	return c.JSON(http.StatusOK, systemStatusResponse{Configured: count > 0})
+	return dataJSON(c, http.StatusOK, systemStatusResponse{Configured: count > 0})
 }
 
 type assignSystemRoleRequest struct {
@@ -73,5 +73,5 @@ func (h *SystemHandler) AssignSystemRole(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyCreateUser))
 	}
 
-	return c.JSON(http.StatusOK, &target)
+	return dataJSON(c, http.StatusOK, &target)
 }

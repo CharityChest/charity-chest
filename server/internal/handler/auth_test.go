@@ -113,10 +113,14 @@ func TestRegister_Success(t *testing.T) {
 	}
 
 	body := decodeBody(t, rec)
-	if body["token"] == nil || body["token"] == "" {
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatal("response missing 'data' object")
+	}
+	if data["token"] == nil || data["token"] == "" {
 		t.Error("response missing token")
 	}
-	user, ok := body["user"].(map[string]any)
+	user, ok := data["user"].(map[string]any)
 	if !ok {
 		t.Fatal("response missing user object")
 	}
@@ -182,7 +186,11 @@ func TestLogin_Success(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
 	body := decodeBody(t, rec)
-	if body["token"] == nil {
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatal("response missing 'data' object")
+	}
+	if data["token"] == nil {
 		t.Error("response missing token")
 	}
 }
@@ -317,11 +325,15 @@ func TestMe_ReturnsCurrentUser(t *testing.T) {
 	}
 
 	body := decodeBody(t, rec)
-	if body["email"] != "me@example.com" {
-		t.Errorf("email = %v", body["email"])
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatal("response missing 'data' object")
 	}
-	if body["name"] != "Current User" {
-		t.Errorf("name = %v", body["name"])
+	if data["email"] != "me@example.com" {
+		t.Errorf("email = %v", data["email"])
+	}
+	if data["name"] != "Current User" {
+		t.Errorf("name = %v", data["name"])
 	}
 }
 
@@ -363,13 +375,17 @@ func TestLogin_MFAEnabled_ReturnsMFAPending(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
 	body := decodeBody(t, rec)
-	if body["mfa_required"] != true {
-		t.Errorf("mfa_required = %v, want true", body["mfa_required"])
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatal("response missing 'data' object")
 	}
-	if body["mfa_token"] == nil || body["mfa_token"] == "" {
+	if data["mfa_required"] != true {
+		t.Errorf("mfa_required = %v, want true", data["mfa_required"])
+	}
+	if data["mfa_token"] == nil || data["mfa_token"] == "" {
 		t.Error("mfa_token missing in response")
 	}
-	if body["token"] != nil {
+	if data["token"] != nil {
 		t.Error("full token must not be returned when MFA is required")
 	}
 }
@@ -405,10 +421,14 @@ func TestVerifyMFA_ValidCode_ReturnsToken(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
 	resp := decodeBody(t, rec)
-	if resp["token"] == nil || resp["token"] == "" {
+	data, ok := resp["data"].(map[string]any)
+	if !ok {
+		t.Fatal("response missing 'data' object")
+	}
+	if data["token"] == nil || data["token"] == "" {
 		t.Error("token missing in response")
 	}
-	if resp["user"] == nil {
+	if data["user"] == nil {
 		t.Error("user missing in response")
 	}
 }

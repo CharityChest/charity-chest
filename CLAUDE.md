@@ -22,6 +22,7 @@ charity-chest/
 │   │   ├── handler/profile.go      # SetupMFA, EnableMFA, DisableMFA
 │   │   ├── handler/system.go       # SystemStatus (public), AssignSystemRole (root only)
 │   │   ├── handler/organization.go # Org CRUD + member management (role hierarchy enforced)
+│   │   ├── handler/response.go     # dataJSON helper — wraps all success responses in {"data": ...}
 │   │   ├── i18n/messages.go        # Message keys + EN/IT translations; T(locale, key) lookup
 │   │   ├── middleware/jwt.go       # Bearer token validation; injects UserIDContextKey + EmailContextKey + RoleContextKey
 │   │   ├── middleware/locale.go    # Accept-Language parser; stores resolved locale in context; defines LocaleEN/LocaleIT
@@ -191,6 +192,7 @@ make clean
 ## Code conventions
 
 - **Package layout**: all non-main code lives under `internal/`. No `pkg/` directory.
+- **Response envelope**: all successful JSON responses are wrapped as `{"data": <payload>}` via the `dataJSON` helper in `handler/response.go`. Error responses (`{"message": "..."}`) from Echo's HTTPError are not wrapped.
 - **Error handling**: handlers return `echo.NewHTTPError(statusCode, message)`. Errors are never swallowed silently.
 - **No user enumeration**: login returns a generic 401 for both "user not found" and "wrong password".
 - **i18n**: all error messages are translated via `internal/i18n`. The `Locale` middleware (global) reads `Accept-Language`, resolves it to `middleware.LocaleEN` or `middleware.LocaleIT` (default `LocaleEN`), and stores it under `middleware.LocaleContextKey` in the Echo context. Handlers call `i18n.T(locale(c), i18n.KeyXxx)`. When adding a new error message, add its key constant to `internal/i18n/messages.go` and provide both EN and IT translations.

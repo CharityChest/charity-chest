@@ -110,10 +110,27 @@ Migrations run automatically on startup. The server listens on `http://localhost
 
 All application endpoints are versioned under `/v1/`. The health probe is unversioned.
 
+### Response format
+
+Every successful JSON response is wrapped in a `data` envelope:
+
+```json
+{ "data": { ... } }
+```
+
+Error responses (4xx / 5xx) are **not** wrapped — they use Echo's default format:
+
+```json
+{ "message": "error description" }
+```
+
+Endpoints that return no body (204 No Content) are also not wrapped.
+
 ### Health check
 
 ```bash
 curl http://localhost:8080/health
+# {"data":{"status":"ok"}}
 ```
 
 ### System status (public)
@@ -122,7 +139,7 @@ Returns whether the system has been bootstrapped (at least one `root` user exist
 
 ```bash
 curl http://localhost:8080/v1/system/status
-# {"configured":false}
+# {"data":{"configured":false}}
 ```
 
 ### Register (email + password)

@@ -68,8 +68,10 @@ describe('api — X-Locale header', () => {
         ok: true,
         json: () =>
           Promise.resolve({
-            token: 'tok',
-            user: { id: 1, email: 'a@b.com', name: 'A', created_at: '', updated_at: '' },
+            data: {
+              token: 'tok',
+              user: { id: 1, email: 'a@b.com', name: 'A', created_at: '', updated_at: '' },
+            },
           }),
       }),
     );
@@ -107,7 +109,7 @@ describe('api — systemStatus', () => {
   it('calls GET /v1/system/status with no auth header', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ configured: true }),
+      json: () => Promise.resolve({ data: { configured: true } }),
     }));
     const result = await api.systemStatus();
     expect(result).toEqual({ configured: true });
@@ -124,7 +126,7 @@ describe('api — assignSystemRole', () => {
     localStorage.setItem('cc_token', 'root-jwt');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ id: 5, email: 'u@u.com', name: 'U', role: 'system', created_at: '', updated_at: '' }),
+      json: () => Promise.resolve({ data: { id: 5, email: 'u@u.com', name: 'U', role: 'system', created_at: '', updated_at: '' } }),
     }));
     await api.assignSystemRole(5, 'system');
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
@@ -146,7 +148,7 @@ describe('api — org CRUD', () => {
   function mockFetch(body: unknown) {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve(body),
+      json: () => Promise.resolve({ data: body }),
     }));
   }
 
@@ -185,7 +187,7 @@ describe('api — org CRUD', () => {
   });
 
   it('deleteOrg calls DELETE /v1/api/orgs/3', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(null) }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.resolve(null) }));
     await api.deleteOrg(3);
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/v1/api/orgs/3');
@@ -203,7 +205,7 @@ describe('api — member management', () => {
   function mockFetch(body: unknown) {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve(body),
+      json: () => Promise.resolve({ data: body }),
     }));
   }
 
@@ -233,7 +235,7 @@ describe('api — member management', () => {
   });
 
   it('removeMember calls DELETE /v1/api/orgs/7/members/9', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(null) }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.resolve(null) }));
     await api.removeMember(7, 9);
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/v1/api/orgs/7/members/9');

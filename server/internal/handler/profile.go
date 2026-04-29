@@ -67,7 +67,7 @@ func (h *ProfileHandler) SetupMFA(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyMFAGenerateSecret))
 	}
 
-	return c.JSON(http.StatusOK, mfaSetupResponse{URI: key.URL(), Secret: secret})
+	return dataJSON(c, http.StatusOK, mfaSetupResponse{URI: key.URL(), Secret: secret})
 }
 
 // EnableMFA godoc
@@ -103,7 +103,7 @@ func (h *ProfileHandler) EnableMFA(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyMFAGenerateSecret))
 	}
 
-	return c.JSON(http.StatusOK, mfaStatusResponse{MFAEnabled: true})
+	return dataJSON(c, http.StatusOK, mfaStatusResponse{MFAEnabled: true})
 }
 
 // DisableMFA godoc
@@ -137,5 +137,5 @@ func (h *ProfileHandler) DisableMFA(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyMFAGenerateSecret))
 	}
 
-	return c.JSON(http.StatusOK, mfaStatusResponse{MFAEnabled: false})
+	return dataJSON(c, http.StatusOK, mfaStatusResponse{MFAEnabled: false})
 }

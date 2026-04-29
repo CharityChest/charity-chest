@@ -122,7 +122,7 @@ func (h *AuthHandler) Register(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
 	}
 
-	return c.JSON(http.StatusCreated, authResponse{Token: token, User: user})
+	return dataJSON(c, http.StatusCreated, authResponse{Token: token, User: user})
 }
 
 // Login godoc
@@ -152,7 +152,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
 		}
-		return c.JSON(http.StatusOK, authResponse{MFARequired: true, MFAToken: mfaToken})
+		return dataJSON(c, http.StatusOK, authResponse{MFARequired: true, MFAToken: mfaToken})
 	}
 
 	token, err := h.generateJWT(&user)
@@ -160,7 +160,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
 	}
 
-	return c.JSON(http.StatusOK, authResponse{Token: token, User: &user})
+	return dataJSON(c, http.StatusOK, authResponse{Token: token, User: &user})
 }
 
 // VerifyMFA godoc
@@ -203,7 +203,7 @@ func (h *AuthHandler) VerifyMFA(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyGenerateToken))
 	}
 
-	return c.JSON(http.StatusOK, authResponse{Token: fullToken, User: &user})
+	return dataJSON(c, http.StatusOK, authResponse{Token: fullToken, User: &user})
 }
 
 // GoogleLogin godoc
@@ -292,7 +292,7 @@ func (h *AuthHandler) Me(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, i18n.T(locale(c), i18n.KeyUserNotFound))
 	}
 
-	return c.JSON(http.StatusOK, &user)
+	return dataJSON(c, http.StatusOK, &user)
 }
 
 // --- Helpers ---

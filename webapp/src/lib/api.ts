@@ -48,7 +48,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiError(res.status, body.message ?? 'Request failed');
   }
 
-  return res.json() as Promise<T>;
+  if (res.status === 204) {
+    return undefined as T;
+  }
+
+  const body = await res.json() as { data: T };
+  return body.data;
 }
 
 function bearerHeader(): Record<string, string> {

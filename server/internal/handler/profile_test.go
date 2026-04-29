@@ -80,13 +80,17 @@ func TestSetupMFA_ReturnsURIAndSecret(t *testing.T) {
 	}
 
 	body := decodeProfileBody(t, rec)
-	if body["uri"] == nil || body["uri"] == "" {
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatal("response missing 'data' object")
+	}
+	if data["uri"] == nil || data["uri"] == "" {
 		t.Error("uri missing in response")
 	}
-	if body["secret"] == nil || body["secret"] == "" {
+	if data["secret"] == nil || data["secret"] == "" {
 		t.Error("secret missing in response")
 	}
-	if uri, _ := body["uri"].(string); !strings.HasPrefix(uri, "otpauth://totp/") {
+	if uri, _ := data["uri"].(string); !strings.HasPrefix(uri, "otpauth://totp/") {
 		t.Errorf("uri %q does not start with otpauth://totp/", uri)
 	}
 
@@ -143,8 +147,12 @@ func TestEnableMFA_ValidCode_EnablesMFA(t *testing.T) {
 	}
 
 	body := decodeProfileBody(t, rec)
-	if body["mfa_enabled"] != true {
-		t.Errorf("mfa_enabled = %v, want true", body["mfa_enabled"])
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatal("response missing 'data' object")
+	}
+	if data["mfa_enabled"] != true {
+		t.Errorf("mfa_enabled = %v, want true", data["mfa_enabled"])
 	}
 
 	var updated model.User
@@ -245,8 +253,12 @@ func TestDisableMFA_ValidCode_DisablesMFA(t *testing.T) {
 	}
 
 	body := decodeProfileBody(t, rec)
-	if body["mfa_enabled"] != false {
-		t.Errorf("mfa_enabled = %v, want false", body["mfa_enabled"])
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatal("response missing 'data' object")
+	}
+	if data["mfa_enabled"] != false {
+		t.Errorf("mfa_enabled = %v, want false", data["mfa_enabled"])
 	}
 
 	var updated model.User
