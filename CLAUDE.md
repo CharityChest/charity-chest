@@ -17,6 +17,8 @@ charity-chest/
 │   ├── cmd/
 │   │   └── seed-root/main.go       # CLI to create the first root user (accepts -email/-password flags or SEED_ROOT_EMAIL/SEED_ROOT_PASSWORD env vars; blocked by APP_ENV=production only after a root user already exists)
 │   ├── internal/
+│   │   ├── cache/cache.go          # Valkey cache client: New/Disabled/Get/Set/Del/DelPattern
+│   │   ├── cache/keys.go           # Cache key constants and builder functions
 │   │   ├── config/config.go        # Loads env vars via godotenv; fails fast on missing required vars
 │   │   ├── handler/auth.go         # Register, Login, VerifyMFA, GoogleLogin, GoogleCallback, Me
 │   │   ├── handler/profile.go      # SetupMFA, EnableMFA, DisableMFA
@@ -36,10 +38,10 @@ charity-chest/
 │   │           ├── health.go       # RegisterHealth(e) — GET /health
 │   │           ├── auth.go         # RegisterAuth(v1, h) — public /v1/auth/* routes
 │   │           ├── api.go          # RegisterAPI(v1, h, jwtSecret) — protected /v1/api/* routes
-│   │           ├── system.go       # RegisterSystem(v1, db, jwtSecret) — system status + role assignment
-│   │           ├── organization.go # RegisterOrgs(v1, db, jwtSecret) — org CRUD + member management
-│   │           ├── profile.go      # RegisterProfile(v1, db, cfg, jwtSecret) — MFA management
-│   │           ├── admin.go        # RegisterAdmin(v1, db, jwtSecret) — root-only admin endpoints
+│   │           ├── system.go       # RegisterSystem(v1, db, cache, jwtSecret) — system status + role assignment
+│   │           ├── organization.go # RegisterOrgs(v1, db, cache, jwtSecret) — org CRUD + member management
+│   │           ├── profile.go      # RegisterProfile(v1, db, cfg, cache, jwtSecret) — MFA management
+│   │           ├── admin.go        # RegisterAdmin(v1, db, cache, jwtSecret) — root-only admin endpoints
 │   │           └── routes_test.go  # E2e tests for every endpoint (full stack, in-memory SQLite)
 │   ├── migrations/                 # Raw SQL migrations (golang-migrate, file source)
 │   │   ├── 000001_create_users_table.up.sql
@@ -54,7 +56,7 @@ charity-chest/
 │   │   └── 000005_add_mfa_to_users.down.sql
 │   └── .docker-dev/                # Docker Compose demo environment
 │       ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
-│       ├── docker-compose.yml      # Postgres + server; server waits for DB health check
+│       ├── docker-compose.yml      # Postgres + Valkey + server; server waits for both health checks
 │       └── .env.example            # Template for Google OAuth secrets used by compose
 └── webapp/                         # Next.js 15 frontend (EN + IT)
     ├── messages/                   # i18n string files
@@ -100,6 +102,7 @@ charity-chest/
 | Password hashing | `golang.org/x/crypto/bcrypt` (DefaultCost) |
 | Google OAuth | `golang.org/x/oauth2` + `golang.org/x/oauth2/google` |
 | Config / secrets | `github.com/joho/godotenv` (dev only) + `os.Getenv` |
+| Cache | `github.com/redis/go-redis/v9` (Valkey-compatible; disabled by default) |
 | Test DB | `github.com/glebarez/sqlite` (pure Go, in-memory) |
 
 ---
@@ -149,6 +152,7 @@ Protected routes live under `/v1/api/` and require a valid `Authorization: Beare
 - `config.Load()` (`internal/config/config.go`) calls `godotenv.Load()` silently (ignored in production) then validates all required vars, returning an error that names every missing variable.
 - Required vars: `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
 - Optional vars with defaults: `GOOGLE_REDIRECT_URL` (default `http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (default `http://localhost:3000`), `PORT` (default `8080`), `APP_ENV` (set to `production` on live deployments — currently used only to block `seed-root`).
+- Cache vars (all optional): `CACHE_ENABLED` (default `false`), `CACHE_URL` (default `redis://localhost:6379`), `CACHE_TTL` (default `5m` — any `time.ParseDuration` string).
 - `FRONTEND_URL` is used by `GoogleCallback` to redirect the browser back to the webapp after the OAuth exchange.
 
 ---
@@ -207,6 +211,37 @@ make clean
 - **E2e tests**: `internal/routes/v1/routes_test.go` exercises every endpoint through the full Echo stack (all middleware in the chain). `newServer(t)` wires `RegisterHealth` + `RegisterAuth` + `RegisterAPI` + `RegisterSystem` + `RegisterOrgs` against an in-memory SQLite DB — no external services required.
 - **No testify**: tests use only the standard `testing` package.
 - **Migrations**: always add a matching `.down.sql` for every `.up.sql`.
+- **Cache**: all handlers receive a `*cache.Cache`; pass `cache.Disabled()` in tests. Cache errors are non-fatal — log with `log.Printf` and fall through to the database. Never skip cache invalidation on a successful write.
+
+---
+
+## Cache system
+
+The cache layer lives in `internal/cache/`. It wraps Valkey (Redis-compatible) via `go-redis/v9` and is fully transparent to the API surface.
+
+### Key scheme
+
+| Key | Endpoint | Invalidated by |
+|---|---|---|
+| `system:status` | `GET /v1/system/status` | TTL only (root created via CLI) |
+| `user:{id}` | `GET /v1/api/me` | EnableMFA, DisableMFA, AssignSystemRole, Google link |
+| `orgs:list` | `GET /v1/api/orgs` | CreateOrg, UpdateOrg, DeleteOrg |
+| `org:{id}` | `GET /v1/api/orgs/:orgID` | UpdateOrg, DeleteOrg |
+| `org:{id}:members` | `GET /v1/api/orgs/:orgID/members` | AddMember, UpdateMember, RemoveMember, DeleteOrg |
+| `admin:users:{email}:{page}:{size}` | `GET /v1/api/admin/users` | Register, AssignSystemRole, any member change, Google create/link |
+
+Use `cache.KeyUser(id)`, `cache.KeyOrg(id)`, etc. from `internal/cache/keys.go` — never hardcode key strings in handlers.
+
+### Pattern invalidation
+
+`cache.DelPattern(ctx, cache.KeyAdminUsersGlob)` uses SCAN + DEL to clear all `admin:users:*` entries. Use this on any write that changes user or membership data visible to the admin search.
+
+### Adding a new cached endpoint
+
+1. Call `h.cache.Get(ctx, key, &dest)` before the DB query. On hit, return immediately.
+2. Call `h.cache.Set(ctx, key, value)` after a successful DB query.
+3. On any write that affects this key, call `h.cache.Del(ctx, key)` (or `DelPattern` for wildcard keys).
+4. Use a key builder from `internal/cache/keys.go` or add one there.
 
 ---
 

@@ -16,11 +16,11 @@ Go HTTP server built with [Echo v4](https://echo.labstack.com/). Supports email/
 cp .docker-dev/.env.example .docker-dev/.env
 # Edit .docker-dev/.env — add your GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET
 
-# 2. Start everything (Postgres + server, migrations run automatically)
+# 2. Start everything (Postgres + Valkey + server, migrations run automatically)
 docker compose -f .docker-dev/docker-compose.yml up --build
 ```
 
-The server is available at `http://localhost:8080`. Postgres is exposed on port `5432` for local inspection.
+The server is available at `http://localhost:8080`. Postgres is exposed on port `5432` and Valkey on port `6379` for local inspection.
 
 **Useful commands:**
 
@@ -55,6 +55,9 @@ cp .env.example .env
 | `FRONTEND_URL` | no | Base URL of the webapp — used to redirect the browser back after Google login (default `http://localhost:3000`) |
 | `PORT` | no | HTTP listen port (default `8080`) |
 | `APP_ENV` | no | Set to `production` to signal a production environment. The `seed-root` command refuses to run when this is set to `production`. |
+| `CACHE_ENABLED` | no | Set to `true` to enable Valkey caching (default `false`) |
+| `CACHE_URL` | no | Valkey/Redis connection URL (default `redis://localhost:6379`) |
+| `CACHE_TTL` | no | TTL for all cache entries, e.g. `30s`, `2m`, `10m` (default `5m`) |
 
 ---
 
@@ -372,7 +375,42 @@ Then open `http://localhost:8080/v1/auth/google?locale=en` (or `?locale=it`) in 
 
 ---
 
-## 8. Deploy to production
+## 8. Cache (Valkey)
+
+The server supports an optional Valkey (Redis-compatible) cache layer to reduce database load on read-heavy endpoints. It is **disabled by default** — enable it with `CACHE_ENABLED=true`.
+
+### What is cached
+
+| Cache key | Endpoint | Invalidated by |
+|---|---|---|
+| `system:status` | `GET /v1/system/status` | TTL expiry only (root user created via CLI) |
+| `user:{id}` | `GET /v1/api/me` | MFA enable/disable, `assign-role`, Google account link |
+| `orgs:list` | `GET /v1/api/orgs` | Create / update / delete org |
+| `org:{id}` | `GET /v1/api/orgs/:orgID` | Update / delete org |
+| `org:{id}:members` | `GET /v1/api/orgs/:orgID/members` | Add / update / remove member, delete org |
+| `admin:users:{email}:{page}:{size}` | `GET /v1/api/admin/users` | Register, assign-role, any member change |
+
+### Run locally with cache enabled
+
+```bash
+# Start Valkey with Docker
+docker run -d -p 6379:6379 valkey/valkey:8-alpine
+
+# Enable in .env
+CACHE_ENABLED=true
+CACHE_URL=redis://localhost:6379
+CACHE_TTL=5m
+
+go run .
+```
+
+### Cache failures are non-fatal
+
+If Valkey is unreachable or a cache operation fails, the server logs the error and falls through to the database. API responses remain correct; only performance is affected.
+
+---
+
+## 9. Deploy to production
 
 ```bash
 make build-release

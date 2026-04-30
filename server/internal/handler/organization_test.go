@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"charity-chest/internal/handler"
+	"charity-chest/internal/cache"
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 
@@ -78,7 +79,7 @@ func decodeOrgBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any 
 
 func TestListOrgs_Empty(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
 	c, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
@@ -100,7 +101,7 @@ func TestListOrgs_Empty(t *testing.T) {
 
 func TestListOrgs_ReturnsAll(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	db.Create(&model.Organization{Name: "Org A"})
 	db.Create(&model.Organization{Name: "Org B"})
 
@@ -120,7 +121,7 @@ func TestListOrgs_ReturnsAll(t *testing.T) {
 
 func TestCreateOrg_Success(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
 	c, rec := newOrgContext(t, http.MethodPost, "/v1/api/orgs", `{"name":"New Org"}`, 0, 1, &root, "")
@@ -148,7 +149,7 @@ func TestCreateOrg_Success(t *testing.T) {
 
 func TestCreateOrg_EmptyName_Returns400(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
 	c, _ := newOrgContext(t, http.MethodPost, "/v1/api/orgs", `{"name":""}`, 0, 1, &root, "")
@@ -162,7 +163,7 @@ func TestCreateOrg_EmptyName_Returns400(t *testing.T) {
 
 func TestGetOrg_Found(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	org := model.Organization{Name: "Found Org"}
 	db.Create(&org)
 
@@ -183,7 +184,7 @@ func TestGetOrg_Found(t *testing.T) {
 
 func TestGetOrg_NotFound_Returns404(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
 	c, _ := newOrgContext(t, http.MethodGet, "/v1/api/orgs/9999", "", 9999, 1, &root, "")
@@ -197,7 +198,7 @@ func TestGetOrg_NotFound_Returns404(t *testing.T) {
 
 func TestUpdateOrg_UpdatesName(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	org := model.Organization{Name: "Old Name"}
 	db.Create(&org)
 
@@ -225,7 +226,7 @@ func TestUpdateOrg_UpdatesName(t *testing.T) {
 
 func TestUpdateOrg_NotFound_Returns404(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
 	c, _ := newOrgContext(t, http.MethodPut, "/v1/api/orgs/9999", `{"name":"X"}`, 9999, 1, &root, "")
@@ -239,7 +240,7 @@ func TestUpdateOrg_NotFound_Returns404(t *testing.T) {
 
 func TestDeleteOrg_Success(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	org := model.Organization{Name: "ToDelete"}
 	db.Create(&org)
 
@@ -261,7 +262,7 @@ func TestDeleteOrg_Success(t *testing.T) {
 
 func TestDeleteOrg_NotFound_Returns404(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
 	c, _ := newOrgContext(t, http.MethodDelete, "/v1/api/orgs/9999", "", 9999, 1, &root, "")
@@ -275,7 +276,7 @@ func TestDeleteOrg_NotFound_Returns404(t *testing.T) {
 
 func TestListMembers_Empty(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	org := model.Organization{Name: "Empty Org"}
 	db.Create(&org)
 
@@ -296,7 +297,7 @@ func TestListMembers_Empty(t *testing.T) {
 
 func TestListMembers_ReturnsMembersWithUser(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	user := model.User{Email: "member@example.com", Name: "Member"}
 	db.Create(&user)
 	org := model.Organization{Name: "Org"}
@@ -330,7 +331,7 @@ func TestListMembers_ReturnsMembersWithUser(t *testing.T) {
 
 func TestAddMember_SystemRole_Success(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	user := model.User{Email: "new@example.com", Name: "New"}
 	db.Create(&user)
 	org := model.Organization{Name: "Org"}
@@ -356,7 +357,7 @@ func TestAddMember_SystemRole_Success(t *testing.T) {
 
 func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	ownerUser := model.User{Email: "owner@example.com", Name: "Owner"}
 	db.Create(&ownerUser)
 	targetUser := model.User{Email: "admin@example.com", Name: "Admin"}
@@ -379,7 +380,7 @@ func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
 
 func TestAddMember_AdminCannotAddOwner_Returns403(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	adminUser := model.User{Email: "admin@example.com", Name: "Admin"}
 	db.Create(&adminUser)
 	targetUser := model.User{Email: "target@example.com", Name: "Target"}
@@ -399,7 +400,7 @@ func TestAddMember_AdminCannotAddOwner_Returns403(t *testing.T) {
 
 func TestAddMember_InvalidRole_Returns400(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	org := model.Organization{Name: "Org"}
 	db.Create(&org)
 
@@ -414,7 +415,7 @@ func TestAddMember_InvalidRole_Returns400(t *testing.T) {
 
 func TestAddMember_DuplicateMember_Returns409(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	user := model.User{Email: "dup@example.com", Name: "Dup"}
 	db.Create(&user)
 	org := model.Organization{Name: "Org"}
@@ -435,7 +436,7 @@ func TestAddMember_DuplicateMember_Returns409(t *testing.T) {
 
 func TestUpdateMember_Success(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	user := model.User{Email: "op@example.com", Name: "Op"}
 	db.Create(&user)
 	org := model.Organization{Name: "Org"}
@@ -462,7 +463,7 @@ func TestUpdateMember_Success(t *testing.T) {
 
 func TestUpdateMember_NotFound_Returns404(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	org := model.Organization{Name: "Org"}
 	db.Create(&org)
 
@@ -478,7 +479,7 @@ func TestUpdateMember_NotFound_Returns404(t *testing.T) {
 
 func TestUpdateMember_InvalidRole_Returns400(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	user := model.User{Email: "op@example.com", Name: "Op"}
 	db.Create(&user)
 	org := model.Organization{Name: "Org"}
@@ -499,7 +500,7 @@ func TestUpdateMember_InvalidRole_Returns400(t *testing.T) {
 
 func TestRemoveMember_Success(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	user := model.User{Email: "op@example.com", Name: "Op"}
 	db.Create(&user)
 	org := model.Organization{Name: "Org"}
@@ -526,7 +527,7 @@ func TestRemoveMember_Success(t *testing.T) {
 
 func TestRemoveMember_NotFound_Returns404(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	org := model.Organization{Name: "Org"}
 	db.Create(&org)
 
@@ -544,7 +545,7 @@ func TestRemoveMember_NotFound_Returns404(t *testing.T) {
 // context (the middleware was not wired). The handler falls back to a direct DB query.
 func TestAddMember_FallbackDBQuery_MemberFound_Allowed(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	ownerUser := model.User{Email: "owner@example.com", Name: "Owner"}
 	db.Create(&ownerUser)
 	targetUser := model.User{Email: "target@example.com", Name: "Target"}
@@ -567,7 +568,7 @@ func TestAddMember_FallbackDBQuery_MemberFound_Allowed(t *testing.T) {
 
 func TestAddMember_FallbackDBQuery_NotMember_Returns403(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	outsider := model.User{Email: "outsider@example.com", Name: "Outsider"}
 	db.Create(&outsider)
 	targetUser := model.User{Email: "target@example.com", Name: "Target"}
@@ -587,7 +588,7 @@ func TestAddMember_FallbackDBQuery_NotMember_Returns403(t *testing.T) {
 
 func TestRemoveMember_AdminCannotRemoveOwner_Returns403(t *testing.T) {
 	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db)
+	h := handler.NewOrgHandler(db, cache.Disabled())
 	adminUser := model.User{Email: "admin@example.com", Name: "Admin"}
 	db.Create(&adminUser)
 	ownerUser := model.User{Email: "owner@example.com", Name: "Owner"}

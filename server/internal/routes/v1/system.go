@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"charity-chest/internal/cache"
 	"charity-chest/internal/handler"
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
@@ -16,8 +17,8 @@ import (
 //
 // Protected routes (root JWT required):
 //   POST /v1/api/system/assign-role
-func RegisterSystem(v1 *echo.Group, db *gorm.DB, jwtSecret string) {
-	h := handler.NewSystemHandler(db)
+func RegisterSystem(v1 *echo.Group, db *gorm.DB, c *cache.Cache, jwtSecret string) {
+	h := handler.NewSystemHandler(db, c)
 
 	// Public — sits outside /v1/api/ to signal it requires no authentication.
 	v1.GET("/system/status", h.SystemStatus)

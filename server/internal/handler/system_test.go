@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"charity-chest/internal/handler"
+	"charity-chest/internal/cache"
 	"charity-chest/internal/model"
 
 	"github.com/labstack/echo/v4"
@@ -32,7 +33,7 @@ func newSystemContext(t *testing.T, method, path, body string) (echo.Context, *h
 
 func TestSystemStatus_Unconfigured(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewSystemHandler(db)
+	h := handler.NewSystemHandler(db, cache.Disabled())
 
 	c, rec := newSystemContext(t, http.MethodGet, "/v1/system/status", "")
 	if err := h.SystemStatus(c); err != nil {
@@ -53,7 +54,7 @@ func TestSystemStatus_Unconfigured(t *testing.T) {
 
 func TestSystemStatus_Configured(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewSystemHandler(db)
+	h := handler.NewSystemHandler(db, cache.Disabled())
 	role := model.RoleRoot
 	db.Create(&model.User{Email: "root@example.com", Name: "Root", Role: &role})
 
@@ -70,7 +71,7 @@ func TestSystemStatus_Configured(t *testing.T) {
 
 func TestSystemStatus_SystemRoleNotCounted(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewSystemHandler(db)
+	h := handler.NewSystemHandler(db, cache.Disabled())
 	role := model.RoleSystem
 	db.Create(&model.User{Email: "sys@example.com", Name: "System", Role: &role})
 
@@ -90,7 +91,7 @@ func TestSystemStatus_SystemRoleNotCounted(t *testing.T) {
 
 func TestAssignSystemRole_AssignsSystemRole(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewSystemHandler(db)
+	h := handler.NewSystemHandler(db, cache.Disabled())
 	target := &model.User{Email: "target@example.com", Name: "Target"}
 	db.Create(target)
 
@@ -118,7 +119,7 @@ func TestAssignSystemRole_AssignsSystemRole(t *testing.T) {
 
 func TestAssignSystemRole_ClearsRole(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewSystemHandler(db)
+	h := handler.NewSystemHandler(db, cache.Disabled())
 	role := model.RoleSystem
 	target := &model.User{Email: "sys@example.com", Name: "Sys", Role: &role}
 	db.Create(target)
@@ -138,7 +139,7 @@ func TestAssignSystemRole_ClearsRole(t *testing.T) {
 
 func TestAssignSystemRole_UserNotFound_Returns404(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewSystemHandler(db)
+	h := handler.NewSystemHandler(db, cache.Disabled())
 
 	body := `{"user_id":99999,"role":"system"}`
 	c, _ := newSystemContext(t, http.MethodPost, "/v1/api/system/assign-role", body)
@@ -150,7 +151,7 @@ func TestAssignSystemRole_UserNotFound_Returns404(t *testing.T) {
 
 func TestAssignSystemRole_CannotModifyRoot_Returns403(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewSystemHandler(db)
+	h := handler.NewSystemHandler(db, cache.Disabled())
 	role := model.RoleRoot
 	target := &model.User{Email: "root@example.com", Name: "Root", Role: &role}
 	db.Create(target)
@@ -165,7 +166,7 @@ func TestAssignSystemRole_CannotModifyRoot_Returns403(t *testing.T) {
 
 func TestAssignSystemRole_InvalidRole_Returns400(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewSystemHandler(db)
+	h := handler.NewSystemHandler(db, cache.Disabled())
 	target := &model.User{Email: "t@example.com", Name: "T"}
 	db.Create(target)
 
@@ -179,7 +180,7 @@ func TestAssignSystemRole_InvalidRole_Returns400(t *testing.T) {
 
 func TestAssignSystemRole_RootRoleNotAssignable_Returns400(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewSystemHandler(db)
+	h := handler.NewSystemHandler(db, cache.Disabled())
 	target := &model.User{Email: "t@example.com", Name: "T"}
 	db.Create(target)
 

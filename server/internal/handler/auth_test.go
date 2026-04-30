@@ -10,6 +10,7 @@ import (
 
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
+	"charity-chest/internal/cache"
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 
@@ -48,7 +49,7 @@ func testCfg() *config.Config {
 func newServer(t *testing.T) (*echo.Echo, *handler.AuthHandler, *gorm.DB) {
 	t.Helper()
 	db := newTestDB(t)
-	h := handler.NewAuthHandler(db, testCfg())
+	h := handler.NewAuthHandler(db, testCfg(), cache.Disabled())
 
 	e := echo.New()
 	v1 := e.Group("/v1")
@@ -306,7 +307,7 @@ func TestGoogleCallback_StateMismatch(t *testing.T) {
 // the user_id that the JWT middleware would normally set.
 func TestMe_ReturnsCurrentUser(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewAuthHandler(db, testCfg())
+	h := handler.NewAuthHandler(db, testCfg(), cache.Disabled())
 
 	user := &model.User{Email: "me@example.com", Name: "Current User"}
 	db.Create(user)
@@ -339,7 +340,7 @@ func TestMe_ReturnsCurrentUser(t *testing.T) {
 
 func TestMe_UserNotFound(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewAuthHandler(db, testCfg())
+	h := handler.NewAuthHandler(db, testCfg(), cache.Disabled())
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)

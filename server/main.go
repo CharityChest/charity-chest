@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 
+	"charity-chest/internal/cache"
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
 	"charity-chest/internal/middleware"
@@ -37,6 +38,18 @@ func main() {
 		log.Fatalf("database: %v", err)
 	}
 
+	var appCache *cache.Cache
+	if cfg.CacheEnabled {
+		appCache, err = cache.New(cfg.CacheURL, cfg.CacheTTL)
+		if err != nil {
+			log.Fatalf("cache: %v", err)
+		}
+		log.Printf("cache: connected to %s (TTL=%s)", cfg.CacheURL, cfg.CacheTTL)
+	} else {
+		appCache = cache.Disabled()
+		log.Printf("cache: disabled")
+	}
+
 	e := echo.New()
 	e.HideBanner = true
 
@@ -48,17 +61,17 @@ func main() {
 		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAuthorization, "X-Locale"},
 	}))
 
-	authHandler := handler.NewAuthHandler(db, cfg)
+	authHandler := handler.NewAuthHandler(db, cfg, appCache)
 
 	routesv1.RegisterHealth(e)
 
 	v1 := e.Group("/v1")
 	routesv1.RegisterAuth(v1, authHandler)
 	routesv1.RegisterAPI(v1, authHandler, cfg.JWTSecret)
-	routesv1.RegisterSystem(v1, db, cfg.JWTSecret)
-	routesv1.RegisterOrgs(v1, db, cfg.JWTSecret)
-	routesv1.RegisterProfile(v1, db, cfg, cfg.JWTSecret)
-	routesv1.RegisterAdmin(v1, db, cfg.JWTSecret)
+	routesv1.RegisterSystem(v1, db, appCache, cfg.JWTSecret)
+	routesv1.RegisterOrgs(v1, db, appCache, cfg.JWTSecret)
+	routesv1.RegisterProfile(v1, db, cfg, appCache, cfg.JWTSecret)
+	routesv1.RegisterAdmin(v1, db, appCache, cfg.JWTSecret)
 
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(e.Start(":" + cfg.Port))

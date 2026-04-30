@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"charity-chest/internal/handler"
+	"charity-chest/internal/cache"
 	"charity-chest/internal/model"
 
 	"github.com/glebarez/sqlite"
@@ -64,7 +65,7 @@ func createUser(t *testing.T, db *gorm.DB, email string) *model.User {
 
 func TestSearchUsers_ReturnsAllUsers(t *testing.T) {
 	db := newAdminTestDB(t)
-	h := handler.NewAdminHandler(db)
+	h := handler.NewAdminHandler(db, cache.Disabled())
 
 	createUser(t, db, "alice@example.com")
 	createUser(t, db, "bob@example.com")
@@ -100,7 +101,7 @@ func TestSearchUsers_ReturnsAllUsers(t *testing.T) {
 
 func TestSearchUsers_EmailFilter(t *testing.T) {
 	db := newAdminTestDB(t)
-	h := handler.NewAdminHandler(db)
+	h := handler.NewAdminHandler(db, cache.Disabled())
 
 	createUser(t, db, "alice@example.com")
 	createUser(t, db, "bob@example.com")
@@ -128,7 +129,7 @@ func TestSearchUsers_EmailFilter(t *testing.T) {
 
 func TestSearchUsers_Pagination(t *testing.T) {
 	db := newAdminTestDB(t)
-	h := handler.NewAdminHandler(db)
+	h := handler.NewAdminHandler(db, cache.Disabled())
 
 	for i := range 5 {
 		createUser(t, db, fmt.Sprintf("user%d@example.com", i))
@@ -156,7 +157,7 @@ func TestSearchUsers_Pagination(t *testing.T) {
 
 func TestSearchUsers_PaginationMeta(t *testing.T) {
 	db := newAdminTestDB(t)
-	h := handler.NewAdminHandler(db)
+	h := handler.NewAdminHandler(db, cache.Disabled())
 
 	for i := range 7 {
 		createUser(t, db, fmt.Sprintf("u%d@example.com", i))
@@ -181,7 +182,7 @@ func TestSearchUsers_PaginationMeta(t *testing.T) {
 
 func TestSearchUsers_IncludesOrgMemberships(t *testing.T) {
 	db := newAdminTestDB(t)
-	h := handler.NewAdminHandler(db)
+	h := handler.NewAdminHandler(db, cache.Disabled())
 
 	user := createUser(t, db, "member@example.com")
 	org := model.Organization{Name: "Acme"}
@@ -214,7 +215,7 @@ func TestSearchUsers_IncludesOrgMemberships(t *testing.T) {
 
 func TestSearchUsers_EmptyResults(t *testing.T) {
 	db := newAdminTestDB(t)
-	h := handler.NewAdminHandler(db)
+	h := handler.NewAdminHandler(db, cache.Disabled())
 
 	c, rec := newAdminContext(t, "email=nobody")
 	if err := h.SearchUsers(c); err != nil {
@@ -237,7 +238,7 @@ func TestSearchUsers_EmptyResults(t *testing.T) {
 
 func TestSearchUsers_SizeClampedAt100(t *testing.T) {
 	db := newAdminTestDB(t)
-	h := handler.NewAdminHandler(db)
+	h := handler.NewAdminHandler(db, cache.Disabled())
 
 	for i := range 5 {
 		createUser(t, db, fmt.Sprintf("x%d@example.com", i))
