@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import DashboardPage from './page';
 
 const mockReplace = vi.fn();
@@ -33,12 +33,12 @@ vi.mock('@/lib/api', () => {
   }
   return {
     ApiError,
-    api: { me: vi.fn() },
+    api: { me: vi.fn(), health: vi.fn() },
   };
 });
 
-import { isAuthenticated, getRole } from '@/lib/auth';
-import { api } from '@/lib/api';
+import { isAuthenticated, getRole, clearToken } from '@/lib/auth';
+import { api, ApiError } from '@/lib/api';
 
 const BASE_USER = {
   id: 1,
@@ -123,6 +123,85 @@ describe('DashboardPage — role-based quick links', () => {
     await waitFor(() => {
       expect(screen.getByText('u@u.com')).toBeTruthy();
       expect(screen.getByText('User')).toBeTruthy();
+    });
+  });
+
+  it('shows role name when user has a system role', async () => {
+    vi.mocked(getRole).mockReturnValue('root');
+    vi.mocked(api.me).mockResolvedValue({ ...BASE_USER, role: 'root' });
+
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Root')).toBeTruthy();
+    });
+  });
+});
+
+describe('DashboardPage — logout', () => {
+  beforeEach(() => {
+    vi.mocked(isAuthenticated).mockReturnValue(true);
+    vi.mocked(getRole).mockReturnValue('root');
+    vi.mocked(api.me).mockResolvedValue(BASE_USER);
+  });
+
+  it('clears token and pushes to / when logout is clicked', async () => {
+    render(<DashboardPage />);
+
+    await waitFor(() => screen.getByText('common.logout'));
+    fireEvent.click(screen.getByText('common.logout'));
+
+    expect(clearToken).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith('/');
+  });
+});
+
+describe('DashboardPage — org access form', () => {
+  beforeEach(() => {
+    vi.mocked(isAuthenticated).mockReturnValue(true);
+    vi.mocked(getRole).mockReturnValue(null);
+    vi.mocked(api.me).mockResolvedValue(BASE_USER);
+  });
+
+  it('pushes to /orgs/:id when a valid org ID is submitted', async () => {
+    render(<DashboardPage />);
+
+    await waitFor(() => screen.getByText('dashboard.orgAccess'));
+
+    fireEvent.change(screen.getByPlaceholderText('dashboard.orgIdPlaceholder'), {
+      target: { value: '42' },
+    });
+    fireEvent.click(screen.getByText('dashboard.goToOrg'));
+
+    expect(mockPush).toHaveBeenCalledWith('/orgs/42');
+  });
+});
+
+describe('DashboardPage — api.me error handling', () => {
+  beforeEach(() => {
+    vi.mocked(isAuthenticated).mockReturnValue(true);
+    vi.mocked(getRole).mockReturnValue(null);
+  });
+
+  it('shows error banner when api.me() fails with a server error', async () => {
+    vi.mocked(api.me).mockRejectedValue(new ApiError(500, 'server error'));
+
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeTruthy();
+      expect(screen.getByText('server error')).toBeTruthy();
+    });
+  });
+
+  it('clears token and redirects to /login on 401 from api.me()', async () => {
+    vi.mocked(api.me).mockRejectedValue(new ApiError(401, 'unauthorized'));
+
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(clearToken).toHaveBeenCalled();
+      expect(mockReplace).toHaveBeenCalledWith('/login');
     });
   });
 });
