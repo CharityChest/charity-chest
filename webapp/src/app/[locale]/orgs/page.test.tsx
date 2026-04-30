@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import OrgsPage from './page';
 
@@ -41,7 +41,7 @@ vi.mock('@/lib/api', () => {
   };
 });
 
-import { isAuthenticated, getRole } from '@/lib/auth';
+import { isAuthenticated, getRole, clearToken } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
 
 const baseOrgs = [
@@ -176,6 +176,74 @@ describe('OrgsPage — create org', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeTruthy();
       expect(screen.getByText('server error')).toBeTruthy();
+    });
+  });
+});
+
+describe('OrgsPage — delete org', () => {
+  beforeEach(() => {
+    vi.mocked(isAuthenticated).mockReturnValue(true);
+    vi.mocked(getRole).mockReturnValue('root');
+    vi.mocked(api.listOrgs).mockResolvedValue(baseOrgs);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('removes the org from the list when confirmed', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    vi.mocked(api.deleteOrg).mockResolvedValue(undefined);
+
+    render(<OrgsPage />);
+    await waitFor(() => screen.getByText('Alpha'));
+
+    fireEvent.click(screen.getAllByText('orgs.deleteOrg')[0]);
+
+    await waitFor(() => {
+      expect(api.deleteOrg).toHaveBeenCalledWith(1);
+      expect(screen.queryByText('Alpha')).toBeNull();
+    });
+  });
+
+  it('does not remove the org when the confirm dialog is cancelled', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => false));
+
+    render(<OrgsPage />);
+    await waitFor(() => screen.getByText('Alpha'));
+
+    fireEvent.click(screen.getAllByText('orgs.deleteOrg')[0]);
+
+    expect(api.deleteOrg).not.toHaveBeenCalled();
+    expect(screen.getByText('Alpha')).toBeTruthy();
+  });
+});
+
+describe('OrgsPage — listOrgs error handling', () => {
+  beforeEach(() => {
+    vi.mocked(isAuthenticated).mockReturnValue(true);
+    vi.mocked(getRole).mockReturnValue('root');
+  });
+
+  it('clears token and redirects to /login on 401 from listOrgs', async () => {
+    vi.mocked(api.listOrgs).mockRejectedValue(new ApiError(401, 'unauthorized'));
+
+    render(<OrgsPage />);
+
+    await waitFor(() => {
+      expect(clearToken).toHaveBeenCalled();
+      expect(mockRouter.replace).toHaveBeenCalledWith('/login');
+    });
+  });
+
+  it('shows a load error banner when listOrgs fails with a non-401 error', async () => {
+    vi.mocked(api.listOrgs).mockRejectedValue(new ApiError(500, 'internal error'));
+
+    render(<OrgsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeTruthy();
+      expect(screen.getByText('internal error')).toBeTruthy();
     });
   });
 });

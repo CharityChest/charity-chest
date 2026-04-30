@@ -314,6 +314,120 @@ describe('api — searchUsers', () => {
   });
 });
 
+describe('api — register', () => {
+  afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+
+  it('calls POST /v1/auth/register with email, password, and name', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { token: 'tok', user: { id: 1, email: 'a@b.com', name: 'A', created_at: '', updated_at: '' } } }),
+    }));
+    await api.register('a@b.com', 'pass', 'Alice');
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/auth/register');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body as string)).toEqual({ email: 'a@b.com', password: 'pass', name: 'Alice' });
+  });
+});
+
+describe('api — mfaVerify', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('calls POST /v1/auth/mfa/verify with mfa_token and code', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { token: 'full-jwt' } }),
+    }));
+    await api.mfaVerify('mfa-tok', '123456');
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/auth/mfa/verify');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body as string)).toEqual({ mfa_token: 'mfa-tok', code: '123456' });
+  });
+});
+
+describe('api — googleAuthUrl', () => {
+  it('returns a URL containing the given locale', () => {
+    const url = api.googleAuthUrl('it');
+    expect(url).toContain('/v1/auth/google');
+    expect(url).toContain('locale=it');
+  });
+});
+
+describe('api — me', () => {
+  afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+
+  it('calls GET /v1/api/me with Authorization header', async () => {
+    localStorage.setItem('cc_token', 'user-jwt');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { id: 1, email: 'u@u.com', name: 'U', created_at: '', updated_at: '' } }),
+    }));
+    await api.me();
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/me');
+    expect((opts.headers as Record<string, string>)['Authorization']).toBe('Bearer user-jwt');
+  });
+});
+
+describe('api — health', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('calls GET /health with no auth header', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { status: 'ok' } }),
+    }));
+    await api.health();
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/health');
+    expect((opts.headers as Record<string, string>)['Authorization']).toBeUndefined();
+  });
+});
+
+describe('api — MFA profile methods', () => {
+  afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+
+  beforeEach(() => {
+    localStorage.setItem('cc_token', 'user-jwt');
+  });
+
+  function mockFetch(body: unknown) {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: body }),
+    }));
+  }
+
+  it('mfaSetup calls GET /v1/api/profile/mfa/setup with auth header', async () => {
+    mockFetch({ uri: 'otpauth://totp/test', secret: 'SECRET' });
+    await api.mfaSetup();
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/profile/mfa/setup');
+    expect(opts.method).toBeUndefined();
+    expect((opts.headers as Record<string, string>)['Authorization']).toBe('Bearer user-jwt');
+  });
+
+  it('mfaEnable calls POST /v1/api/profile/mfa/enable with code', async () => {
+    mockFetch({ mfa_enabled: true });
+    await api.mfaEnable('123456');
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/profile/mfa/enable');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body as string)).toEqual({ code: '123456' });
+    expect((opts.headers as Record<string, string>)['Authorization']).toBe('Bearer user-jwt');
+  });
+
+  it('mfaDisable calls DELETE /v1/api/profile/mfa with code', async () => {
+    mockFetch({ mfa_enabled: false });
+    await api.mfaDisable('654321');
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/profile/mfa');
+    expect(opts.method).toBe('DELETE');
+    expect(JSON.parse(opts.body as string)).toEqual({ code: '654321' });
+  });
+});
+
 describe('api — error handling', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
