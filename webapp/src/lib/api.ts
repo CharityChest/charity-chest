@@ -9,6 +9,8 @@ import type {
   SystemStatus,
   Organization,
   OrganizationMember,
+  PaginatedResult,
+  UserWithOrgs,
 } from '@/types/api';
 
 // Carries the HTTP status code so callers can branch on it (e.g. 401 → redirect to login).
@@ -54,6 +56,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   const body = await res.json() as { data: T };
   return body.data;
+}
+
+async function requestPaginated<T>(path: string, options: RequestInit = {}): Promise<PaginatedResult<T>> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Locale': getLocale(),
+      ...(options.headers as Record<string, string>),
+    },
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new ApiError(res.status, body.message ?? 'Request failed');
+  }
+
+  return await res.json() as PaginatedResult<T>;
 }
 
 function bearerHeader(): Record<string, string> {
@@ -190,6 +210,17 @@ export const api = {
       method: 'DELETE',
       headers: bearerHeader(),
     });
+  },
+
+  // --- Admin (root only) ---
+
+  /** GET /v1/api/admin/users — search users by email with pagination */
+  searchUsers(email: string, page: number, size: number): Promise<PaginatedResult<UserWithOrgs>> {
+    const params = new URLSearchParams();
+    if (email) params.set('email', email);
+    params.set('page', String(page));
+    params.set('size', String(size));
+    return requestPaginated(`/v1/api/admin/users?${params}`, { headers: bearerHeader() });
   },
 
   // --- MFA / Profile ---

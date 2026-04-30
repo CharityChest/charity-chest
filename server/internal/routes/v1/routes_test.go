@@ -66,6 +66,7 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 	routesv1.RegisterSystem(v1, db, cfg.JWTSecret)
 	routesv1.RegisterOrgs(v1, db, cfg.JWTSecret)
 	routesv1.RegisterProfile(v1, db, cfg, cfg.JWTSecret)
+	routesv1.RegisterAdmin(v1, db, cfg.JWTSecret)
 
 	return e, db
 }
@@ -1382,5 +1383,100 @@ func TestDisableMFA_Unauthorized(t *testing.T) {
 	rec := do(e, http.MethodDelete, "/v1/api/profile/mfa", `{"code":"123456"}`, "", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+// --- Admin: SearchUsers ---
+
+func TestSearchUsers_RootCanAccess(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+
+	rec := do(e, http.MethodGet, "/v1/api/admin/users", "", rootToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	body := decodeBody(t, rec)
+	if _, ok := body["data"]; !ok {
+		t.Error("response missing 'data' key")
+	}
+	if _, ok := body["metadata"]; !ok {
+		t.Error("response missing 'metadata' key")
+	}
+}
+
+func TestSearchUsers_NonRootForbidden(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "Sys", model.RoleSystem)
+
+	rec := do(e, http.MethodGet, "/v1/api/admin/users", "", sysToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestSearchUsers_NoJWT_Unauthorized(t *testing.T) {
+	e, _ := newServer(t)
+	rec := do(e, http.MethodGet, "/v1/api/admin/users", "", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestSearchUsers_EmailFilter_E2E(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	registerUser(t, e, "alpha@example.com", "password123", "Alpha")
+	registerUser(t, e, "beta@example.com", "password123", "Beta")
+
+	rec := do(e, http.MethodGet, "/v1/api/admin/users?email=alpha", "", rootToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	body := decodeBody(t, rec)
+	data, ok := body["data"].([]any)
+	if !ok {
+		t.Fatalf("data is not an array")
+	}
+	if len(data) != 1 {
+		t.Errorf("len(data) = %d, want 1", len(data))
+	}
+	user := data[0].(map[string]any)
+	if user["email"] != "alpha@example.com" {
+		t.Errorf("email = %v, want alpha@example.com", user["email"])
+	}
+
+	meta := body["metadata"].(map[string]any)
+	if meta["total"].(float64) != 1 {
+		t.Errorf("metadata.total = %v, want 1", meta["total"])
+	}
+}
+
+func TestSearchUsers_PaginationE2E(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	for i := range 5 {
+		registerUser(t, e, fmt.Sprintf("u%d@example.com", i), "password123", fmt.Sprintf("U%d", i))
+	}
+
+	rec := do(e, http.MethodGet, "/v1/api/admin/users?page=2&size=2", "", rootToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	body := decodeBody(t, rec)
+	data := body["data"].([]any)
+	if len(data) != 2 {
+		t.Errorf("len(data) = %d, want 2", len(data))
+	}
+	meta := body["metadata"].(map[string]any)
+	if meta["page"].(float64) != 2 {
+		t.Errorf("page = %v, want 2", meta["page"])
+	}
+	// root user + 5 registered = 6 total; size=2 → 3 pages
+	if meta["total_pages"].(float64) != 3 {
+		t.Errorf("total_pages = %v, want 3", meta["total_pages"])
 	}
 }

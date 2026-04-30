@@ -21,8 +21,9 @@ charity-chest/
 │   │   ├── handler/auth.go         # Register, Login, VerifyMFA, GoogleLogin, GoogleCallback, Me
 │   │   ├── handler/profile.go      # SetupMFA, EnableMFA, DisableMFA
 │   │   ├── handler/system.go       # SystemStatus (public), AssignSystemRole (root only)
+│   │   ├── handler/admin.go         # SearchUsers (root only) — paginated user search with org memberships
 │   │   ├── handler/organization.go # Org CRUD + member management (role hierarchy enforced)
-│   │   ├── handler/response.go     # dataJSON helper — wraps all success responses in {"data": ...}
+│   │   ├── handler/response.go     # dataJSON + dataWithMetaJSON helpers — wrap success responses in {"data": ...} or {"data": ..., "metadata": ...}
 │   │   ├── i18n/messages.go        # Message keys + EN/IT translations; T(locale, key) lookup
 │   │   ├── middleware/jwt.go       # Bearer token validation; injects UserIDContextKey + EmailContextKey + RoleContextKey
 │   │   ├── middleware/locale.go    # Accept-Language parser; stores resolved locale in context; defines LocaleEN/LocaleIT
@@ -38,6 +39,7 @@ charity-chest/
 │   │           ├── system.go       # RegisterSystem(v1, db, jwtSecret) — system status + role assignment
 │   │           ├── organization.go # RegisterOrgs(v1, db, jwtSecret) — org CRUD + member management
 │   │           ├── profile.go      # RegisterProfile(v1, db, cfg, jwtSecret) — MFA management
+│   │           ├── admin.go        # RegisterAdmin(v1, db, jwtSecret) — root-only admin endpoints
 │   │           └── routes_test.go  # E2e tests for every endpoint (full stack, in-memory SQLite)
 │   ├── migrations/                 # Raw SQL migrations (golang-migrate, file source)
 │   │   ├── 000001_create_users_table.up.sql
@@ -133,6 +135,7 @@ When a breaking change is needed, introduce a `/v2/` group in `main.go` alongsid
 | POST | `/v1/api/orgs/:orgID/members` | Bearer JWT | hierarchy enforced | Add a member (role hierarchy applies) |
 | PUT | `/v1/api/orgs/:orgID/members/:userID` | Bearer JWT | hierarchy enforced | Update a member's role |
 | DELETE | `/v1/api/orgs/:orgID/members/:userID` | Bearer JWT | hierarchy enforced | Remove a member |
+| GET | `/v1/api/admin/users?email=&page=&size=` | Bearer JWT | root | Search users by email with pagination |
 
 Protected routes live under `/v1/api/` and require a valid `Authorization: Bearer <token>` header. The JWT middleware (`internal/middleware/jwt.go`) validates the token and injects `middleware.UserIDContextKey` (uint), `middleware.EmailContextKey` (string), and `middleware.RoleContextKey` (*string, nil for roleless users) into the Echo context.
 
@@ -193,6 +196,7 @@ make clean
 
 - **Package layout**: all non-main code lives under `internal/`. No `pkg/` directory.
 - **Response envelope**: all successful JSON responses are wrapped as `{"data": <payload>}` via the `dataJSON` helper in `handler/response.go`. Error responses (`{"message": "..."}`) from Echo's HTTPError are not wrapped.
+- **Paginated responses**: endpoints that page results accept `page` (default 1) and `size` (default 20, max 100) query params and return `{"data": [...], "metadata": {"page", "size", "total", "total_pages"}}` via `dataWithMetaJSON` in `handler/response.go`. The webapp uses `requestPaginated<T>` in `api.ts` which returns the full `PaginatedResult<T>` object (both `data` and `metadata`) without unwrapping.
 - **Error handling**: handlers return `echo.NewHTTPError(statusCode, message)`. Errors are never swallowed silently.
 - **No user enumeration**: login returns a generic 401 for both "user not found" and "wrong password".
 - **i18n**: all error messages are translated via `internal/i18n`. The `Locale` middleware (global) reads `Accept-Language`, resolves it to `middleware.LocaleEN` or `middleware.LocaleIT` (default `LocaleEN`), and stores it under `middleware.LocaleContextKey` in the Echo context. Handlers call `i18n.T(locale(c), i18n.KeyXxx)`. When adding a new error message, add its key constant to `internal/i18n/messages.go` and provide both EN and IT translations.

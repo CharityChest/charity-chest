@@ -58,6 +58,7 @@ func main() {
 	routesv1.RegisterSystem(v1, db, cfg.JWTSecret)
 	routesv1.RegisterOrgs(v1, db, cfg.JWTSecret)
 	routesv1.RegisterProfile(v1, db, cfg, cfg.JWTSecret)
+	routesv1.RegisterAdmin(v1, db, cfg.JWTSecret)
 
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(e.Start(":" + cfg.Port))

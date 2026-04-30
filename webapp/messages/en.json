@@ -106,7 +106,20 @@
     "assigning": "Updating…",
     "systemRole": "System",
     "noRole": "None (remove role)",
-    "result": "Updated user"
+    "result": "Updated user",
+    "searchSection": "Search Users",
+    "searchEmailPlaceholder": "Search by email…",
+    "search": "Search",
+    "searching": "Searching…",
+    "colId": "ID",
+    "colEmail": "Email",
+    "colRole": "Role",
+    "colOrganizations": "Organizations",
+    "noResults": "No users found.",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "pageInfo": "Page {page} of {totalPages}",
+    "assignRoleSection": "Assign System Role"
   },
   "setup": {
     "title": "System Not Configured",

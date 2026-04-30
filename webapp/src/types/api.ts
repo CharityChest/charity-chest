@@ -57,3 +57,25 @@ export interface OrganizationMember {
   updated_at: string;
   user?: User;
 }
+
+export interface PaginationMeta {
+  page: number;
+  size: number;
+  total: number;
+  total_pages: number;
+}
+
+export interface PaginatedResult<T> {
+  data: T[];
+  metadata: PaginationMeta;
+}
+
+export interface OrgSummary {
+  id: number;
+  name: string;
+  role: string;
+}
+
+export interface UserWithOrgs extends User {
+  organizations: OrgSummary[];
+}

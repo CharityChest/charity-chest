@@ -243,6 +243,77 @@ describe('api — member management', () => {
   });
 });
 
+describe('api — searchUsers', () => {
+  afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+
+  beforeEach(() => {
+    localStorage.setItem('cc_token', 'root-jwt');
+  });
+
+  const paginatedResponse = {
+    data: [
+      { id: 1, email: 'alice@example.com', name: 'Alice', role: null, mfa_enabled: false, created_at: '', updated_at: '', organizations: [] },
+    ],
+    metadata: { page: 1, size: 20, total: 1, total_pages: 1 },
+  };
+
+  it('calls GET /v1/api/admin/users with email, page, and size query params', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(paginatedResponse),
+    }));
+    await api.searchUsers('alice', 1, 20);
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/api/admin/users');
+    expect(url).toContain('email=alice');
+    expect(url).toContain('page=1');
+    expect(url).toContain('size=20');
+  });
+
+  it('sends Authorization header with bearer token', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(paginatedResponse),
+    }));
+    await api.searchUsers('', 1, 20);
+    const [, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect((opts.headers as Record<string, string>)['Authorization']).toBe('Bearer root-jwt');
+  });
+
+  it('returns the full { data, metadata } object', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(paginatedResponse),
+    }));
+    const result = await api.searchUsers('alice', 1, 20);
+    expect(result.data).toHaveLength(1);
+    expect(result.metadata.total).toBe(1);
+    expect(result.metadata.total_pages).toBe(1);
+  });
+
+  it('omits email param when email is empty string', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: [], metadata: { page: 1, size: 20, total: 0, total_pages: 1 } }),
+    }));
+    await api.searchUsers('', 1, 20);
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).not.toContain('email=');
+  });
+
+  it('throws ApiError on 403', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+      json: () => Promise.resolve({ message: 'forbidden' }),
+    }));
+    await expect(api.searchUsers('x', 1, 20)).rejects.toSatisfy(
+      (e: unknown) => e instanceof ApiError && e.status === 403,
+    );
+  });
+});
+
 describe('api — error handling', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

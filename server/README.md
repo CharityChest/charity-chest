@@ -224,6 +224,47 @@ curl -X POST http://localhost:8080/v1/api/system/assign-role \
 # Pass "role": "" to remove the system role
 ```
 
+### User search (root only)
+
+Search users by email with pagination. Returns each user's system role and org memberships.
+
+```bash
+# Search all users (page 1, 20 per page)
+curl "http://localhost:8080/v1/api/admin/users" \
+  -H "Authorization: Bearer <root-token>"
+
+# Filter by email (partial match)
+curl "http://localhost:8080/v1/api/admin/users?email=alice&page=1&size=20" \
+  -H "Authorization: Bearer <root-token>"
+```
+
+Response:
+```json
+{
+  "data": [
+    {
+      "id": 3,
+      "email": "alice@example.com",
+      "name": "Alice",
+      "role": "system",
+      "mfa_enabled": false,
+      "created_at": "...",
+      "organizations": [
+        { "id": 1, "name": "Acme NGO", "role": "owner" }
+      ]
+    }
+  ],
+  "metadata": {
+    "page": 1,
+    "size": 20,
+    "total": 42,
+    "total_pages": 3
+  }
+}
+```
+
+Query parameters: `email` (optional, partial match), `page` (default 1), `size` (default 20, max 100).
+
 ### Organisation management (system/root)
 
 ```bash

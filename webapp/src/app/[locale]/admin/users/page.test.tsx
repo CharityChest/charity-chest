@@ -32,16 +32,54 @@ vi.mock('@/lib/api', () => {
   }
   return {
     ApiError,
-    api: { assignSystemRole: vi.fn() },
+    api: {
+      assignSystemRole: vi.fn(),
+      searchUsers: vi.fn(),
+    },
   };
 });
 
-import { isAuthenticated, getRole } from '@/lib/auth';
+import { isAuthenticated, getRole, clearToken } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
 
+const emptyResult = {
+  data: [],
+  metadata: { page: 1, size: 20, total: 0, total_pages: 1 },
+};
+
+const sampleResult = {
+  data: [
+    {
+      id: 3,
+      email: 'alice@example.com',
+      name: 'Alice',
+      role: 'system',
+      mfa_enabled: false,
+      created_at: '',
+      updated_at: '',
+      organizations: [{ id: 1, name: 'Acme', role: 'owner' }],
+    },
+    {
+      id: 7,
+      email: 'bob@example.com',
+      name: 'Bob',
+      role: null,
+      mfa_enabled: false,
+      created_at: '',
+      updated_at: '',
+      organizations: [],
+    },
+  ],
+  metadata: { page: 1, size: 20, total: 2, total_pages: 1 },
+};
+
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
 });
+
+// ---------------------------------------------------------------------------
+// Access control
+// ---------------------------------------------------------------------------
 
 describe('AdminUsersPage — access control', () => {
   it('redirects to /login when not authenticated', async () => {
@@ -66,7 +104,7 @@ describe('AdminUsersPage — access control', () => {
     });
   });
 
-  it('renders the form when authenticated as root', async () => {
+  it('renders the page when authenticated as root', async () => {
     vi.mocked(isAuthenticated).mockReturnValue(true);
     vi.mocked(getRole).mockReturnValue('root');
 
@@ -78,7 +116,11 @@ describe('AdminUsersPage — access control', () => {
   });
 });
 
-describe('AdminUsersPage — form submission', () => {
+// ---------------------------------------------------------------------------
+// Role assignment form (existing behaviour)
+// ---------------------------------------------------------------------------
+
+describe('AdminUsersPage — role assignment', () => {
   beforeEach(() => {
     vi.mocked(isAuthenticated).mockReturnValue(true);
     vi.mocked(getRole).mockReturnValue('root');
@@ -97,7 +139,7 @@ describe('AdminUsersPage — form submission', () => {
   }
 
   it('calls assignSystemRole and shows result on success', async () => {
-    const user = { id: 5, email: 'u@u.com', name: 'U', role: 'system', created_at: '', updated_at: '' };
+    const user = { id: 5, email: 'u@u.com', name: 'U', role: 'system', mfa_enabled: false, created_at: '', updated_at: '' };
     vi.mocked(api.assignSystemRole).mockResolvedValue(user);
 
     render(<AdminUsersPage />);
@@ -112,7 +154,7 @@ describe('AdminUsersPage — form submission', () => {
   });
 
   it('sends empty string for role="none"', async () => {
-    const user = { id: 7, email: 'u@u.com', name: 'U', role: null, created_at: '', updated_at: '' };
+    const user = { id: 7, email: 'u@u.com', name: 'U', role: null, mfa_enabled: false, created_at: '', updated_at: '' };
     vi.mocked(api.assignSystemRole).mockResolvedValue(user);
 
     render(<AdminUsersPage />);
@@ -149,6 +191,167 @@ describe('AdminUsersPage — form submission', () => {
 
     await waitFor(() => {
       expect(mockRouter.replace).toHaveBeenCalledWith('/login');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// User search
+// ---------------------------------------------------------------------------
+
+describe('AdminUsersPage — user search', () => {
+  beforeEach(() => {
+    vi.mocked(isAuthenticated).mockReturnValue(true);
+    vi.mocked(getRole).mockReturnValue('root');
+  });
+
+  async function submitSearch(email = '') {
+    await act(async () => {
+      const input = screen.getByPlaceholderText('adminUsers.searchEmailPlaceholder');
+      fireEvent.change(input, { target: { value: email } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'adminUsers.search' }));
+    });
+  }
+
+  it('renders search input and button when ready', async () => {
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByText('adminUsers.searchSection')).toBeTruthy());
+    expect(screen.getByPlaceholderText('adminUsers.searchEmailPlaceholder')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'adminUsers.search' })).toBeTruthy();
+  });
+
+  it('calls api.searchUsers with the typed email and page=1', async () => {
+    vi.mocked(api.searchUsers).mockResolvedValue(emptyResult);
+
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByText('adminUsers.searchSection')).toBeTruthy());
+
+    await submitSearch('alice');
+
+    await waitFor(() => {
+      expect(api.searchUsers).toHaveBeenCalledWith('alice', 1, 20);
+    });
+  });
+
+  it('renders table rows with id, email, role and org names', async () => {
+    vi.mocked(api.searchUsers).mockResolvedValue(sampleResult);
+
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByText('adminUsers.searchSection')).toBeTruthy());
+
+    await submitSearch();
+
+    await waitFor(() => {
+      expect(screen.getByText('alice@example.com')).toBeTruthy();
+      expect(screen.getByText('bob@example.com')).toBeTruthy();
+      expect(screen.getByText('Acme (owner)')).toBeTruthy();
+    });
+  });
+
+  it('shows empty-state message when results are empty', async () => {
+    vi.mocked(api.searchUsers).mockResolvedValue(emptyResult);
+
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByText('adminUsers.searchSection')).toBeTruthy());
+
+    await submitSearch('nobody');
+
+    await waitFor(() => {
+      expect(screen.getByText('adminUsers.noResults')).toBeTruthy();
+    });
+  });
+
+  it('advances to page 2 when Next is clicked', async () => {
+    const page1 = {
+      data: sampleResult.data,
+      metadata: { page: 1, size: 20, total: 40, total_pages: 2 },
+    };
+    const page2 = {
+      data: [{ ...sampleResult.data[0], id: 99, email: 'carol@example.com' }],
+      metadata: { page: 2, size: 20, total: 40, total_pages: 2 },
+    };
+    vi.mocked(api.searchUsers).mockResolvedValueOnce(page1).mockResolvedValueOnce(page2);
+
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByText('adminUsers.searchSection')).toBeTruthy());
+    await submitSearch();
+    await waitFor(() => expect(screen.getByText('alice@example.com')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /adminUsers\.nextPage/ }));
+    });
+
+    await waitFor(() => {
+      expect(api.searchUsers).toHaveBeenCalledWith('', 2, 20);
+      expect(screen.getByText('carol@example.com')).toBeTruthy();
+    });
+  });
+
+  it('steps back to page 1 when Previous is clicked', async () => {
+    const page1 = {
+      data: sampleResult.data,
+      metadata: { page: 1, size: 20, total: 40, total_pages: 2 },
+    };
+    const page2 = {
+      data: [{ ...sampleResult.data[0], id: 99, email: 'carol@example.com', organizations: [] }],
+      metadata: { page: 2, size: 20, total: 40, total_pages: 2 },
+    };
+
+    // Initial search → page 1
+    vi.mocked(api.searchUsers).mockResolvedValueOnce(page1);
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByText('adminUsers.searchSection')).toBeTruthy());
+    await submitSearch();
+    await waitFor(() => expect(screen.getByText('alice@example.com')).toBeTruthy());
+
+    // Click Next → page 2
+    vi.mocked(api.searchUsers).mockResolvedValueOnce(page2);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /adminUsers\.nextPage/ }));
+    });
+    await waitFor(() => {
+      expect(api.searchUsers).toHaveBeenCalledWith('', 2, 20);
+      expect(screen.getByText('carol@example.com')).toBeTruthy();
+    });
+
+    // Click Prev → back to page 1
+    vi.mocked(api.searchUsers).mockResolvedValueOnce(page1);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /adminUsers\.prevPage/ }));
+    });
+    await waitFor(() => {
+      expect(api.searchUsers).toHaveBeenCalledWith('', 1, 20);
+      expect(screen.getByText('alice@example.com')).toBeTruthy();
+    });
+  });
+
+  it('redirects to /login on 401 during search', async () => {
+    vi.mocked(api.searchUsers).mockRejectedValue(new ApiError(401, 'unauthorized'));
+
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByText('adminUsers.searchSection')).toBeTruthy());
+
+    await submitSearch('test');
+
+    await waitFor(() => {
+      expect(clearToken).toHaveBeenCalled();
+      expect(mockRouter.replace).toHaveBeenCalledWith('/login');
+    });
+  });
+
+  it('shows error banner on search failure', async () => {
+    vi.mocked(api.searchUsers).mockRejectedValue(new ApiError(500, 'server error'));
+
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByText('adminUsers.searchSection')).toBeTruthy());
+
+    await submitSearch('test');
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeTruthy();
+      expect(screen.getByText('server error')).toBeTruthy();
     });
   });
 });

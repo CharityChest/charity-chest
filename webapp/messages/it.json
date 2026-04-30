@@ -106,7 +106,20 @@
     "assigning": "Aggiornamento…",
     "systemRole": "Sistema",
     "noRole": "Nessuno (rimuovi ruolo)",
-    "result": "Utente aggiornato"
+    "result": "Utente aggiornato",
+    "searchSection": "Cerca utenti",
+    "searchEmailPlaceholder": "Cerca per email…",
+    "search": "Cerca",
+    "searching": "Ricerca…",
+    "colId": "ID",
+    "colEmail": "Email",
+    "colRole": "Ruolo",
+    "colOrganizations": "Organizzazioni",
+    "noResults": "Nessun utente trovato.",
+    "prevPage": "Precedente",
+    "nextPage": "Successivo",
+    "pageInfo": "Pagina {page} di {totalPages}",
+    "assignRoleSection": "Assegna ruolo di sistema"
   },
   "setup": {
     "title": "Sistema non configurato",
