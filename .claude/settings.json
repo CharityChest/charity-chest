@@ -1,5 +1,6 @@
 {
   "enabledPlugins": {
-    "modern-go-guidelines@goland-claude-marketplace": true
+    "modern-go-guidelines@goland-claude-marketplace": true,
+    "typescript-lsp@claude-plugins-official": true
   }
 }
