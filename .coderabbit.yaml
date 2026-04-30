@@ -1,0 +1,141 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+version: "2"
+
+language: "en-US"
+
+tone_instructions: |
+  Be direct and concise. Flag security issues as blockers. For readability, prefer
+  brief actionable suggestions over lengthy explanations. Avoid restating what the
+  code already does — focus on what should change and why.
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  path_filters:
+    - "!**/*.sum"
+    - "!**/node_modules/**"
+    - "!**/.next/**"
+    - "!**/dist/**"
+    - "!**/*.lock"
+    - "!**/.docker-dev/**"
+
+  path_instructions:
+    # Go security-critical paths
+    - path: "server/internal/handler/auth.go"
+      instructions: |
+        This file handles registration, login, MFA verification, and Google OAuth.
+        - Verify no user-enumeration vectors: login must return identical errors for
+          "user not found" and "wrong password".
+        - Check that MFA-pending tokens (5-min expiry) are not accepted on full-auth routes.
+        - Ensure bcrypt is used at DefaultCost and never compared with == on plain text.
+        - OAuth state cookie must be HttpOnly, Secure (in production), and SameSite=Lax.
+        - Confirm no secret material (JWT key, client secret) is logged or returned in responses.
+
+    - path: "server/internal/handler/profile.go"
+      instructions: |
+        Handles TOTP MFA setup, enable, and disable.
+        - Verify that the TOTP secret is never exposed after initial setup (setup endpoint only).
+        - Enable and disable must re-verify a live TOTP code — no bypass path.
+        - Secrets must be stored encrypted or at minimum never logged.
+
+    - path: "server/internal/middleware/**"
+      instructions: |
+        JWT validation and ACL enforcement live here.
+        - Bearer token parsing must reject expired, malformed, or wrong-algorithm tokens.
+        - RequireSystemRole and RequireOrgRole must never fall through to the handler on
+          an unrecognised role string.
+        - RoleContextKey must come exclusively from the validated JWT claim — never from
+          a request header or query param.
+
+    - path: "server/internal/handler/organization.go"
+      instructions: |
+        Org CRUD and member management with hierarchy enforcement.
+        - Every mutating action must call CanAssignOrgRole / enforceCanAssign — verify
+          there is no shortcut path that skips it.
+        - Org-scoped reads must confirm the caller is a member (or root/system) before
+          returning data — no IDOR via guessed orgID.
+
+    - path: "server/internal/model/role.go"
+      instructions: |
+        Single source of truth for role constants and hierarchy.
+        - Any new role constant must be added to ValidOrgRole and CanAssignOrgRole
+          explicitly — no implicit fallthrough.
+        - Role strings must never be constructed dynamically from user input.
+
+    - path: "server/internal/config/config.go"
+      instructions: |
+        Loads and validates all secrets from the environment.
+        - Confirm that every required secret is validated at startup (fail-fast).
+        - No secret value must ever be returned in an error message or log line.
+        - godotenv must only load in non-production environments.
+
+    - path: "server/migrations/**"
+      instructions: |
+        SQL migration files — reviewed for correctness and safety.
+        - Every .up.sql must have a matching .down.sql.
+        - Column additions must specify a safe DEFAULT if the table already has rows.
+        - No DROP TABLE / DROP COLUMN without a corresponding down migration that
+          recreates it.
+        - Check for missing indexes on foreign keys and columns used in WHERE clauses.
+
+    - path: "server/internal/routes/v1/routes_test.go"
+      instructions: |
+        End-to-end test suite covering every endpoint.
+        - New endpoints must have corresponding e2e tests covering the happy path,
+          auth-missing (401), and forbidden-role (403) cases.
+        - Tests must not share global state — each test must call newServer(t).
+        - No testify — standard library only.
+
+    - path: "server/internal/**/*_test.go"
+      instructions: |
+        Unit tests — black-box, package foo_test style.
+        - Each test must use a fresh in-memory SQLite DB via newTestDB(t).
+        - No mocking of the database layer.
+        - Cover both success and error branches for any security-relevant logic.
+
+    - path: "webapp/src/lib/api.ts"
+      instructions: |
+        Central API client — all server calls must go through here.
+        - Verify that every request attaches the Bearer token from auth.ts, never inline.
+        - ApiError must carry the HTTP status; callers must branch on status (401 → logout).
+        - No raw fetch outside this file.
+        - Accept-Language must be derived from the URL locale via getLocale(), not
+          hardcoded.
+
+    - path: "webapp/src/lib/auth.ts"
+      instructions: |
+        Sole owner of localStorage token I/O.
+        - No other file should read or write cc_token directly — flag any such access.
+        - Clearing the token (logout) must remove it completely, not set it to an empty string.
+
+    - path: "webapp/src/**/*.tsx"
+      instructions: |
+        React components and pages.
+        - Protected pages must check isAuthenticated() in useEffect and redirect to /login.
+        - All navigation (Link, useRouter, usePathname) must come from @/i18n/navigation,
+          never from next/link or next/navigation.
+        - All server error messages must be rendered through <ErrorBanner>, not bare <p> tags.
+        - No hardcoded UI strings in JSX — use useTranslations().
+        - No raw localStorage access — use auth.ts helpers only.
+
+    - path: "webapp/messages/**"
+      instructions: |
+        i18n string files — en.json and it.json must stay in sync.
+        - Every key present in en.json must exist in it.json and vice versa.
+        - Flag any key that is added to one file but not the other.
+
+  finishing_touches:
+    docstrings:
+      enabled: false   # project convention: no multi-line docstrings
+
+chat:
+  auto_reply: true
