@@ -250,6 +250,23 @@ describe('AdminUsersPage — user search', () => {
     });
   });
 
+  it('clicking a row pre-fills the User ID input in the assignment form', async () => {
+    vi.mocked(api.searchUsers).mockResolvedValue(sampleResult);
+
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByText('adminUsers.searchSection')).toBeTruthy());
+
+    await submitSearch();
+    await waitFor(() => expect(screen.getByText('alice@example.com')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('alice@example.com'));
+    });
+
+    const idInput = screen.getByRole('spinbutton') as HTMLInputElement;
+    expect(idInput.value).toBe('3');
+  });
+
   it('shows empty-state message when results are empty', async () => {
     vi.mocked(api.searchUsers).mockResolvedValue(emptyResult);
 

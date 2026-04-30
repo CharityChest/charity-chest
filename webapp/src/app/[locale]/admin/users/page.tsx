@@ -22,6 +22,7 @@ export default function AdminUsersPage() {
   const [searchResult, setSearchResult] = useState<PaginatedResult<UserWithOrgs> | null>(null);
 
   // --- Role assignment state ---
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [userId, setUserId] = useState('');
   const [role, setRole] = useState('system');
   const [submitting, setSubmitting] = useState(false);
@@ -154,7 +155,11 @@ export default function AdminUsersPage() {
                       </tr>
                     ) : (
                       searchResult.data.map((u) => (
-                        <tr key={u.id} className="hover:bg-gray-50">
+                        <tr
+                          key={u.id}
+                          onClick={() => { setUserId(String(u.id)); setSelectedUserId(u.id); }}
+                          className={`cursor-pointer ${selectedUserId === u.id ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
+                        >
                           <td className="px-4 py-3 text-gray-500">{u.id}</td>
                           <td className="px-4 py-3 font-medium text-gray-900">{u.email}</td>
                           <td className="px-4 py-3 text-gray-600">{u.role ?? '—'}</td>
