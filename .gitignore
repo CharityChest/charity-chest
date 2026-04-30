@@ -29,5 +29,3 @@ Session.vim
 Thumbs.db
 ehthumbs.db
 Desktop.ini
-server/coverage.out
-webapp/coverage/
