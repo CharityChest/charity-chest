@@ -281,6 +281,14 @@ func TestAssignSystemRole_BrokenCacheInvalidation(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
 	}
+
+	var updated model.User
+	if err := db.First(&updated, target.ID).Error; err != nil {
+		t.Fatalf("reload user from DB: %v", err)
+	}
+	if updated.Role == nil || *updated.Role != model.RoleSystem {
+		t.Errorf("DB role = %v, want system", updated.Role)
+	}
 }
 
 // TestSystemStatus_CacheMiss_FallsThroughToDB verifies cache error falls through.
