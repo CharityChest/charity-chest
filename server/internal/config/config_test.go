@@ -3,6 +3,7 @@ package config_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"charity-chest/internal/config"
 )
@@ -113,5 +114,83 @@ func TestLoad_CustomGoogleRedirectURL(t *testing.T) {
 	}
 	if cfg.GoogleRedirectURL != custom {
 		t.Errorf("GoogleRedirectURL = %q, want %q", cfg.GoogleRedirectURL, custom)
+	}
+}
+
+func TestLoad_CacheDisabledByDefault(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("CACHE_ENABLED", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.CacheEnabled {
+		t.Error("CacheEnabled should default to false")
+	}
+}
+
+func TestLoad_CacheEnabled(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("CACHE_ENABLED", "true")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.CacheEnabled {
+		t.Error("CacheEnabled should be true")
+	}
+}
+
+func TestLoad_CacheTTL_Default(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("CACHE_TTL", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.CacheTTL != 5*time.Minute {
+		t.Errorf("CacheTTL = %v, want 5m", cfg.CacheTTL)
+	}
+}
+
+func TestLoad_CacheTTL_Custom(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("CACHE_TTL", "30s")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.CacheTTL != 30*time.Second {
+		t.Errorf("CacheTTL = %v, want 30s", cfg.CacheTTL)
+	}
+}
+
+func TestLoad_CacheTTL_InvalidFallsBackToDefault(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("CACHE_TTL", "not-a-duration")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.CacheTTL != 5*time.Minute {
+		t.Errorf("CacheTTL = %v, want default 5m for invalid input", cfg.CacheTTL)
+	}
+}
+
+func TestLoad_CacheURL_Default(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("CACHE_URL", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.CacheURL != "redis://localhost:6379" {
+		t.Errorf("CacheURL = %q, want redis://localhost:6379", cfg.CacheURL)
 	}
 }

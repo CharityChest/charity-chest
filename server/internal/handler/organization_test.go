@@ -607,3 +607,409 @@ func TestRemoveMember_AdminCannotRemoveOwner_Returns403(t *testing.T) {
 		t.Errorf("expected 403 HTTPError, got %v", err)
 	}
 }
+
+// --- Cache paths ---
+
+// TestListOrgs_CacheHit verifies the second call is served from cache even
+// after the DB rows are deleted.
+func TestListOrgs_CacheHit(t *testing.T) {
+	db := newOrgTestDB(t)
+	_, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+	db.Create(&model.Organization{Name: "Cached Org"})
+
+	root := model.RoleRoot
+	callListOrgs := func() *httptest.ResponseRecorder {
+		ctx, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
+		if err := h.ListOrgs(ctx); err != nil {
+			t.Fatalf("ListOrgs: %v", err)
+		}
+		return rec
+	}
+
+	// First call: cache miss → DB read → cache populated.
+	rec1 := callListOrgs()
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first ListOrgs status = %d", rec1.Code)
+	}
+
+	// Delete all orgs from DB.
+	db.Exec("DELETE FROM organizations")
+
+	// Second call: cache hit → still returns "Cached Org".
+	rec2 := callListOrgs()
+	body := decodeOrgBody(t, rec2)
+	data := body["data"].([]any)
+	if len(data) != 1 {
+		t.Errorf("len(data) from cache = %d, want 1", len(data))
+	}
+}
+
+// TestListOrgs_CacheInvalidatedOnCreate verifies that CreateOrg clears the list cache.
+func TestListOrgs_CacheInvalidatedOnCreate(t *testing.T) {
+	db := newOrgTestDB(t)
+	_, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	root := model.RoleRoot
+	callListOrgs := func() []any {
+		ctx, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
+		if err := h.ListOrgs(ctx); err != nil {
+			t.Fatalf("ListOrgs: %v", err)
+		}
+		return decodeOrgBody(t, rec)["data"].([]any)
+	}
+
+	// Populate cache with 0 orgs.
+	if len(callListOrgs()) != 0 {
+		t.Fatal("expected empty list initially")
+	}
+
+	// Create an org (should invalidate orgs:list).
+	ctx, _ := newOrgContext(t, http.MethodPost, "/v1/api/orgs", `{"name":"New Org"}`, 0, 1, &root, "")
+	if err := h.CreateOrg(ctx); err != nil {
+		t.Fatalf("CreateOrg: %v", err)
+	}
+
+	// Next list call must reflect the new org (cache was cleared).
+	if got := callListOrgs(); len(got) != 1 {
+		t.Errorf("len(data) after create = %d, want 1", len(got))
+	}
+}
+
+// TestGetOrg_CacheHit verifies that GetOrg serves from cache after DB delete.
+func TestGetOrg_CacheHit(t *testing.T) {
+	db := newOrgTestDB(t)
+	_, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	org := model.Organization{Name: "Org Hit"}
+	db.Create(&org)
+
+	root := model.RoleRoot
+	callGetOrg := func() (*httptest.ResponseRecorder, error) {
+		ctx, rec := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+		err := h.GetOrg(ctx)
+		return rec, err
+	}
+
+	// First call: cache miss.
+	if _, err := callGetOrg(); err != nil {
+		t.Fatalf("GetOrg first call: %v", err)
+	}
+
+	// Delete from DB.
+	db.Unscoped().Delete(&org)
+
+	// Second call: cache hit → still returns the org.
+	rec, err := callGetOrg()
+	if err != nil {
+		t.Fatalf("GetOrg second call (cache hit): %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	body := decodeOrgBody(t, rec)
+	data := body["data"].(map[string]any)
+	if data["name"] != "Org Hit" {
+		t.Errorf("name from cache = %v, want Org Hit", data["name"])
+	}
+}
+
+// TestListMembers_CacheHit verifies that ListMembers is served from cache.
+func TestListMembers_CacheHit(t *testing.T) {
+	db := newOrgTestDB(t)
+	_, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	user := model.User{Email: "member@example.com", Name: "Member"}
+	db.Create(&user)
+	org := model.Organization{Name: "Org Members"}
+	db.Create(&org)
+	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOwner})
+
+	root := model.RoleRoot
+	callList := func() []any {
+		ctx, rec := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+		if err := h.ListMembers(ctx); err != nil {
+			t.Fatalf("ListMembers: %v", err)
+		}
+		return decodeOrgBody(t, rec)["data"].([]any)
+	}
+
+	// First call: cache miss → populates cache.
+	if len(callList()) != 1 {
+		t.Fatal("expected 1 member initially")
+	}
+
+	// Delete the member from DB.
+	db.Exec("DELETE FROM org_members")
+
+	// Second call: cache hit → still returns 1 member.
+	if got := callList(); len(got) != 1 {
+		t.Errorf("len from cache = %d, want 1", len(got))
+	}
+}
+
+// TestListOrgs_BrokenCache_FallsThroughToDB verifies that a broken cache is non-fatal
+// and the handler returns live DB data, covering the cache error log paths.
+func TestListOrgs_BrokenCache_FallsThroughToDB(t *testing.T) {
+	db := newOrgTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	db.Create(&model.Organization{Name: "Live Org"})
+	mr.Close() // break the cache — all operations will fail
+
+	root := model.RoleRoot
+	ctx, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
+	if err := h.ListOrgs(ctx); err != nil {
+		t.Fatalf("ListOrgs with broken cache: %v", err)
+	}
+	body := decodeOrgBody(t, rec)
+	data := body["data"].([]any)
+	if len(data) != 1 {
+		t.Errorf("len(data) = %d, want 1 (from DB fallthrough)", len(data))
+	}
+}
+
+// TestGetOrg_BrokenCache_FallsThroughToDB verifies GetOrg falls through on cache errors.
+func TestGetOrg_BrokenCache_FallsThroughToDB(t *testing.T) {
+	db := newOrgTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	org := model.Organization{Name: "Live Org"}
+	db.Create(&org)
+	mr.Close()
+
+	root := model.RoleRoot
+	ctx, rec := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+	if err := h.GetOrg(ctx); err != nil {
+		t.Fatalf("GetOrg with broken cache: %v", err)
+	}
+	body := decodeOrgBody(t, rec)
+	if body["data"].(map[string]any)["name"] != "Live Org" {
+		t.Error("expected Live Org from DB fallthrough")
+	}
+}
+
+// TestListMembers_BrokenCache_FallsThroughToDB verifies ListMembers falls through.
+func TestListMembers_BrokenCache_FallsThroughToDB(t *testing.T) {
+	db := newOrgTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	user := model.User{Email: "m@example.com", Name: "M"}
+	db.Create(&user)
+	org := model.Organization{Name: "Org"}
+	db.Create(&org)
+	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOwner})
+	mr.Close()
+
+	root := model.RoleRoot
+	ctx, rec := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+	if err := h.ListMembers(ctx); err != nil {
+		t.Fatalf("ListMembers with broken cache: %v", err)
+	}
+	data := decodeOrgBody(t, rec)["data"].([]any)
+	if len(data) != 1 {
+		t.Errorf("len(data) = %d, want 1 from DB fallthrough", len(data))
+	}
+}
+
+// TestCreateOrg_BrokenCacheInvalidation verifies CreateOrg succeeds even when
+// the cache Del fails (covers the cache error log path after a successful write).
+func TestCreateOrg_BrokenCacheInvalidation(t *testing.T) {
+	db := newOrgTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	// Populate the list cache so there's something to invalidate.
+	root := model.RoleRoot
+	listCtx, _ := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
+	_ = h.ListOrgs(listCtx)
+
+	// Kill cache — the Del call after CreateOrg will fail.
+	mr.Close()
+
+	createCtx, rec := newOrgContext(t, http.MethodPost, "/v1/api/orgs", `{"name":"New"}`, 0, 1, &root, "")
+	if err := h.CreateOrg(createCtx); err != nil {
+		t.Fatalf("CreateOrg with broken cache invalidation: %v", err)
+	}
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201", rec.Code)
+	}
+}
+
+// TestUpdateOrg_BrokenCacheInvalidation verifies UpdateOrg succeeds when Del fails.
+func TestUpdateOrg_BrokenCacheInvalidation(t *testing.T) {
+	db := newOrgTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	org := model.Organization{Name: "Original"}
+	db.Create(&org)
+
+	// Populate the cache.
+	root := model.RoleRoot
+	getCtx, _ := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+	_ = h.GetOrg(getCtx)
+	mr.Close()
+
+	updateCtx, rec := newOrgContext(t, http.MethodPut, fmt.Sprintf("/v1/api/orgs/%d", org.ID), `{"name":"Updated"}`, org.ID, 1, &root, "")
+	if err := h.UpdateOrg(updateCtx); err != nil {
+		t.Fatalf("UpdateOrg with broken cache: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+// TestDeleteOrg_BrokenCacheInvalidation verifies DeleteOrg succeeds when Del fails.
+func TestDeleteOrg_BrokenCacheInvalidation(t *testing.T) {
+	db := newOrgTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	org := model.Organization{Name: "ToDelete"}
+	db.Create(&org)
+	mr.Close()
+
+	root := model.RoleRoot
+	ctx, rec := newOrgContext(t, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+	if err := h.DeleteOrg(ctx); err != nil {
+		t.Fatalf("DeleteOrg with broken cache: %v", err)
+	}
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", rec.Code)
+	}
+}
+
+// TestAddMember_BrokenCacheInvalidation verifies AddMember succeeds when Del fails.
+func TestAddMember_BrokenCacheInvalidation(t *testing.T) {
+	db := newOrgTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	org := model.Organization{Name: "Org"}
+	db.Create(&org)
+	user := model.User{Email: "u@example.com", Name: "U"}
+	db.Create(&user)
+
+	// Populate member cache then break cache.
+	root := model.RoleRoot
+	listCtx, _ := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+	_ = h.ListMembers(listCtx)
+	mr.Close()
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"owner"}`, user.ID)
+	ctx, rec := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &root, "")
+	if err := h.AddMember(ctx); err != nil {
+		t.Fatalf("AddMember with broken cache: %v", err)
+	}
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201", rec.Code)
+	}
+}
+
+// TestUpdateMember_BrokenCacheInvalidation verifies UpdateMember succeeds when Del fails.
+func TestUpdateMember_BrokenCacheInvalidation(t *testing.T) {
+	db := newOrgTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	org := model.Organization{Name: "Org"}
+	db.Create(&org)
+	user := model.User{Email: "u@example.com", Name: "U"}
+	db.Create(&user)
+	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOwner})
+
+	root := model.RoleRoot
+	// Populate member cache then break cache.
+	listCtx, _ := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+	_ = h.ListMembers(listCtx)
+	mr.Close()
+
+	body := `{"role":"admin"}`
+	path := fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, user.ID)
+	ctx, rec := newOrgContextWithUserID(t, http.MethodPut, path, body, org.ID, user.ID, 1, &root, "")
+	if err := h.UpdateMember(ctx); err != nil {
+		t.Fatalf("UpdateMember with broken cache: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+// TestRemoveMember_BrokenCacheInvalidation verifies RemoveMember succeeds when Del fails.
+func TestRemoveMember_BrokenCacheInvalidation(t *testing.T) {
+	db := newOrgTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	org := model.Organization{Name: "Org"}
+	db.Create(&org)
+	caller := model.User{Email: "owner@example.com", Name: "Owner"}
+	db.Create(&caller)
+	target := model.User{Email: "op@example.com", Name: "Op"}
+	db.Create(&target)
+	db.Create(&model.OrgMember{OrgID: org.ID, UserID: caller.ID, Role: model.OrgRoleOwner})
+	db.Create(&model.OrgMember{OrgID: org.ID, UserID: target.ID, Role: model.OrgRoleOperational})
+
+	// Populate member cache then break cache.
+	root := model.RoleRoot
+	listCtx, _ := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+	_ = h.ListMembers(listCtx)
+	mr.Close()
+
+	path := fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, target.ID)
+	ctx, rec := newOrgContextWithUserID(t, http.MethodDelete, path, "", org.ID, target.ID, caller.ID, &root, "")
+	if err := h.RemoveMember(ctx); err != nil {
+		t.Fatalf("RemoveMember with broken cache: %v", err)
+	}
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", rec.Code)
+	}
+}
+
+// TestListMembers_CacheInvalidatedOnAdd verifies AddMember clears the member cache.
+func TestListMembers_CacheInvalidatedOnAdd(t *testing.T) {
+	db := newOrgTestDB(t)
+	_, c := newMiniRedisCache(t)
+	h := handler.NewOrgHandler(db, c)
+
+	org := model.Organization{Name: "Org Inval"}
+	db.Create(&org)
+	existingUser := model.User{Email: "existing@example.com", Name: "Existing"}
+	db.Create(&existingUser)
+	newUser := model.User{Email: "new@example.com", Name: "New"}
+	db.Create(&newUser)
+	db.Create(&model.OrgMember{OrgID: org.ID, UserID: existingUser.ID, Role: model.OrgRoleOwner})
+
+	root := model.RoleRoot
+	callList := func() []any {
+		ctx, rec := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+		if err := h.ListMembers(ctx); err != nil {
+			t.Fatalf("ListMembers: %v", err)
+		}
+		return decodeOrgBody(t, rec)["data"].([]any)
+	}
+
+	// Populate cache with 1 member.
+	if len(callList()) != 1 {
+		t.Fatal("expected 1 member initially")
+	}
+
+	// Add a new member (should invalidate org:{id}:members).
+	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, newUser.ID)
+	ctx, _ := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &root, "")
+	if err := h.AddMember(ctx); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	// Next list call must see 2 members.
+	if got := callList(); len(got) != 2 {
+		t.Errorf("len after add = %d, want 2", len(got))
+	}
+}

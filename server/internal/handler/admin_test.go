@@ -254,3 +254,61 @@ func TestSearchUsers_SizeClampedAt100(t *testing.T) {
 		t.Errorf("size = %v, want 100 (clamped)", meta["size"])
 	}
 }
+
+// --- Cache paths ---
+
+// callSearchUsers fires SearchUsers with the given query string.
+func callSearchUsers(t *testing.T, h *handler.AdminHandler, query string) map[string]any {
+	t.Helper()
+	c, rec := newAdminContext(t, query)
+	if err := h.SearchUsers(c); err != nil {
+		t.Fatalf("SearchUsers: %v", err)
+	}
+	return decodeAdminBody(t, rec)
+}
+
+// TestSearchUsers_CacheHit verifies the second call is served from cache even
+// after users are deleted from the DB.
+func TestSearchUsers_CacheHit(t *testing.T) {
+	db := newAdminTestDB(t)
+	_, c := newMiniRedisCache(t)
+	h := handler.NewAdminHandler(db, c)
+
+	createUser(t, db, "cached@example.com")
+
+	// First call: cache miss → reads DB → stores result.
+	body1 := callSearchUsers(t, h, "")
+	if body1["metadata"].(map[string]any)["total"].(float64) != 1 {
+		t.Fatal("expected total=1 on first call")
+	}
+
+	// Delete all users from DB.
+	db.Exec("DELETE FROM users")
+
+	// Second call: cache hit → still reports 1 user.
+	body2 := callSearchUsers(t, h, "")
+	if body2["metadata"].(map[string]any)["total"].(float64) != 1 {
+		t.Errorf("expected total=1 from cache, got %v", body2["metadata"].(map[string]any)["total"])
+	}
+	data := body2["data"].([]any)
+	if len(data) != 1 {
+		t.Errorf("len(data) from cache = %d, want 1", len(data))
+	}
+}
+
+// TestSearchUsers_CacheMiss_FallsThroughToDB verifies a broken cache falls through to DB.
+func TestSearchUsers_CacheMiss_FallsThroughToDB(t *testing.T) {
+	db := newAdminTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewAdminHandler(db, c)
+
+	createUser(t, db, "live@example.com")
+
+	// Stop miniredis — handler must fall through to DB and return live data.
+	mr.Close()
+
+	body := callSearchUsers(t, h, "")
+	if body["metadata"].(map[string]any)["total"].(float64) != 1 {
+		t.Errorf("expected DB fallthrough total=1, got %v", body["metadata"].(map[string]any)["total"])
+	}
+}

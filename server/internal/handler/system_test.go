@@ -197,3 +197,79 @@ func TestAssignSystemRole_RootRoleNotAssignable_Returns400(t *testing.T) {
 func uid(n uint) string {
 	return fmt.Sprintf("%d", n)
 }
+
+// --- Cache paths ---
+
+func callSystemStatus(t *testing.T, h *handler.SystemHandler) map[string]any {
+	t.Helper()
+	c, rec := newSystemContext(t, http.MethodGet, "/v1/system/status", "")
+	if err := h.SystemStatus(c); err != nil {
+		t.Fatalf("SystemStatus: %v", err)
+	}
+	return decodeBody(t, rec)["data"].(map[string]any)
+}
+
+// TestSystemStatus_CacheHit proves the second call returns the cached value even
+// after a root user is added to the DB.
+func TestSystemStatus_CacheHit(t *testing.T) {
+	db := newTestDB(t)
+	_, c := newMiniRedisCache(t)
+	h := handler.NewSystemHandler(db, c)
+
+	// First call: no root → configured=false, stored in cache.
+	data := callSystemStatus(t, h)
+	if data["configured"] != false {
+		t.Fatalf("expected configured=false before root exists")
+	}
+
+	// Add a root user directly to the DB.
+	role := model.RoleRoot
+	db.Create(&model.User{Email: "root@example.com", Name: "Root", Role: &role})
+
+	// Second call: cache hit → still returns configured=false.
+	data = callSystemStatus(t, h)
+	if data["configured"] != false {
+		t.Errorf("expected cache hit to return false, got %v", data["configured"])
+	}
+}
+
+// TestAssignSystemRole_BrokenCacheInvalidation verifies the role assignment succeeds
+// even when cache invalidation fails (covers cache error log paths in AssignSystemRole).
+func TestAssignSystemRole_BrokenCacheInvalidation(t *testing.T) {
+	db := newTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewSystemHandler(db, c)
+
+	target := &model.User{Email: "target@example.com", Name: "Target"}
+	db.Create(target)
+
+	// Break cache before the write so Del/DelPattern will fail.
+	mr.Close()
+
+	body := `{"user_id":` + uid(target.ID) + `,"role":"system"}`
+	ctx, rec := newSystemContext(t, http.MethodPost, "/v1/api/system/assign-role", body)
+	if err := h.AssignSystemRole(ctx); err != nil {
+		t.Fatalf("AssignSystemRole with broken cache: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+// TestSystemStatus_CacheMiss_FallsThroughToDB verifies cache error falls through.
+func TestSystemStatus_CacheMiss_FallsThroughToDB(t *testing.T) {
+	db := newTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewSystemHandler(db, c)
+
+	role := model.RoleRoot
+	db.Create(&model.User{Email: "root@example.com", Name: "Root", Role: &role})
+
+	// Kill cache before first call → fall through to DB.
+	mr.Close()
+
+	data := callSystemStatus(t, h)
+	if data["configured"] != true {
+		t.Errorf("expected DB fallthrough to return configured=true, got %v", data["configured"])
+	}
+}

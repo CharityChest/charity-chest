@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"charity-chest/internal/cache"
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
-	"charity-chest/internal/cache"
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
@@ -43,6 +44,18 @@ func testCfg() *config.Config {
 		GoogleRedirectURL:  "http://localhost:8080/v1/auth/google/callback",
 		Port:               "8080",
 	}
+}
+
+// newMiniRedisCache starts an in-memory Valkey-compatible server and returns a
+// connected Cache. All handler tests that need real cache behaviour use this.
+func newMiniRedisCache(t *testing.T) (*miniredis.Miniredis, *cache.Cache) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	c, err := cache.New("redis://"+mr.Addr(), time.Minute)
+	if err != nil {
+		t.Fatalf("cache.New: %v", err)
+	}
+	return mr, c
 }
 
 // newServer wires up a fresh Echo instance with all auth routes for each test.
@@ -515,5 +528,75 @@ func TestVerifyMFA_ExpiredPendingToken_Returns401(t *testing.T) {
 	rec := postJSON(e, "/v1/auth/mfa/verify", body)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+// --- Me — cache paths ---
+
+// callMe fires Me against a handler using an in-process Echo context.
+func callMe(t *testing.T, h *handler.AuthHandler, userID uint) *httptest.ResponseRecorder {
+	t.Helper()
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set(middleware.UserIDContextKey, userID)
+	if err := h.Me(c); err != nil {
+		t.Fatalf("Me: %v", err)
+	}
+	return rec
+}
+
+// TestMe_CacheHit verifies that the second call returns the cached user even
+// after the row is removed from the database.
+func TestMe_CacheHit(t *testing.T) {
+	db := newTestDB(t)
+	_, c := newMiniRedisCache(t)
+	h := handler.NewAuthHandler(db, testCfg(), c)
+
+	user := &model.User{Email: "cache@example.com", Name: "Cache User"}
+	db.Create(user)
+
+	// First call: cache miss → reads from DB → populates cache.
+	rec1 := callMe(t, h, user.ID)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first Me call status = %d", rec1.Code)
+	}
+
+	// Delete the user from the database to prove the next call is served from cache.
+	db.Unscoped().Delete(user)
+
+	// Second call: cache hit → returns the original user.
+	rec2 := callMe(t, h, user.ID)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("second Me call (cache hit expected) status = %d; body: %s", rec2.Code, rec2.Body.String())
+	}
+	body := decodeBody(t, rec2)
+	data := body["data"].(map[string]any)
+	if data["email"] != "cache@example.com" {
+		t.Errorf("email from cache = %v, want cache@example.com", data["email"])
+	}
+}
+
+// TestMe_CacheMiss_FallsThroughToDB verifies that a cache error falls through to DB.
+func TestMe_CacheMiss_FallsThroughToDB(t *testing.T) {
+	db := newTestDB(t)
+	mr, c := newMiniRedisCache(t)
+	h := handler.NewAuthHandler(db, testCfg(), c)
+
+	user := &model.User{Email: "fallthrough@example.com", Name: "Fallthrough"}
+	db.Create(user)
+
+	// Stop miniredis so all cache operations fail — handler must fall through to DB.
+	mr.Close()
+
+	rec := callMe(t, h, user.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Me with broken cache status = %d; body: %s", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec)
+	data := body["data"].(map[string]any)
+	if data["email"] != "fallthrough@example.com" {
+		t.Errorf("email = %v, want fallthrough@example.com", data["email"])
 	}
 }
