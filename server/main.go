@@ -44,7 +44,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("cache: %v", err)
 		}
-		log.Printf("cache: connected to %s (TTL=%s)", cfg.CacheURL, cfg.CacheTTL)
+		log.Printf("cache: enabled (TTL=%s)", cfg.CacheTTL)
 	} else {
 		appCache = cache.Disabled()
 		log.Printf("cache: disabled")
