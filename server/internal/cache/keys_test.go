@@ -37,13 +37,13 @@ func TestKeyAdminUsers_EmptyEmail(t *testing.T) {
 }
 
 func TestKeyConstants(t *testing.T) {
-	if cache.KeySystemStatus == "" {
-		t.Error("KeySystemStatus must not be empty")
+	if cache.KeySystemStatus != "system:status" {
+		t.Errorf("KeySystemStatus = %q, want system:status", cache.KeySystemStatus)
 	}
-	if cache.KeyOrgsList == "" {
-		t.Error("KeyOrgsList must not be empty")
+	if cache.KeyOrgsList != "orgs:list" {
+		t.Errorf("KeyOrgsList = %q, want orgs:list", cache.KeyOrgsList)
 	}
-	if cache.KeyAdminUsersGlob == "" {
-		t.Error("KeyAdminUsersGlob must not be empty")
+	if cache.KeyAdminUsersGlob != "admin:users:*" {
+		t.Errorf("KeyAdminUsersGlob = %q, want admin:users:*", cache.KeyAdminUsersGlob)
 	}
 }
