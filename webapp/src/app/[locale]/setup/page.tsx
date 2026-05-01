@@ -5,6 +5,10 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
 import { api } from '@/lib/api';
 
+/**
+ * Shown by SystemGuard when no root user has been seeded yet.
+ * Polls GET /v1/system/status on "Check Again" and redirects to "/" once configured.
+ */
 export default function SetupPage() {
   const t = useTranslations('setup');
   const router = useRouter();

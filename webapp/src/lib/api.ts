@@ -13,7 +13,10 @@ import type {
   UserWithOrgs,
 } from '@/types/api';
 
-// Carries the HTTP status code so callers can branch on it (e.g. 401 → redirect to login).
+/**
+ * Thrown by every `api.*` call when the server returns a non-2xx response.
+ * Carries the HTTP status code so callers can branch on it (e.g. 401 → redirect to login).
+ */
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -81,6 +84,7 @@ function bearerHeader(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Typed wrappers around every server endpoint. All methods throw {@link ApiError} on non-2xx responses. */
 export const api = {
   /** POST /v1/auth/register */
   register(email: string, password: string, name: string): Promise<AuthResponse> {

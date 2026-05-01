@@ -6,6 +6,11 @@ import { Link, useRouter } from '@/i18n/navigation';
 import { setToken } from '@/lib/auth';
 import ErrorBanner from '@/components/ErrorBanner';
 
+/**
+ * Landing page for the Google OAuth callback (`/auth/callback`).
+ * Reads `?token=` from the URL, stores it via {@link setToken}, then redirects to /dashboard.
+ * Shows an error banner if `?error=` is present instead.
+ */
 export default function AuthCallbackPage() {
   const t = useTranslations('authCallback');
   const router = useRouter();

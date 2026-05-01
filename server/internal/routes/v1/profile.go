@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// RegisterProfile mounts the JWT-protected MFA profile routes under /api/profile.
 func RegisterProfile(v1 *echo.Group, db *gorm.DB, cfg *config.Config, c *cache.Cache, jwtSecret string) {
 	h := handler.NewProfileHandler(db, cfg, c)
 

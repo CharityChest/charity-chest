@@ -6,6 +6,7 @@ import { routing } from '@/i18n/routing';
 
 const LABELS: Record<string, string> = { en: 'EN', it: 'IT' };
 
+/** Fixed navbar widget that lets the user toggle between the EN and IT locales. */
 export default function LanguageSwitcher() {
   const locale = useLocale();
   const router = useRouter();

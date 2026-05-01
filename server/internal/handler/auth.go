@@ -38,6 +38,7 @@ const (
 	callbackTokenQuery = "?token="
 )
 
+// AuthHandler handles authentication: registration, login, MFA verification, and Google OAuth.
 type AuthHandler struct {
 	db          *gorm.DB
 	cfg         *config.Config
@@ -45,6 +46,7 @@ type AuthHandler struct {
 	oauthConfig *oauth2.Config
 }
 
+// NewAuthHandler creates an AuthHandler wired to the given database, config, and cache.
 func NewAuthHandler(db *gorm.DB, cfg *config.Config, c *cache.Cache) *AuthHandler {
 	return &AuthHandler{
 		db:    db,

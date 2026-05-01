@@ -11,6 +11,11 @@ import type { User, MFASetupResponse } from '@/types/api';
 
 type MFAStep = 'idle' | 'setup' | 'disabling';
 
+/**
+ * Authenticated user profile page.
+ * Displays account info and manages the MFA lifecycle (setup → enable → disable).
+ * Redirects to /login if no token is present or on a 401 response.
+ */
 export default function ProfilePage() {
   const t = useTranslations();
   const router = useRouter();

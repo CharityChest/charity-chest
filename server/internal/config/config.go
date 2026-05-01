@@ -10,6 +10,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Config holds all runtime configuration values loaded from environment variables.
 type Config struct {
 	DatabaseURL        string
 	JWTSecret          string
