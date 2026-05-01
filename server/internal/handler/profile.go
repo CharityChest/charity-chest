@@ -22,6 +22,7 @@ type ProfileHandler struct {
 	cache *cache.Cache
 }
 
+// NewProfileHandler creates a ProfileHandler wired to the given database, config, and cache.
 func NewProfileHandler(db *gorm.DB, cfg *config.Config, c *cache.Cache) *ProfileHandler {
 	return &ProfileHandler{db: db, cfg: cfg, cache: c}
 }

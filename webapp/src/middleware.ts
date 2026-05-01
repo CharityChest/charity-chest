@@ -1,10 +1,13 @@
 import createMiddleware from 'next-intl/middleware';
 import { routing } from './i18n/routing';
 
+/** next-intl middleware: detects the locale from the URL and redirects accordingly. */
 export default createMiddleware(routing);
 
+/**
+ * Next.js middleware matcher config.
+ * Applies to the root path and all locale-prefixed paths; static assets are excluded.
+ */
 export const config = {
-  // Match the root and any path under a supported locale.
-  // Static files (_next, favicon, etc.) are intentionally excluded.
   matcher: ['/', '/(en|it)/:path*'],
 };

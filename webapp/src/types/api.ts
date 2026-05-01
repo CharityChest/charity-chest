@@ -1,5 +1,7 @@
-// Mirrors the JSON-serialised User model from the Go server.
-// Fields tagged `json:"-"` on the server (PasswordHash, GoogleID, TOTPSecret) are never present here.
+/**
+ * Mirrors the JSON-serialised User model from the Go server.
+ * Fields tagged `json:"-"` on the server (PasswordHash, GoogleID, TOTPSecret) are never present here.
+ */
 export interface User {
   id: number;
   email: string;
@@ -10,13 +12,13 @@ export interface User {
   updated_at: string;
 }
 
-// Returned by POST /v1/auth/register.
+/** Returned by POST /v1/auth/register. */
 export interface AuthResponse {
   token: string;
   user: User;
 }
 
-// Returned by POST /v1/auth/login — either a full token or an MFA challenge.
+/** Returned by POST /v1/auth/login — either a full token or an MFA challenge. */
 export interface LoginResponse {
   token?: string;
   user?: User;
@@ -24,22 +26,23 @@ export interface LoginResponse {
   mfa_token?: string;
 }
 
-// Returned by GET /v1/api/profile/mfa/setup.
+/** Returned by GET /v1/api/profile/mfa/setup. */
 export interface MFASetupResponse {
   uri: string;
   secret: string;
 }
 
-// Returned by POST /v1/api/profile/mfa/enable and DELETE /v1/api/profile/mfa.
+/** Returned by POST /v1/api/profile/mfa/enable and DELETE /v1/api/profile/mfa. */
 export interface MFAStatusResponse {
   mfa_enabled: boolean;
 }
 
-// Returned by GET /v1/system/status.
+/** Returned by GET /v1/system/status. */
 export interface SystemStatus {
   configured: boolean;
 }
 
+/** Returned by GET /v1/api/orgs and GET /v1/api/orgs/:orgID. */
 export interface Organization {
   id: number;
   name: string;
@@ -48,6 +51,7 @@ export interface Organization {
   members?: OrganizationMember[];
 }
 
+/** A single row from GET /v1/api/orgs/:orgID/members. */
 export interface OrganizationMember {
   id: number;
   org_id: number;
@@ -58,6 +62,7 @@ export interface OrganizationMember {
   user?: User;
 }
 
+/** Pagination metadata included in every paginated list response. */
 export interface PaginationMeta {
   page: number;
   size: number;
@@ -65,17 +70,20 @@ export interface PaginationMeta {
   total_pages: number;
 }
 
+/** Envelope for paginated list responses: `{ data: T[], metadata: PaginationMeta }`. */
 export interface PaginatedResult<T> {
   data: T[];
   metadata: PaginationMeta;
 }
 
+/** Organisation summary embedded in admin user-search results. */
 export interface OrgSummary {
   id: number;
   name: string;
   role: string;
 }
 
+/** Returned by GET /v1/api/admin/users — a user record enriched with org memberships. */
 export interface UserWithOrgs extends User {
   organizations: OrgSummary[];
 }

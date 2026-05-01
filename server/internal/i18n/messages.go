@@ -4,6 +4,7 @@ package i18n
 // message key is expected.
 type Key string
 
+// Message key constants passed to T to look up a translated error string.
 const (
 	KeyInvalidBody        Key = "invalid_body"
 	KeyFieldsRequired     Key = "fields_required"
