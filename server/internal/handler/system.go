@@ -41,7 +41,9 @@ func (h *SystemHandler) SystemStatus(c echo.Context) error {
 	}
 
 	var count int64
-	h.db.Model(&model.User{}).Where("role = ? AND deleted_at IS NULL", model.RoleRoot).Count(&count)
+	if err := h.db.Model(&model.User{}).Where("role = ? AND deleted_at IS NULL", model.RoleRoot).Count(&count).Error; err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to query system status")
+	}
 	resp = systemStatusResponse{Configured: count > 0}
 
 	// Only cache the configured=true state. configured=false is transient (exists only
