@@ -169,16 +169,16 @@ func TestLoad_CacheTTL_Custom(t *testing.T) {
 	}
 }
 
-func TestLoad_CacheTTL_InvalidFallsBackToDefault(t *testing.T) {
+func TestLoad_CacheTTL_InvalidReturnsError(t *testing.T) {
 	setEnv(t, allRequired)
 	t.Setenv("CACHE_TTL", "not-a-duration")
 
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for invalid CACHE_TTL, got nil")
 	}
-	if cfg.CacheTTL != 5*time.Minute {
-		t.Errorf("CacheTTL = %v, want default 5m for invalid input", cfg.CacheTTL)
+	if !strings.Contains(err.Error(), "CACHE_TTL") {
+		t.Errorf("error %q does not mention CACHE_TTL", err.Error())
 	}
 }
 
