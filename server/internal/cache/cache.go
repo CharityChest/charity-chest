@@ -73,7 +73,7 @@ func (c *Cache) Del(ctx context.Context, keys ...string) error {
 }
 
 // DelPattern removes all keys matching a glob pattern via SCAN + DEL.
-// Non-fatal: errors are logged but not returned.
+// SCAN errors are returned to the caller; individual DEL errors are logged and not propagated.
 func (c *Cache) DelPattern(ctx context.Context, pattern string) error {
 	if !c.enabled {
 		return nil
