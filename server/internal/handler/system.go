@@ -42,7 +42,7 @@ func (h *SystemHandler) SystemStatus(c echo.Context) error {
 
 	var count int64
 	if err := h.db.Model(&model.User{}).Where("role = ? AND deleted_at IS NULL", model.RoleRoot).Count(&count).Error; err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to query system status")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeySystemStatusQueryFailed))
 	}
 	resp = systemStatusResponse{Configured: count > 0}
 

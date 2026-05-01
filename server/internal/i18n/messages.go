@@ -32,7 +32,8 @@ const (
 	KeyMemberNotFound      Key = "member_not_found"
 	KeyInvalidRole         Key = "invalid_role"
 	KeyCannotManageRole    Key = "cannot_manage_role"
-	KeySystemNotConfigured Key = "system_not_configured"
+	KeySystemNotConfigured      Key = "system_not_configured"
+	KeySystemStatusQueryFailed Key = "system_status_query_failed"
 
 	KeyMFACodeRequired        Key = "mfa_code_required"
 	KeyMFAInvalidCode         Key = "mfa_invalid_code"
@@ -74,7 +75,8 @@ var messages = map[string]map[Key]string{
 		KeyMemberNotFound:      "member not found",
 		KeyInvalidRole:         "invalid role",
 		KeyCannotManageRole:    "you do not have permission to assign this role",
-		KeySystemNotConfigured: "system not yet configured",
+		KeySystemNotConfigured:      "system not yet configured",
+		KeySystemStatusQueryFailed: "failed to query system status",
 
 		KeyMFACodeRequired:        "mfa code is required",
 		KeyMFAInvalidCode:         "invalid mfa code",
@@ -112,7 +114,8 @@ var messages = map[string]map[Key]string{
 		KeyMemberNotFound:      "membro non trovato",
 		KeyInvalidRole:         "ruolo non valido",
 		KeyCannotManageRole:    "non hai i permessi per assegnare questo ruolo",
-		KeySystemNotConfigured: "sistema non ancora configurato",
+		KeySystemNotConfigured:      "sistema non ancora configurato",
+		KeySystemStatusQueryFailed: "errore nella verifica dello stato del sistema",
 
 		KeyMFACodeRequired:        "il codice mfa è obbligatorio",
 		KeyMFAInvalidCode:         "codice mfa non valido",
