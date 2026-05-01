@@ -211,7 +211,7 @@ make clean
 - **E2e tests**: `internal/routes/v1/routes_test.go` exercises every endpoint through the full Echo stack (all middleware in the chain). `newServer(t)` wires `RegisterHealth` + `RegisterAuth` + `RegisterAPI` + `RegisterSystem` + `RegisterOrgs` against an in-memory SQLite DB — no external services required.
 - **No testify**: tests use only the standard `testing` package.
 - **Migrations**: always add a matching `.down.sql` for every `.up.sql`.
-- **Cache**: all handlers receive a `*cache.Cache`; pass `cache.Disabled()` in tests. Cache errors are non-fatal — log with `log.Printf` and fall through to the database. Never skip cache invalidation on a successful write.
+- **Cache**: selected handler groups (`AuthHandler`, `OrgHandler`, `AdminHandler`, `SystemHandler`, `ProfileHandler`) receive a `*cache.Cache`. For basic functional handler tests pass `cache.Disabled()`. For tests that specifically exercise cache hit/miss/invalidation/error paths, use an in-process `miniredis` instance via `newMiniRedisCache(t)` (defined in `auth_test.go`); miniredis is in-memory and satisfies the "no external services" rule. Cache errors are non-fatal — log with `log.Printf` and fall through to the database. Never skip cache invalidation on a successful write.
 
 ---
 
