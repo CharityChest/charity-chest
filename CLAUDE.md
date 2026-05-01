@@ -223,7 +223,7 @@ The cache layer lives in `internal/cache/`. It wraps Valkey (Redis-compatible) v
 
 | Key | Endpoint | Invalidated by |
 |---|---|---|
-| `system:status` | `GET /v1/system/status` | TTL only (root created via CLI) |
+| `system:status` | `GET /v1/system/status` | Only `configured=true` is cached; `configured=false` is never stored |
 | `user:{id}` | `GET /v1/api/me` | EnableMFA, DisableMFA, AssignSystemRole, Google link |
 | `orgs:list` | `GET /v1/api/orgs` | CreateOrg, UpdateOrg, DeleteOrg |
 | `org:{id}` | `GET /v1/api/orgs/:orgID` | UpdateOrg, DeleteOrg |

@@ -383,7 +383,7 @@ The server supports an optional Valkey (Redis-compatible) cache layer to reduce 
 
 | Cache key | Endpoint | Invalidated by |
 |---|---|---|
-| `system:status` | `GET /v1/system/status` | TTL expiry only (root user created via CLI) |
+| `system:status` | `GET /v1/system/status` | Only `configured=true` is cached; `configured=false` is never stored (avoids stale response after `seed-root` runs) |
 | `user:{id}` | `GET /v1/api/me` | MFA enable/disable, `assign-role`, Google account link |
 | `orgs:list` | `GET /v1/api/orgs` | Create / update / delete org |
 | `org:{id}` | `GET /v1/api/orgs/:orgID` | Update / delete org |

@@ -209,27 +209,54 @@ func callSystemStatus(t *testing.T, h *handler.SystemHandler) map[string]any {
 	return decodeBody(t, rec)["data"].(map[string]any)
 }
 
-// TestSystemStatus_CacheHit proves the second call returns the cached value even
-// after a root user is added to the DB.
-func TestSystemStatus_CacheHit(t *testing.T) {
+// TestSystemStatus_FalseIsNeverCached verifies that configured=false is never
+// stored in the cache, so a subsequent call after seed-root creates the root user
+// immediately reflects the real DB state instead of serving a stale response.
+func TestSystemStatus_FalseIsNeverCached(t *testing.T) {
 	db := newTestDB(t)
 	_, c := newMiniRedisCache(t)
 	h := handler.NewSystemHandler(db, c)
 
-	// First call: no root → configured=false, stored in cache.
+	// First call: no root → configured=false, must NOT be cached.
 	data := callSystemStatus(t, h)
 	if data["configured"] != false {
 		t.Fatalf("expected configured=false before root exists")
 	}
 
-	// Add a root user directly to the DB.
+	// Simulate seed-root writing directly to the DB (no cache interaction).
 	role := model.RoleRoot
 	db.Create(&model.User{Email: "root@example.com", Name: "Root", Role: &role})
 
-	// Second call: cache hit → still returns configured=false.
+	// Second call: must reflect the new DB state, not a stale cached false.
 	data = callSystemStatus(t, h)
-	if data["configured"] != false {
-		t.Errorf("expected cache hit to return false, got %v", data["configured"])
+	if data["configured"] != true {
+		t.Errorf("configured = %v after root created; want true (false must not be cached)", data["configured"])
+	}
+}
+
+// TestSystemStatus_TrueIsCachedAndServedOnHit verifies that configured=true is
+// cached and subsequent calls are served from cache without hitting the DB.
+func TestSystemStatus_TrueIsCachedAndServedOnHit(t *testing.T) {
+	db := newTestDB(t)
+	_, c := newMiniRedisCache(t)
+	h := handler.NewSystemHandler(db, c)
+
+	role := model.RoleRoot
+	db.Create(&model.User{Email: "root@example.com", Name: "Root", Role: &role})
+
+	// First call: configured=true → stored in cache.
+	data := callSystemStatus(t, h)
+	if data["configured"] != true {
+		t.Fatalf("expected configured=true")
+	}
+
+	// Delete the root user from DB to prove the next call is served from cache.
+	db.Exec("DELETE FROM users")
+
+	// Second call: cache hit → still returns configured=true.
+	data = callSystemStatus(t, h)
+	if data["configured"] != true {
+		t.Errorf("cache hit should return true, got %v", data["configured"])
 	}
 }
 

@@ -44,8 +44,13 @@ func (h *SystemHandler) SystemStatus(c echo.Context) error {
 	h.db.Model(&model.User{}).Where("role = ? AND deleted_at IS NULL", model.RoleRoot).Count(&count)
 	resp = systemStatusResponse{Configured: count > 0}
 
-	if err := h.cache.Set(ctx, cache.KeySystemStatus, resp); err != nil {
-		log.Printf("cache: set %s: %v", cache.KeySystemStatus, err)
+	// Only cache the configured=true state. configured=false is transient (exists only
+	// before seed-root runs) and must not be cached — the CLI writes directly to the DB
+	// without touching the cache, so a cached false would stay stale until TTL expiry.
+	if resp.Configured {
+		if err := h.cache.Set(ctx, cache.KeySystemStatus, resp); err != nil {
+			log.Printf("cache: set %s: %v", cache.KeySystemStatus, err)
+		}
 	}
 
 	return dataJSON(c, http.StatusOK, resp)
