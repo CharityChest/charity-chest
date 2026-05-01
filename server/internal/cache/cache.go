@@ -25,6 +25,7 @@ func New(url string, ttl time.Duration) (*Cache, error) {
 	}
 	client := redis.NewClient(opts)
 	if err := client.Ping(context.Background()).Err(); err != nil {
+		_ = client.Close()
 		return nil, err
 	}
 	return &Cache{enabled: true, client: client, ttl: ttl}, nil
