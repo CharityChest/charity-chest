@@ -2,9 +2,11 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
+	"charity-chest/internal/cache"
 	"charity-chest/internal/i18n"
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
@@ -15,12 +17,13 @@ import (
 
 // OrgHandler handles organization CRUD and member management endpoints.
 type OrgHandler struct {
-	db *gorm.DB
+	db    *gorm.DB
+	cache *cache.Cache
 }
 
 // NewOrgHandler creates an OrgHandler backed by the given database.
-func NewOrgHandler(db *gorm.DB) *OrgHandler {
-	return &OrgHandler{db: db}
+func NewOrgHandler(db *gorm.DB, c *cache.Cache) *OrgHandler {
+	return &OrgHandler{db: db, cache: c}
 }
 
 // --- Request types ---
@@ -46,10 +49,23 @@ type updateMemberRequest struct {
 
 // ListOrgs godoc — GET /v1/api/orgs
 func (h *OrgHandler) ListOrgs(c echo.Context) error {
+	ctx := c.Request().Context()
+
 	var orgs []model.Organization
+	if hit, err := h.cache.Get(ctx, cache.KeyOrgsList, &orgs); err != nil {
+		log.Printf("cache: get %s: %v", cache.KeyOrgsList, err)
+	} else if hit {
+		return dataJSON(c, http.StatusOK, orgs)
+	}
+
 	if err := h.db.Find(&orgs).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list organizations")
 	}
+
+	if err := h.cache.Set(ctx, cache.KeyOrgsList, orgs); err != nil {
+		log.Printf("cache: set %s: %v", cache.KeyOrgsList, err)
+	}
+
 	return dataJSON(c, http.StatusOK, orgs)
 }
 
@@ -67,17 +83,38 @@ func (h *OrgHandler) CreateOrg(c echo.Context) error {
 	if err := h.db.Create(&org).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create organization")
 	}
+	if err := h.cache.Del(c.Request().Context(), cache.KeyOrgsList); err != nil {
+		log.Printf("cache: invalidate after create org: %v", err)
+	}
 	return dataJSON(c, http.StatusCreated, &org)
 }
 
 // GetOrg godoc — GET /v1/api/orgs/:orgID
 func (h *OrgHandler) GetOrg(c echo.Context) error {
 	loc := locale(c)
-	org, err := h.loadOrg(c)
+	orgID, err := parseOrgID(c)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
-	return dataJSON(c, http.StatusOK, org)
+	ctx := c.Request().Context()
+	key := cache.KeyOrg(orgID)
+
+	var org model.Organization
+	if hit, err := h.cache.Get(ctx, key, &org); err != nil {
+		log.Printf("cache: get %s: %v", key, err)
+	} else if hit {
+		return dataJSON(c, http.StatusOK, &org)
+	}
+
+	if err := h.db.First(&org, orgID).Error; err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+	}
+
+	if err := h.cache.Set(ctx, key, &org); err != nil {
+		log.Printf("cache: set %s: %v", key, err)
+	}
+
+	return dataJSON(c, http.StatusOK, &org)
 }
 
 // UpdateOrg godoc — PUT /v1/api/orgs/:orgID
@@ -97,6 +134,9 @@ func (h *OrgHandler) UpdateOrg(c echo.Context) error {
 	if err := h.db.Save(org).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update organization")
 	}
+	if err := h.cache.Del(c.Request().Context(), cache.KeyOrgsList, cache.KeyOrg(org.ID)); err != nil {
+		log.Printf("cache: invalidate after update org %d: %v", org.ID, err)
+	}
 	return dataJSON(c, http.StatusOK, org)
 }
 
@@ -110,6 +150,9 @@ func (h *OrgHandler) DeleteOrg(c echo.Context) error {
 	if err := h.db.Delete(org).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete organization")
 	}
+	if err := h.cache.Del(c.Request().Context(), cache.KeyOrgsList, cache.KeyOrg(org.ID), cache.KeyOrgMembers(org.ID)); err != nil {
+		log.Printf("cache: invalidate after delete org %d: %v", org.ID, err)
+	}
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -122,10 +165,24 @@ func (h *OrgHandler) ListMembers(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
 	}
+	ctx := c.Request().Context()
+	key := cache.KeyOrgMembers(orgID)
+
 	var members []model.OrgMember
+	if hit, err := h.cache.Get(ctx, key, &members); err != nil {
+		log.Printf("cache: get %s: %v", key, err)
+	} else if hit {
+		return dataJSON(c, http.StatusOK, members)
+	}
+
 	if err := h.db.Preload("User").Where("org_id = ?", orgID).Find(&members).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list members")
 	}
+
+	if err := h.cache.Set(ctx, key, members); err != nil {
+		log.Printf("cache: set %s: %v", key, err)
+	}
+
 	return dataJSON(c, http.StatusOK, members)
 }
 
@@ -161,6 +218,13 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 	if err := h.db.Create(&member).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to add member")
 	}
+	ctx := c.Request().Context()
+	if err := h.cache.Del(ctx, cache.KeyOrgMembers(orgID)); err != nil {
+		log.Printf("cache: invalidate after add member to org %d: %v", orgID, err)
+	}
+	if err := h.cache.DelPattern(ctx, cache.KeyAdminUsersGlob); err != nil {
+		log.Printf("cache: invalidate admin users after add member: %v", err)
+	}
 	return dataJSON(c, http.StatusCreated, &member)
 }
 
@@ -194,6 +258,13 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 	if err := h.db.Save(&member).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update member")
 	}
+	ctx := c.Request().Context()
+	if err := h.cache.Del(ctx, cache.KeyOrgMembers(orgID)); err != nil {
+		log.Printf("cache: invalidate after update member in org %d: %v", orgID, err)
+	}
+	if err := h.cache.DelPattern(ctx, cache.KeyAdminUsersGlob); err != nil {
+		log.Printf("cache: invalidate admin users after update member: %v", err)
+	}
 	return dataJSON(c, http.StatusOK, &member)
 }
 
@@ -220,6 +291,13 @@ func (h *OrgHandler) RemoveMember(c echo.Context) error {
 
 	if err := h.db.Delete(&member).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to remove member")
+	}
+	ctx := c.Request().Context()
+	if err := h.cache.Del(ctx, cache.KeyOrgMembers(orgID)); err != nil {
+		log.Printf("cache: invalidate after remove member from org %d: %v", orgID, err)
+	}
+	if err := h.cache.DelPattern(ctx, cache.KeyAdminUsersGlob); err != nil {
+		log.Printf("cache: invalidate admin users after remove member: %v", err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }

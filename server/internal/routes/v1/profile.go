@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"charity-chest/internal/cache"
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
 	"charity-chest/internal/middleware"
@@ -9,8 +10,8 @@ import (
 	"gorm.io/gorm"
 )
 
-func RegisterProfile(v1 *echo.Group, db *gorm.DB, cfg *config.Config, jwtSecret string) {
-	h := handler.NewProfileHandler(db, cfg)
+func RegisterProfile(v1 *echo.Group, db *gorm.DB, cfg *config.Config, c *cache.Cache, jwtSecret string) {
+	h := handler.NewProfileHandler(db, cfg, c)
 
 	profile := v1.Group("/api/profile")
 	profile.Use(middleware.JWT(jwtSecret))

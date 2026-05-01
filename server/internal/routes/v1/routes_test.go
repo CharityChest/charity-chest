@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"charity-chest/internal/cache"
 	"charity-chest/internal/config"
 	"charity-chest/internal/handler"
 	"charity-chest/internal/middleware"
@@ -52,7 +53,8 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 	t.Helper()
 	db := newTestDB(t)
 	cfg := testCfg()
-	h := handler.NewAuthHandler(db, cfg)
+	noCache := cache.Disabled()
+	h := handler.NewAuthHandler(db, cfg, noCache)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -63,10 +65,10 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 	v1 := e.Group("/v1")
 	routesv1.RegisterAuth(v1, h)
 	routesv1.RegisterAPI(v1, h, cfg.JWTSecret)
-	routesv1.RegisterSystem(v1, db, cfg.JWTSecret)
-	routesv1.RegisterOrgs(v1, db, cfg.JWTSecret)
-	routesv1.RegisterProfile(v1, db, cfg, cfg.JWTSecret)
-	routesv1.RegisterAdmin(v1, db, cfg.JWTSecret)
+	routesv1.RegisterSystem(v1, db, noCache, cfg.JWTSecret)
+	routesv1.RegisterOrgs(v1, db, noCache, cfg.JWTSecret)
+	routesv1.RegisterProfile(v1, db, cfg, noCache, cfg.JWTSecret)
+	routesv1.RegisterAdmin(v1, db, noCache, cfg.JWTSecret)
 
 	return e, db
 }
@@ -556,7 +558,7 @@ func TestMe_TokenSignedWithWrongSecret(t *testing.T) {
 	cfg := testCfg()
 	cfg.JWTSecret = "attacker-secret"
 	db := newTestDB(t)
-	attackerHandler := handler.NewAuthHandler(db, cfg)
+	attackerHandler := handler.NewAuthHandler(db, cfg, cache.Disabled())
 	attackerEcho := echo.New()
 	attackerEcho.Use(middleware.Locale())
 	v1 := attackerEcho.Group("/v1")

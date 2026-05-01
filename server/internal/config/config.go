@@ -2,8 +2,10 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -16,6 +18,9 @@ type Config struct {
 	GoogleRedirectURL  string
 	FrontendURL        string
 	Port               string
+	CacheEnabled       bool
+	CacheURL           string
+	CacheTTL           time.Duration
 }
 
 // Load reads configuration from environment variables.
@@ -31,7 +36,15 @@ func Load() (*Config, error) {
 		GoogleRedirectURL:  envOrDefault("GOOGLE_REDIRECT_URL", "http://localhost:8080/v1/auth/google/callback"),
 		FrontendURL:        envOrDefault("FRONTEND_URL", "http://localhost:3000"),
 		Port:               envOrDefault("PORT", "8080"),
+		CacheEnabled: os.Getenv("CACHE_ENABLED") == "true",
+		CacheURL:     envOrDefault("CACHE_URL", "redis://localhost:6379"),
 	}
+
+	cacheTTL, err := parseDuration(os.Getenv("CACHE_TTL"), 5*time.Minute)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CACHE_TTL: %w", err)
+	}
+	cfg.CacheTTL = cacheTTL
 
 	var missing []string
 	if cfg.DatabaseURL == "" {
@@ -59,4 +72,11 @@ func envOrDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func parseDuration(s string, def time.Duration) (time.Duration, error) {
+	if s == "" {
+		return def, nil
+	}
+	return time.ParseDuration(s)
 }

@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"charity-chest/internal/cache"
 	"charity-chest/internal/handler"
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
@@ -21,8 +22,8 @@ import (
 //	POST   /v1/api/orgs/:orgID/members          — hierarchy enforced in handler
 //	PUT    /v1/api/orgs/:orgID/members/:userID  — hierarchy enforced in handler
 //	DELETE /v1/api/orgs/:orgID/members/:userID  — hierarchy enforced in handler
-func RegisterOrgs(v1 *echo.Group, db *gorm.DB, jwtSecret string) {
-	h := handler.NewOrgHandler(db)
+func RegisterOrgs(v1 *echo.Group, db *gorm.DB, c *cache.Cache, jwtSecret string) {
+	h := handler.NewOrgHandler(db, c)
 
 	orgs := v1.Group("/api/orgs")
 	orgs.Use(middleware.JWT(jwtSecret))

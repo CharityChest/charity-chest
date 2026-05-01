@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"log"
 	"math"
 	"net/http"
 	"strconv"
 	"time"
 
+	"charity-chest/internal/cache"
 	"charity-chest/internal/model"
 
 	"github.com/labstack/echo/v4"
@@ -14,12 +16,13 @@ import (
 
 // AdminHandler handles root-only administration endpoints.
 type AdminHandler struct {
-	db *gorm.DB
+	db    *gorm.DB
+	cache *cache.Cache
 }
 
 // NewAdminHandler creates an AdminHandler backed by the given database.
-func NewAdminHandler(db *gorm.DB) *AdminHandler {
-	return &AdminHandler{db: db}
+func NewAdminHandler(db *gorm.DB, c *cache.Cache) *AdminHandler {
+	return &AdminHandler{db: db, cache: c}
 }
 
 type orgSummary struct {
@@ -45,6 +48,11 @@ type orgMemberRow struct {
 	Role    model.MemberRole
 }
 
+type cachedSearchResult struct {
+	Data []userWithOrgs `json:"data"`
+	Meta PaginationMeta `json:"meta"`
+}
+
 // SearchUsers handles GET /v1/api/admin/users
 // Query params: email (optional partial match), page (default 1), size (default 20, max 100).
 func (h *AdminHandler) SearchUsers(c echo.Context) error {
@@ -60,6 +68,15 @@ func (h *AdminHandler) SearchUsers(c echo.Context) error {
 		size = 100
 	}
 	email := c.QueryParam("email")
+	ctx := c.Request().Context()
+	key := cache.KeyAdminUsers(email, page, size)
+
+	var cached cachedSearchResult
+	if hit, err := h.cache.Get(ctx, key, &cached); err != nil {
+		log.Printf("cache: get %s: %v", key, err)
+	} else if hit {
+		return dataWithMetaJSON(c, http.StatusOK, cached.Data, cached.Meta)
+	}
 
 	q := h.db.Model(&model.User{})
 	if email != "" {
@@ -114,5 +131,10 @@ func (h *AdminHandler) SearchUsers(c echo.Context) error {
 	}
 
 	meta := PaginationMeta{Page: page, Size: size, Total: total, TotalPages: totalPages}
+
+	if err := h.cache.Set(ctx, key, cachedSearchResult{Data: result, Meta: meta}); err != nil {
+		log.Printf("cache: set %s: %v", key, err)
+	}
+
 	return dataWithMetaJSON(c, http.StatusOK, result, meta)
 }

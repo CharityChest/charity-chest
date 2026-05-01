@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
+	"charity-chest/internal/cache"
 	"charity-chest/internal/config"
 	"charity-chest/internal/i18n"
 	"charity-chest/internal/middleware"
@@ -39,13 +41,15 @@ const (
 type AuthHandler struct {
 	db          *gorm.DB
 	cfg         *config.Config
+	cache       *cache.Cache
 	oauthConfig *oauth2.Config
 }
 
-func NewAuthHandler(db *gorm.DB, cfg *config.Config) *AuthHandler {
+func NewAuthHandler(db *gorm.DB, cfg *config.Config, c *cache.Cache) *AuthHandler {
 	return &AuthHandler{
-		db:  db,
-		cfg: cfg,
+		db:    db,
+		cfg:   cfg,
+		cache: c,
 		oauthConfig: &oauth2.Config{
 			ClientID:     cfg.GoogleClientID,
 			ClientSecret: cfg.GoogleClientSecret,
@@ -115,6 +119,10 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	}
 	if err := h.db.Create(user).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyCreateUser))
+	}
+
+	if err := h.cache.DelPattern(c.Request().Context(), cache.KeyAdminUsersGlob); err != nil {
+		log.Printf("cache: invalidate after register: %v", err)
 	}
 
 	token, err := h.generateJWT(user)
@@ -286,10 +294,22 @@ func (h *AuthHandler) GoogleCallback(c echo.Context) error {
 // GET /api/me  — protected route, returns the current user
 func (h *AuthHandler) Me(c echo.Context) error {
 	userID := c.Get(middleware.UserIDContextKey).(uint)
+	ctx := c.Request().Context()
+	key := cache.KeyUser(userID)
 
 	var user model.User
+	if hit, err := h.cache.Get(ctx, key, &user); err != nil {
+		log.Printf("cache: get %s: %v", key, err)
+	} else if hit {
+		return dataJSON(c, http.StatusOK, &user)
+	}
+
 	if err := h.db.First(&user, userID).Error; err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, i18n.T(locale(c), i18n.KeyUserNotFound))
+	}
+
+	if err := h.cache.Set(ctx, key, &user); err != nil {
+		log.Printf("cache: set %s: %v", key, err)
 	}
 
 	return dataJSON(c, http.StatusOK, &user)
@@ -339,6 +359,7 @@ func fetchGoogleUserInfo(accessToken string) (*googleUserInfo, error) {
 }
 
 func (h *AuthHandler) findOrCreateGoogleUser(gUser *googleUserInfo) (*model.User, error) {
+	ctx := context.Background()
 	var user model.User
 
 	// Try by Google ID first
@@ -354,7 +375,16 @@ func (h *AuthHandler) findOrCreateGoogleUser(gUser *googleUserInfo) (*model.User
 	err = h.db.Where("email = ?", gUser.Email).First(&user).Error
 	if err == nil {
 		user.GoogleID = &gUser.ID
-		return &user, h.db.Save(&user).Error
+		if err := h.db.Save(&user).Error; err != nil {
+			return nil, err
+		}
+		if err := h.cache.Del(ctx, cache.KeyUser(user.ID)); err != nil {
+			log.Printf("cache: invalidate user after google link: %v", err)
+		}
+		if err := h.cache.DelPattern(ctx, cache.KeyAdminUsersGlob); err != nil {
+			log.Printf("cache: invalidate admin users after google link: %v", err)
+		}
+		return &user, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
@@ -366,7 +396,13 @@ func (h *AuthHandler) findOrCreateGoogleUser(gUser *googleUserInfo) (*model.User
 		Name:     gUser.Name,
 		GoogleID: &gUser.ID,
 	}
-	return &user, h.db.Create(&user).Error
+	if err := h.db.Create(&user).Error; err != nil {
+		return nil, err
+	}
+	if err := h.cache.DelPattern(ctx, cache.KeyAdminUsersGlob); err != nil {
+		log.Printf("cache: invalidate admin users after google create: %v", err)
+	}
+	return &user, nil
 }
 
 func (h *AuthHandler) generateJWT(user *model.User) (string, error) {

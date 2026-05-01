@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"charity-chest/internal/handler"
+	"charity-chest/internal/cache"
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 
@@ -67,7 +68,7 @@ func newProfileEchoContext(t *testing.T, method, path, body string, userID uint)
 
 func TestSetupMFA_ReturnsURIAndSecret(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewProfileHandler(db, testCfg())
+	h := handler.NewProfileHandler(db, testCfg(), cache.Disabled())
 
 	user := makeUserForProfile(t, db, "setup@example.com")
 	c, rec := newProfileEchoContext(t, http.MethodGet, "/v1/api/profile/mfa/setup", "", user.ID)
@@ -106,7 +107,7 @@ func TestSetupMFA_ReturnsURIAndSecret(t *testing.T) {
 
 func TestSetupMFA_AlreadyEnabled_Returns409(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewProfileHandler(db, testCfg())
+	h := handler.NewProfileHandler(db, testCfg(), cache.Disabled())
 
 	user := makeUserForProfile(t, db, "already@example.com")
 	setUserMFA(t, db, user.ID, "JBSWY3DPEHPK3PXP", true)
@@ -122,7 +123,7 @@ func TestSetupMFA_AlreadyEnabled_Returns409(t *testing.T) {
 
 func TestEnableMFA_ValidCode_EnablesMFA(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewProfileHandler(db, testCfg())
+	h := handler.NewProfileHandler(db, testCfg(), cache.Disabled())
 
 	user := makeUserForProfile(t, db, "enable@example.com")
 	key, err := totp.Generate(totp.GenerateOpts{Issuer: "test", AccountName: user.Email})
@@ -164,7 +165,7 @@ func TestEnableMFA_ValidCode_EnablesMFA(t *testing.T) {
 
 func TestEnableMFA_InvalidCode_Returns401(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewProfileHandler(db, testCfg())
+	h := handler.NewProfileHandler(db, testCfg(), cache.Disabled())
 
 	user := makeUserForProfile(t, db, "badcode@example.com")
 	setUserMFA(t, db, user.ID, "JBSWY3DPEHPK3PXP", false)
@@ -180,7 +181,7 @@ func TestEnableMFA_InvalidCode_Returns401(t *testing.T) {
 
 func TestEnableMFA_NoSetup_Returns400(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewProfileHandler(db, testCfg())
+	h := handler.NewProfileHandler(db, testCfg(), cache.Disabled())
 
 	user := makeUserForProfile(t, db, "nosetup@example.com")
 	c, _ := newProfileEchoContext(t, http.MethodPost, "/v1/api/profile/mfa/enable",
@@ -194,7 +195,7 @@ func TestEnableMFA_NoSetup_Returns400(t *testing.T) {
 
 func TestEnableMFA_AlreadyEnabled_Returns409(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewProfileHandler(db, testCfg())
+	h := handler.NewProfileHandler(db, testCfg(), cache.Disabled())
 
 	user := makeUserForProfile(t, db, "alreadyon@example.com")
 	setUserMFA(t, db, user.ID, "JBSWY3DPEHPK3PXP", true)
@@ -210,7 +211,7 @@ func TestEnableMFA_AlreadyEnabled_Returns409(t *testing.T) {
 
 func TestEnableMFA_MissingCode_Returns400(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewProfileHandler(db, testCfg())
+	h := handler.NewProfileHandler(db, testCfg(), cache.Disabled())
 
 	user := makeUserForProfile(t, db, "nocode@example.com")
 	setUserMFA(t, db, user.ID, "JBSWY3DPEHPK3PXP", false)
@@ -228,7 +229,7 @@ func TestEnableMFA_MissingCode_Returns400(t *testing.T) {
 
 func TestDisableMFA_ValidCode_DisablesMFA(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewProfileHandler(db, testCfg())
+	h := handler.NewProfileHandler(db, testCfg(), cache.Disabled())
 
 	user := makeUserForProfile(t, db, "disable@example.com")
 	key, err := totp.Generate(totp.GenerateOpts{Issuer: "test", AccountName: user.Email})
@@ -273,7 +274,7 @@ func TestDisableMFA_ValidCode_DisablesMFA(t *testing.T) {
 
 func TestDisableMFA_InvalidCode_Returns401(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewProfileHandler(db, testCfg())
+	h := handler.NewProfileHandler(db, testCfg(), cache.Disabled())
 
 	user := makeUserForProfile(t, db, "disablebad@example.com")
 	setUserMFA(t, db, user.ID, "JBSWY3DPEHPK3PXP", true)
@@ -289,7 +290,7 @@ func TestDisableMFA_InvalidCode_Returns401(t *testing.T) {
 
 func TestDisableMFA_NotEnabled_Returns400(t *testing.T) {
 	db := newTestDB(t)
-	h := handler.NewProfileHandler(db, testCfg())
+	h := handler.NewProfileHandler(db, testCfg(), cache.Disabled())
 
 	user := makeUserForProfile(t, db, "notmfa@example.com")
 	c, _ := newProfileEchoContext(t, http.MethodDelete, "/v1/api/profile/mfa",

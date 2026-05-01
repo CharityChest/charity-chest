@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
+	"charity-chest/internal/cache"
 	"charity-chest/internal/config"
 	"charity-chest/internal/i18n"
 	"charity-chest/internal/middleware"
@@ -15,12 +17,13 @@ import (
 
 // ProfileHandler handles user profile and MFA management.
 type ProfileHandler struct {
-	db  *gorm.DB
-	cfg *config.Config
+	db    *gorm.DB
+	cfg   *config.Config
+	cache *cache.Cache
 }
 
-func NewProfileHandler(db *gorm.DB, cfg *config.Config) *ProfileHandler {
-	return &ProfileHandler{db: db, cfg: cfg}
+func NewProfileHandler(db *gorm.DB, cfg *config.Config, c *cache.Cache) *ProfileHandler {
+	return &ProfileHandler{db: db, cfg: cfg, cache: c}
 }
 
 // --- Request / Response types ---
@@ -103,6 +106,10 @@ func (h *ProfileHandler) EnableMFA(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyMFAGenerateSecret))
 	}
 
+	if err := h.cache.Del(c.Request().Context(), cache.KeyUser(userID)); err != nil {
+		log.Printf("cache: invalidate user after enable MFA: %v", err)
+	}
+
 	return dataJSON(c, http.StatusOK, mfaStatusResponse{MFAEnabled: true})
 }
 
@@ -135,6 +142,10 @@ func (h *ProfileHandler) DisableMFA(c echo.Context) error {
 	user.TOTPSecret = nil
 	if err := h.db.Save(&user).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyMFAGenerateSecret))
+	}
+
+	if err := h.cache.Del(c.Request().Context(), cache.KeyUser(userID)); err != nil {
+		log.Printf("cache: invalidate user after disable MFA: %v", err)
 	}
 
 	return dataJSON(c, http.StatusOK, mfaStatusResponse{MFAEnabled: false})
