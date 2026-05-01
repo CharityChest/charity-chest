@@ -840,6 +840,11 @@ func TestCreateOrg_BrokenCacheInvalidation(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Errorf("status = %d, want 201", rec.Code)
 	}
+
+	var created model.Organization
+	if err := db.Where("name = ?", "New").First(&created).Error; err != nil {
+		t.Errorf("org 'New' not found in DB after CreateOrg: %v", err)
+	}
 }
 
 // TestUpdateOrg_BrokenCacheInvalidation verifies UpdateOrg succeeds when Del fails.
@@ -864,6 +869,14 @@ func TestUpdateOrg_BrokenCacheInvalidation(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
 	}
+
+	var reloaded model.Organization
+	if err := db.First(&reloaded, org.ID).Error; err != nil {
+		t.Fatalf("reload org from DB: %v", err)
+	}
+	if reloaded.Name != "Updated" {
+		t.Errorf("org name in DB = %q, want Updated", reloaded.Name)
+	}
 }
 
 // TestDeleteOrg_BrokenCacheInvalidation verifies DeleteOrg succeeds when Del fails.
@@ -883,6 +896,11 @@ func TestDeleteOrg_BrokenCacheInvalidation(t *testing.T) {
 	}
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want 204", rec.Code)
+	}
+
+	var gone model.Organization
+	if err := db.First(&gone, org.ID).Error; err == nil {
+		t.Errorf("org %d still found in DB after DeleteOrg", org.ID)
 	}
 }
 
@@ -910,6 +928,11 @@ func TestAddMember_BrokenCacheInvalidation(t *testing.T) {
 	}
 	if rec.Code != http.StatusCreated {
 		t.Errorf("status = %d, want 201", rec.Code)
+	}
+
+	var member model.OrgMember
+	if err := db.Where("org_id = ? AND user_id = ?", org.ID, user.ID).First(&member).Error; err != nil {
+		t.Errorf("member not found in DB after AddMember: %v", err)
 	}
 }
 
@@ -939,6 +962,14 @@ func TestUpdateMember_BrokenCacheInvalidation(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	var member model.OrgMember
+	if err := db.Where("org_id = ? AND user_id = ?", org.ID, user.ID).First(&member).Error; err != nil {
+		t.Fatalf("reload member from DB: %v", err)
+	}
+	if member.Role != model.OrgRoleAdmin {
+		t.Errorf("member role in DB = %q, want admin", member.Role)
 	}
 }
 
@@ -970,6 +1001,11 @@ func TestRemoveMember_BrokenCacheInvalidation(t *testing.T) {
 	}
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want 204", rec.Code)
+	}
+
+	var gone model.OrgMember
+	if err := db.Where("org_id = ? AND user_id = ?", org.ID, target.ID).First(&gone).Error; err == nil {
+		t.Errorf("member (user %d) still found in DB after RemoveMember", target.ID)
 	}
 }
 
