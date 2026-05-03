@@ -39,11 +39,13 @@ func newTestDB(t *testing.T) *gorm.DB {
 
 func testCfg() *config.Config {
 	return &config.Config{
-		JWTSecret:          "e2e-test-jwt-secret",
-		GoogleClientID:     "test-google-client-id",
-		GoogleClientSecret: "test-google-client-secret",
-		GoogleRedirectURL:  "http://localhost:8080/v1/auth/google/callback",
-		Port:               "8080",
+		AppEnv:              config.AppEnvTesting,
+		JWTSecret:           "e2e-test-jwt-secret",
+		GoogleClientID:      "test-google-client-id",
+		GoogleClientSecret:  "test-google-client-secret",
+		GoogleRedirectURL:   "http://localhost:8080/v1/auth/google/callback",
+		Port:                "8080",
+		StripeWebhookSecret: "whsec_test",
 	}
 }
 

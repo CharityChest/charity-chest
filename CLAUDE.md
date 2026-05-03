@@ -270,7 +270,7 @@ Organisations have one of three subscription plans stored in `organizations.plan
 - Downgrades do **not** remove existing over-limit members ("grandfathering") — only new additions are blocked.
 - Plan type, constants, and `LimitsFor()` live in `model/plan.go`.
 - Stripe integration is optional: set `STRIPE_SECRET_KEY` to enable. Billing endpoints return 503 when unset.
-- `HandleWebhook` skips signature verification only outside production (`APP_ENV != production`), enabling local dev and automated tests to send raw payloads. In production with `STRIPE_WEBHOOK_SECRET` unset the endpoint returns 503 immediately — unsigned events are never processed.
+- `HandleWebhook` returns 503 immediately when `STRIPE_WEBHOOK_SECRET` is unset, in **any** environment — unsigned events are never processed. When the secret is set and `APP_ENV != production`, signature verification is skipped so local dev and automated tests can send raw payloads. In production the `Stripe-Signature` header is always validated.
 - The `StripeGateway` interface in `handler/billing.go` is exported so tests can inject a mock via `NewBillingHandlerWithGateway`. The real gateway (`stripeGoGateway`) is constructed once with a per-client `*stripeclient.API` — the global `stripe.Key` is never mutated.
 
 ---

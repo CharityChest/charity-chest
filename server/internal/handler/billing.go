@@ -136,12 +136,12 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 
 // HandleWebhook godoc — POST /stripe/webhook
 // Processes Stripe subscription lifecycle events to update org plans.
-// In production (APP_ENV=production) a missing STRIPE_WEBHOOK_SECRET is rejected
-// immediately so unsigned events can never alter plan state. Outside production,
-// signature verification is skipped to support local dev and automated tests.
+// Returns 503 immediately when STRIPE_WEBHOOK_SECRET is not configured so that
+// unsigned events can never alter plan state. Outside production, signature
+// verification is skipped to support local dev and automated tests.
 func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 	loc := locale(c)
-	if h.cfg.AppEnv == config.AppEnvProduction && h.cfg.StripeWebhookSecret == "" {
+	if h.cfg.StripeWebhookSecret == "" {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, i18n.T(loc, i18n.KeyStripeNotConfigured))
 	}
 
@@ -151,15 +151,15 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 	}
 
 	var event stripe.Event
-	if h.cfg.StripeWebhookSecret != "" {
+	if h.cfg.AppEnv != config.AppEnvProduction {
+		if err := json.Unmarshal(payload, &event); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidEventPayload))
+		}
+	} else {
 		sig := c.Request().Header.Get("Stripe-Signature")
 		event, err = stripewebhook.ConstructEvent(payload, sig, h.cfg.StripeWebhookSecret)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidWebhookSignature))
-		}
-	} else {
-		if err := json.Unmarshal(payload, &event); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidEventPayload))
 		}
 	}
 
