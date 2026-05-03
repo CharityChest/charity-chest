@@ -68,6 +68,17 @@ func Load() (*Config, error) {
 		missing = append(missing, "GOOGLE_CLIENT_SECRET")
 	}
 
+	// When Stripe is enabled (STRIPE_SECRET_KEY is set), all three vars are required.
+	// A partial Stripe config would allow webhooks without signature verification.
+	if cfg.StripeSecretKey != "" {
+		if cfg.StripeWebhookSecret == "" {
+			missing = append(missing, "STRIPE_WEBHOOK_SECRET")
+		}
+		if cfg.StripePriceIDPro == "" {
+			missing = append(missing, "STRIPE_PRO_PRICE_ID")
+		}
+	}
+
 	if len(missing) > 0 {
 		return nil, errors.New("missing required environment variables: " + strings.Join(missing, ", "))
 	}

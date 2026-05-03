@@ -194,3 +194,90 @@ func TestLoad_CacheURL_Default(t *testing.T) {
 		t.Errorf("CacheURL = %q, want redis://localhost:6379", cfg.CacheURL)
 	}
 }
+
+// --- Stripe validation ---
+
+func TestLoad_StripeDisabled_NoValidation(t *testing.T) {
+	// When STRIPE_SECRET_KEY is absent, no Stripe vars are required.
+	setEnv(t, allRequired)
+	t.Setenv("STRIPE_SECRET_KEY", "")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "")
+	t.Setenv("STRIPE_PRO_PRICE_ID", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error with Stripe disabled: %v", err)
+	}
+	if cfg.StripeSecretKey != "" {
+		t.Error("expected empty StripeSecretKey")
+	}
+}
+
+func TestLoad_StripeFullyConfigured_Success(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_xxx")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_xxx")
+	t.Setenv("STRIPE_PRO_PRICE_ID", "price_xxx")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.StripeSecretKey != "sk_test_xxx" {
+		t.Errorf("StripeSecretKey = %q", cfg.StripeSecretKey)
+	}
+	if cfg.StripeWebhookSecret != "whsec_xxx" {
+		t.Errorf("StripeWebhookSecret = %q", cfg.StripeWebhookSecret)
+	}
+	if cfg.StripePriceIDPro != "price_xxx" {
+		t.Errorf("StripePriceIDPro = %q", cfg.StripePriceIDPro)
+	}
+}
+
+func TestLoad_StripeMissingWebhookSecret_ReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_xxx")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "")
+	t.Setenv("STRIPE_PRO_PRICE_ID", "price_xxx")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when STRIPE_WEBHOOK_SECRET is missing")
+	}
+	if !strings.Contains(err.Error(), "STRIPE_WEBHOOK_SECRET") {
+		t.Errorf("error %q does not mention STRIPE_WEBHOOK_SECRET", err.Error())
+	}
+}
+
+func TestLoad_StripeMissingPriceID_ReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_xxx")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_xxx")
+	t.Setenv("STRIPE_PRO_PRICE_ID", "")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when STRIPE_PRO_PRICE_ID is missing")
+	}
+	if !strings.Contains(err.Error(), "STRIPE_PRO_PRICE_ID") {
+		t.Errorf("error %q does not mention STRIPE_PRO_PRICE_ID", err.Error())
+	}
+}
+
+func TestLoad_StripeMissingBothCompanions_ErrorMentionsBoth(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_xxx")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "")
+	t.Setenv("STRIPE_PRO_PRICE_ID", "")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when both companion Stripe vars are missing")
+	}
+	if !strings.Contains(err.Error(), "STRIPE_WEBHOOK_SECRET") {
+		t.Errorf("error %q does not mention STRIPE_WEBHOOK_SECRET", err.Error())
+	}
+	if !strings.Contains(err.Error(), "STRIPE_PRO_PRICE_ID") {
+		t.Errorf("error %q does not mention STRIPE_PRO_PRICE_ID", err.Error())
+	}
+}
