@@ -25,9 +25,9 @@ import (
 // StripeGateway abstracts the Stripe API calls used by BillingHandler.
 // The interface is exported so tests can inject a mock implementation.
 type StripeGateway interface {
-	CreateCheckoutSession(c context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error)
-	CancelSubscription(id string) error
-	RefundPayment(paymentIntentID string) error
+	CreateCheckoutSession(ctx context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error)
+	CancelSubscription(ctx context.Context, id string) error
+	RefundPayment(ctx context.Context, paymentIntentID string) error
 }
 
 // BillingHandler handles subscription plan management and Stripe integration.
@@ -73,18 +73,18 @@ func (g *stripeGoGateway) CreateCheckoutSession(c context.Context, params *strip
 }
 
 // CancelSubscription cancels a Stripe subscription immediately.
-func (g *stripeGoGateway) CancelSubscription(id string) error {
+func (g *stripeGoGateway) CancelSubscription(ctx context.Context, id string) error {
 	params := &stripe.SubscriptionCancelParams{}
-	_, err := g.client.V1Subscriptions.Cancel(context.TODO(), id, params)
+	_, err := g.client.V1Subscriptions.Cancel(ctx, id, params)
 	return err
 }
 
 // RefundPayment issues a full refund for the given PaymentIntent.
-func (g *stripeGoGateway) RefundPayment(paymentIntentID string) error {
+func (g *stripeGoGateway) RefundPayment(ctx context.Context, paymentIntentID string) error {
 	params := &stripe.RefundCreateParams{
 		PaymentIntent: stripe.String(paymentIntentID),
 	}
-	_, err := g.client.V1Refunds.Create(context.TODO(), params)
+	_, err := g.client.V1Refunds.Create(ctx, params)
 	return err
 }
 
@@ -136,7 +136,8 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 		params.Customer = org.StripeCustomerID
 	}
 
-	sess, err := h.stripe.CreateCheckoutSession(context.TODO(), params)
+	ctx := c.Request().Context()
+	sess, err := h.stripe.CreateCheckoutSession(ctx, params)
 	if err != nil {
 		log.Printf("billing: create checkout for org %d: %v", orgID, err)
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyBillingCheckoutFailed))
@@ -204,12 +205,12 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 		if err := h.db.First(&existing, orgID).Error; err == nil && existing.Plan == model.PlanEnterprise {
 			if h.stripe != nil {
 				if sess.Subscription != "" {
-					if err := h.stripe.CancelSubscription(sess.Subscription); err != nil {
+					if err := h.stripe.CancelSubscription(ctx, sess.Subscription); err != nil {
 						log.Printf("webhook: cancel subscription %s for enterprise org %d: %v", sess.Subscription, orgID, err)
 					}
 				}
 				if sess.PaymentIntent != "" {
-					if err := h.stripe.RefundPayment(sess.PaymentIntent); err != nil {
+					if err := h.stripe.RefundPayment(ctx, sess.PaymentIntent); err != nil {
 						log.Printf("webhook: refund payment %s for enterprise org %d: %v", sess.PaymentIntent, orgID, err)
 					}
 				}
@@ -280,7 +281,8 @@ func (h *BillingHandler) CancelSubscription(c echo.Context) error {
 	if org.Plan != model.PlanPro || org.StripeSubscriptionID == nil {
 		return echo.NewHTTPError(http.StatusUnprocessableEntity, i18n.T(loc, i18n.KeySubscriptionNotFound))
 	}
-	if err := h.stripe.CancelSubscription(*org.StripeSubscriptionID); err != nil {
+	ctx := c.Request().Context()
+	if err := h.stripe.CancelSubscription(ctx, *org.StripeSubscriptionID); err != nil {
 		log.Printf("billing: cancel subscription for org %d: %v", orgID, err)
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyCancelSubscriptionFailed))
 	}
@@ -303,6 +305,7 @@ func (h *BillingHandler) AssignEnterprisePlan(c echo.Context) error {
 	if org.Plan == model.PlanEnterprise {
 		return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyPlanAlreadyActive))
 	}
+	ctx := c.Request().Context()
 	updates := map[string]any{
 		"plan": model.PlanEnterprise,
 	}
@@ -310,7 +313,7 @@ func (h *BillingHandler) AssignEnterprisePlan(c echo.Context) error {
 		if h.stripe == nil {
 			return echo.NewHTTPError(http.StatusServiceUnavailable, i18n.T(loc, i18n.KeyStripeNotConfigured))
 		}
-		if err := h.stripe.CancelSubscription(*org.StripeSubscriptionID); err != nil {
+		if err := h.stripe.CancelSubscription(ctx, *org.StripeSubscriptionID); err != nil {
 			log.Printf("billing: cancel stripe subscription for org %d during enterprise upgrade: %v", orgID, err)
 			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyCancelSubscriptionFailed))
 		}
@@ -320,7 +323,6 @@ func (h *BillingHandler) AssignEnterprisePlan(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 
-	ctx := c.Request().Context()
 	if err := h.cache.Del(ctx, cache.KeyOrg(orgID), cache.KeyOrgsList); err != nil {
 		log.Printf("billing: cache invalidate org %d after enterprise: %v", orgID, err)
 	}

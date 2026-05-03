@@ -24,27 +24,27 @@ import (
 
 type mockStripeGateway struct {
 	createFn func(ctx context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error)
-	cancelFn func(id string) error
-	refundFn func(paymentIntentID string) error
+	cancelFn func(ctx context.Context, id string) error
+	refundFn func(ctx context.Context, paymentIntentID string) error
 }
 
-func (m *mockStripeGateway) CreateCheckoutSession(c context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error) {
+func (m *mockStripeGateway) CreateCheckoutSession(ctx context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error) {
 	if m.createFn != nil {
-		return m.createFn(c, params)
+		return m.createFn(ctx, params)
 	}
 	return &stripe.CheckoutSession{URL: "https://checkout.stripe.com/test"}, nil
 }
 
-func (m *mockStripeGateway) CancelSubscription(id string) error {
+func (m *mockStripeGateway) CancelSubscription(ctx context.Context, id string) error {
 	if m.cancelFn != nil {
-		return m.cancelFn(id)
+		return m.cancelFn(ctx, id)
 	}
 	return nil
 }
 
-func (m *mockStripeGateway) RefundPayment(paymentIntentID string) error {
+func (m *mockStripeGateway) RefundPayment(ctx context.Context, paymentIntentID string) error {
 	if m.refundFn != nil {
-		return m.refundFn(paymentIntentID)
+		return m.refundFn(ctx, paymentIntentID)
 	}
 	return nil
 }
