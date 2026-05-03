@@ -468,6 +468,39 @@ func TestAssignEnterprisePlan_CancelsStripeSubscription(t *testing.T) {
 	}
 }
 
+func TestAssignEnterprisePlan_CancelFails_Returns500(t *testing.T) {
+	db := newOrgTestDB(t)
+	subID := "sub_existing"
+	org := model.Organization{Name: "Org", Plan: model.PlanPro, StripeSubscriptionID: &subID}
+	db.Create(&org)
+
+	mock := &mockStripeGateway{
+		cancelFn: func(id string) error {
+			return fmt.Errorf("stripe unreachable")
+		},
+	}
+	root := model.RoleRoot
+	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), newBillingCfgWithStripe(), mock)
+	c, _ := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	err := h.AssignEnterprisePlan(c)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	he, ok := err.(*echo.HTTPError)
+	if !ok || he.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 HTTPError, got %v", err)
+	}
+	// Stripe ID must be preserved; the org must not be promoted.
+	var unchanged model.Organization
+	db.First(&unchanged, org.ID)
+	if unchanged.Plan != model.PlanPro {
+		t.Errorf("plan = %q, want pro (upgrade must be aborted)", unchanged.Plan)
+	}
+	if unchanged.StripeSubscriptionID == nil || *unchanged.StripeSubscriptionID != subID {
+		t.Error("stripe_subscription_id must be preserved when cancellation fails")
+	}
+}
+
 func TestAssignEnterprisePlan_CacheInvalidated(t *testing.T) {
 	db := newOrgTestDB(t)
 	_, c := newMiniRedisCache(t)

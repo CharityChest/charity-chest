@@ -267,10 +267,10 @@ func (h *BillingHandler) AssignEnterprisePlan(c echo.Context) error {
 	if org.Plan == model.PlanEnterprise {
 		return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyPlanAlreadyActive))
 	}
-	// Cancel any existing Stripe subscription (best-effort).
 	if h.stripe != nil && org.StripeSubscriptionID != nil {
 		if err := h.stripe.CancelSubscription(*org.StripeSubscriptionID); err != nil {
 			log.Printf("billing: cancel stripe subscription for org %d during enterprise upgrade: %v", orgID, err)
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyCancelSubscriptionFailed))
 		}
 	}
 
