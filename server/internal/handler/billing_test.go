@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,13 +23,13 @@ import (
 // --- Mock Stripe gateway ---
 
 type mockStripeGateway struct {
-	createFn func(*stripe.CheckoutSessionParams) (*stripe.CheckoutSession, error)
+	createFn func(ctx context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error)
 	cancelFn func(id string) error
 }
 
-func (m *mockStripeGateway) CreateCheckoutSession(params *stripe.CheckoutSessionParams) (*stripe.CheckoutSession, error) {
+func (m *mockStripeGateway) CreateCheckoutSession(c context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error) {
 	if m.createFn != nil {
-		return m.createFn(params)
+		return m.createFn(c, params)
 	}
 	return &stripe.CheckoutSession{URL: "https://checkout.stripe.com/test"}, nil
 }
@@ -44,7 +45,7 @@ func (m *mockStripeGateway) CancelSubscription(id string) error {
 
 func newBillingCfg() *config.Config {
 	return &config.Config{
-		FrontendURL:     "http://localhost:3000",
+		FrontendURL:      "http://localhost:3000",
 		StripePriceIDPro: "price_test123",
 	}
 }
@@ -163,7 +164,7 @@ func TestCreateCheckout_Success_ReturnsURL(t *testing.T) {
 	db.Create(&org)
 
 	mock := &mockStripeGateway{
-		createFn: func(params *stripe.CheckoutSessionParams) (*stripe.CheckoutSession, error) {
+		createFn: func(ctx context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error) {
 			return &stripe.CheckoutSession{URL: "https://checkout.stripe.com/pay/cs_test_abc"}, nil
 		},
 	}
@@ -193,9 +194,9 @@ func TestCreateCheckout_ReuseExistingCustomer(t *testing.T) {
 	org := model.Organization{Name: "Org", Plan: model.PlanFree, StripeCustomerID: &cusID}
 	db.Create(&org)
 
-	var capturedParams *stripe.CheckoutSessionParams
+	var capturedParams *stripe.CheckoutSessionCreateParams
 	mock := &mockStripeGateway{
-		createFn: func(params *stripe.CheckoutSessionParams) (*stripe.CheckoutSession, error) {
+		createFn: func(ctx context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error) {
 			capturedParams = params
 			return &stripe.CheckoutSession{URL: "https://checkout.stripe.com/test"}, nil
 		},

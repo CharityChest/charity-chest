@@ -171,17 +171,6 @@ func decodeDataBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any
 	return data
 }
 
-// decodeDataArray unwraps the {"data": [...]} envelope for array responses.
-func decodeDataArray(t *testing.T, rec *httptest.ResponseRecorder) []any {
-	t.Helper()
-	outer := decodeBody(t, rec)
-	data, ok := outer["data"].([]any)
-	if !ok {
-		t.Fatalf("response missing 'data' key or not an array; body: %s", rec.Body.String())
-	}
-	return data
-}
-
 // registerUser registers a user and returns the JWT from the response.
 func registerUser(t *testing.T, e *echo.Echo, email, password, name string) string {
 	t.Helper()
@@ -873,7 +862,7 @@ func TestGetOrg_OrgMemberCanAccess(t *testing.T) {
 	orgID := uint(orgBody["id"].(float64))
 
 	// Create an owner user and add as member directly in DB.
-	ownerToken, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
+	_, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
 	// Clear the empty role so user has no system role.
 	db.Model(ownerUser).Update("role", nil)
 	// Re-sign token without role for this user.
@@ -886,7 +875,7 @@ func TestGetOrg_OrgMemberCanAccess(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	ownerToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	ownerToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	makeOrgMember(t, db, orgID, ownerUser.ID, model.OrgRoleOwner)
 
@@ -930,7 +919,7 @@ func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Hierarchy Org")
 
-	ownerToken, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
+	_, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
 	db.Model(ownerUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
 
@@ -944,7 +933,7 @@ func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	ownerToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	ownerToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	adminToken := registerUser(t, e, "admin@example.com", "password123", "Admin")
 	_ = adminToken
@@ -962,7 +951,7 @@ func TestAddMember_AdminCanAddOperational(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Hierarchy Org")
 
-	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	_, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
 	db.Model(adminUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
 
@@ -975,7 +964,7 @@ func TestAddMember_AdminCanAddOperational(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	adminToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	registerUser(t, e, "op@example.com", "password123", "Operational")
 	var opUser model.User
@@ -992,7 +981,7 @@ func TestAddMember_AdminCannotAddOwner(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Hierarchy Org")
 
-	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	_, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
 	db.Model(adminUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
 
@@ -1005,7 +994,7 @@ func TestAddMember_AdminCannotAddOwner(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	adminToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	registerUser(t, e, "newowner@example.com", "password123", "NewOwner")
 	var newOwner model.User
@@ -1022,7 +1011,7 @@ func TestAddMember_AdminCannotAddAdmin(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Hierarchy Org")
 
-	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	_, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
 	db.Model(adminUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
 
@@ -1035,7 +1024,7 @@ func TestAddMember_AdminCannotAddAdmin(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	adminToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	registerUser(t, e, "another@example.com", "password123", "Another")
 	var another model.User
@@ -1052,7 +1041,7 @@ func TestAddMember_OperationalCannotAddAnyone(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Hierarchy Org")
 
-	opToken, opUser := makeUserWithRole(t, db, "op@example.com", "Op", "")
+	_, opUser := makeUserWithRole(t, db, "op@example.com", "Op", "")
 	db.Model(opUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, opUser.ID, model.OrgRoleOperational)
 
@@ -1065,7 +1054,7 @@ func TestAddMember_OperationalCannotAddAnyone(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	opToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	opToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	registerUser(t, e, "another@example.com", "password123", "Another")
 	var another model.User
@@ -1106,7 +1095,7 @@ func TestAddMember_InvalidRole(t *testing.T) {
 	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
 	org := makeOrg(t, db, "Org")
 
-	body := fmt.Sprintf(`{"user_id":99,"role":"superadmin"}`)
+	body := `{"user_id":99,"role":"superadmin"}`
 	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, sysToken, "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
@@ -1117,7 +1106,7 @@ func TestRemoveMember_OwnerCanRemoveAdmin(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Org")
 
-	ownerToken, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
+	_, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
 	db.Model(ownerUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
 
@@ -1130,7 +1119,7 @@ func TestRemoveMember_OwnerCanRemoveAdmin(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	ownerToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	ownerToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	registerUser(t, e, "admin@example.com", "password123", "Admin")
 	var adminUser model.User
@@ -1148,7 +1137,7 @@ func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Org")
 
-	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	_, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
 	db.Model(adminUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
 
@@ -1161,7 +1150,7 @@ func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	adminToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	_, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
 	db.Model(ownerUser).Update("role", nil)
@@ -1178,7 +1167,7 @@ func TestListMembers_OrgMemberCanList(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Org")
 
-	opToken, opUser := makeUserWithRole(t, db, "op@example.com", "Op", "")
+	_, opUser := makeUserWithRole(t, db, "op@example.com", "Op", "")
 	db.Model(opUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, opUser.ID, model.OrgRoleOperational)
 
@@ -1191,7 +1180,7 @@ func TestListMembers_OrgMemberCanList(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	opToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	opToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	rec := do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", opToken, "")
 	if rec.Code != http.StatusOK {

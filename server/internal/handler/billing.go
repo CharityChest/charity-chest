@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,7 +10,6 @@ import (
 	"strconv"
 
 	stripe "github.com/stripe/stripe-go/v82"
-	stripeclient "github.com/stripe/stripe-go/v82/client"
 	stripewebhook "github.com/stripe/stripe-go/v82/webhook"
 
 	"charity-chest/internal/cache"
@@ -24,7 +24,7 @@ import (
 // StripeGateway abstracts the Stripe API calls used by BillingHandler.
 // The interface is exported so tests can inject a mock implementation.
 type StripeGateway interface {
-	CreateCheckoutSession(params *stripe.CheckoutSessionParams) (*stripe.CheckoutSession, error)
+	CreateCheckoutSession(c context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error)
 	CancelSubscription(id string) error
 }
 
@@ -56,23 +56,24 @@ func NewBillingHandlerWithGateway(db *gorm.DB, c *cache.Cache, cfg *config.Confi
 
 // stripeGoGateway is the production StripeGateway implementation backed by stripe-go.
 type stripeGoGateway struct {
-	client *stripeclient.API
+	client *stripe.Client
 }
 
 // newStripeGoGateway creates a gateway with its own pre-configured Stripe client.
 // The API key is bound at construction time so no global state is ever mutated.
 func newStripeGoGateway(secretKey string) *stripeGoGateway {
-	return &stripeGoGateway{client: stripeclient.New(secretKey, nil)}
+	return &stripeGoGateway{client: stripe.NewClient(secretKey)}
 }
 
 // CreateCheckoutSession delegates to the Stripe CheckoutSessions API.
-func (g *stripeGoGateway) CreateCheckoutSession(params *stripe.CheckoutSessionParams) (*stripe.CheckoutSession, error) {
-	return g.client.CheckoutSessions.New(params)
+func (g *stripeGoGateway) CreateCheckoutSession(c context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error) {
+	return g.client.V1CheckoutSessions.Create(c, params)
 }
 
 // CancelSubscription cancels a Stripe subscription immediately.
 func (g *stripeGoGateway) CancelSubscription(id string) error {
-	_, err := g.client.Subscriptions.Cancel(id, nil)
+	params := &stripe.SubscriptionCancelParams{}
+	_, err := g.client.V1Subscriptions.Cancel(context.TODO(), id, params)
 	return err
 }
 
@@ -106,9 +107,9 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 	cancelURL := fmt.Sprintf("%s/%s/billing/cancel?org_id=%d",
 		h.cfg.FrontendURL, requestedLocale, orgID)
 
-	params := &stripe.CheckoutSessionParams{
+	params := &stripe.CheckoutSessionCreateParams{
 		Mode: stripe.String(string(stripe.CheckoutSessionModeSubscription)),
-		LineItems: []*stripe.CheckoutSessionLineItemParams{
+		LineItems: []*stripe.CheckoutSessionCreateLineItemParams{
 			{
 				Price:    stripe.String(h.cfg.StripePriceIDPro),
 				Quantity: stripe.Int64(1),
@@ -124,7 +125,7 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 		params.Customer = org.StripeCustomerID
 	}
 
-	sess, err := h.stripe.CreateCheckoutSession(params)
+	sess, err := h.stripe.CreateCheckoutSession(context.TODO(), params)
 	if err != nil {
 		log.Printf("billing: create checkout for org %d: %v", orgID, err)
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyBillingCheckoutFailed))

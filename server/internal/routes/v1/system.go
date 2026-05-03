@@ -13,10 +13,12 @@ import (
 // RegisterSystem registers system administration routes.
 //
 // Public routes (no JWT):
-//   GET /v1/system/status
+//
+//	GET /v1/system/status
 //
 // Protected routes (root JWT required):
-//   POST /v1/api/system/assign-role
+//
+//	POST /v1/api/system/assign-role
 func RegisterSystem(v1 *echo.Group, db *gorm.DB, c *cache.Cache, jwtSecret string) {
 	h := handler.NewSystemHandler(db, c)
 

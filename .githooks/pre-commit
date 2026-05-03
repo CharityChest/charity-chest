@@ -1,0 +1,10 @@
+#!/bin/sh
+# Run golangci-lint on staged Go files before allowing the commit.
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
+cd server || exit 1
+golangci-lint run ./...
