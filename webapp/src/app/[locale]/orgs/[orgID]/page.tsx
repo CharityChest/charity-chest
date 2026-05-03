@@ -57,6 +57,7 @@ export default function OrgDetailPage({
   const [checkingOut, setCheckingOut] = useState(false);
   const [billingError, setBillingError] = useState('');
   const [activatingEnterprise, setActivatingEnterprise] = useState(false);
+  const [cancellingSubscription, setCancellingSubscription] = useState(false);
 
   useEffect(() => {
     params.then(({ orgID }) => setOrgId(parseInt(orgID, 10)));
@@ -194,12 +195,16 @@ export default function OrgDetailPage({
   }
 
   async function handleCancelSubscription() {
+    if (cancellingSubscription) return;
     if (!orgId || !confirm(t('billing.cancelConfirm'))) return;
+    setCancellingSubscription(true);
     setBillingError('');
     try {
       await api.cancelSubscription(orgId);
     } catch (err) {
       setBillingError(err instanceof ApiError ? err.message : t('billing.cancelSubscriptionFailed'));
+    } finally {
+      setCancellingSubscription(false);
     }
   }
 
@@ -313,9 +318,10 @@ export default function OrgDetailPage({
               {org.plan === 'pro' && canManageBilling && (
                 <button
                   onClick={handleCancelSubscription}
-                  className="rounded-md border border-red-200 px-3 py-3 text-sm text-red-600 hover:bg-red-50 sm:py-2"
+                  disabled={cancellingSubscription}
+                  className="rounded-md border border-red-200 px-3 py-3 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 sm:py-2"
                 >
-                  {t('billing.cancelSubscription')}
+                  {cancellingSubscription ? t('common.loading') : t('billing.cancelSubscription')}
                 </button>
               )}
             </div>
