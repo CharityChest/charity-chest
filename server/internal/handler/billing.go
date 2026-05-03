@@ -9,8 +9,7 @@ import (
 	"strconv"
 
 	stripe "github.com/stripe/stripe-go/v82"
-	stripesession "github.com/stripe/stripe-go/v82/checkout/session"
-	stripesub "github.com/stripe/stripe-go/v82/subscription"
+	stripeclient "github.com/stripe/stripe-go/v82/client"
 	stripewebhook "github.com/stripe/stripe-go/v82/webhook"
 
 	"charity-chest/internal/cache"
@@ -42,7 +41,7 @@ type BillingHandler struct {
 func NewBillingHandler(db *gorm.DB, c *cache.Cache, cfg *config.Config) *BillingHandler {
 	h := &BillingHandler{db: db, cache: c, cfg: cfg}
 	if cfg.StripeSecretKey != "" {
-		h.stripe = &stripeGoGateway{secretKey: cfg.StripeSecretKey}
+		h.stripe = newStripeGoGateway(cfg.StripeSecretKey)
 	}
 	return h
 }
@@ -56,17 +55,21 @@ func NewBillingHandlerWithGateway(db *gorm.DB, c *cache.Cache, cfg *config.Confi
 // --- Real Stripe gateway ---
 
 type stripeGoGateway struct {
-	secretKey string
+	client *stripeclient.API
+}
+
+// newStripeGoGateway creates a gateway with its own pre-configured Stripe client.
+// The API key is bound at construction time so no global state is ever mutated.
+func newStripeGoGateway(secretKey string) *stripeGoGateway {
+	return &stripeGoGateway{client: stripeclient.New(secretKey, nil)}
 }
 
 func (g *stripeGoGateway) CreateCheckoutSession(params *stripe.CheckoutSessionParams) (*stripe.CheckoutSession, error) {
-	stripe.Key = g.secretKey
-	return stripesession.New(params)
+	return g.client.CheckoutSessions.New(params)
 }
 
 func (g *stripeGoGateway) CancelSubscription(id string) error {
-	stripe.Key = g.secretKey
-	_, err := stripesub.Cancel(id, nil)
+	_, err := g.client.Subscriptions.Cancel(id, nil)
 	return err
 }
 
