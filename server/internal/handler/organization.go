@@ -79,7 +79,7 @@ func (h *OrgHandler) CreateOrg(c echo.Context) error {
 	if req.Name == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyFieldsRequired))
 	}
-	org := model.Organization{Name: req.Name}
+	org := model.Organization{Name: req.Name, Plan: model.PlanFree}
 	if err := h.db.Create(&org).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create organization")
 	}
@@ -204,6 +204,9 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 	if err := h.enforceCanAssign(c, orgID, req.Role); err != nil {
 		return err
 	}
+	if err := h.checkMemberLimit(c, orgID, req.Role, 0); err != nil {
+		return err
+	}
 
 	var existing model.OrgMember
 	lookupErr := h.db.Where("org_id = ? AND user_id = ?", orgID, req.UserID).First(&existing).Error
@@ -247,6 +250,9 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidRole))
 	}
 	if err := h.enforceCanAssign(c, orgID, req.Role); err != nil {
+		return err
+	}
+	if err := h.checkMemberLimit(c, orgID, req.Role, targetUserID); err != nil {
 		return err
 	}
 
@@ -342,6 +348,36 @@ func (h *OrgHandler) loadOrg(c echo.Context) (*model.Organization, error) {
 		return nil, err
 	}
 	return &org, nil
+}
+
+// checkMemberLimit verifies that the org's plan allows adding another member
+// with targetRole. excludeUserID (non-zero) is excluded from the count — used
+// by UpdateMember so the member being updated does not count against their new role.
+func (h *OrgHandler) checkMemberLimit(c echo.Context, orgID uint, targetRole model.MemberRole, excludeUserID uint) error {
+	loc := locale(c)
+	var org model.Organization
+	if err := h.db.Select("id", "plan").First(&org, orgID).Error; err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+	}
+	limit := model.LimitsFor(org.Plan).ForRole(targetRole)
+	if limit == -1 {
+		return nil // unlimited
+	}
+	if limit == 0 {
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, i18n.T(loc, i18n.KeyRoleNotAllowedOnPlan))
+	}
+	query := h.db.Model(&model.OrgMember{}).Where("org_id = ? AND role = ?", orgID, targetRole)
+	if excludeUserID != 0 {
+		query = query.Where("user_id != ?", excludeUserID)
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "database error")
+	}
+	if int(count) >= limit {
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, i18n.T(loc, i18n.KeyPlanMemberLimitReached))
+	}
+	return nil
 }
 
 func parseOrgID(c echo.Context) (uint, error) {

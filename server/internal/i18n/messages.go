@@ -43,6 +43,14 @@ const (
 	KeyMFASetupRequired       Key = "mfa_setup_required"
 	KeyMFAGenerateSecret      Key = "mfa_generate_secret"
 	KeyMFAInvalidPendingToken Key = "mfa_invalid_pending_token"
+
+	KeyRoleNotAllowedOnPlan    Key = "role_not_allowed_on_plan"
+	KeyPlanMemberLimitReached  Key = "plan_member_limit_reached"
+	KeyPlanAlreadyActive       Key = "plan_already_active"
+	KeyStripeNotConfigured     Key = "stripe_not_configured"
+	KeyBillingCheckoutFailed   Key = "billing_checkout_failed"
+	KeyInvalidWebhookSignature Key = "invalid_webhook_signature"
+	KeySubscriptionNotFound    Key = "subscription_not_found"
 )
 
 // messages maps locale → Key → translated string.
@@ -86,6 +94,14 @@ var messages = map[string]map[Key]string{
 		KeyMFASetupRequired:       "complete mfa setup first",
 		KeyMFAGenerateSecret:      "failed to generate mfa secret",
 		KeyMFAInvalidPendingToken: "invalid or expired mfa session",
+
+		KeyRoleNotAllowedOnPlan:    "this role is not available on your current plan",
+		KeyPlanMemberLimitReached:  "member limit for this role has been reached on your current plan",
+		KeyPlanAlreadyActive:       "this plan is already active",
+		KeyStripeNotConfigured:     "payment processing is not configured",
+		KeyBillingCheckoutFailed:   "failed to create checkout session",
+		KeyInvalidWebhookSignature: "invalid webhook signature",
+		KeySubscriptionNotFound:    "no active subscription found",
 	},
 	"it": {
 		KeyInvalidBody:        "corpo della richiesta non valido",
@@ -125,6 +141,14 @@ var messages = map[string]map[Key]string{
 		KeyMFASetupRequired:       "completa prima la configurazione mfa",
 		KeyMFAGenerateSecret:      "errore nella generazione del segreto mfa",
 		KeyMFAInvalidPendingToken: "sessione mfa non valida o scaduta",
+
+		KeyRoleNotAllowedOnPlan:    "questo ruolo non è disponibile nel piano attuale",
+		KeyPlanMemberLimitReached:  "il limite di membri per questo ruolo è stato raggiunto nel piano attuale",
+		KeyPlanAlreadyActive:       "questo piano è già attivo",
+		KeyStripeNotConfigured:     "il sistema di pagamento non è configurato",
+		KeyBillingCheckoutFailed:   "errore nella creazione della sessione di pagamento",
+		KeyInvalidWebhookSignature: "firma del webhook non valida",
+		KeySubscriptionNotFound:    "nessun abbonamento attivo trovato",
 	},
 }
 

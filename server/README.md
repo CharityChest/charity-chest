@@ -58,6 +58,9 @@ cp .env.example .env
 | `CACHE_ENABLED` | no | Set to `true` to enable Valkey caching (default `false`) |
 | `CACHE_URL` | no | Valkey/Redis connection URL (default `redis://localhost:6379`) |
 | `CACHE_TTL` | no | TTL for all cache entries, e.g. `30s`, `2m`, `10m` (default `5m`) |
+| `STRIPE_SECRET_KEY` | no | Stripe secret key. Billing endpoints return 503 when unset. |
+| `STRIPE_WEBHOOK_SECRET` | no | Stripe webhook signing secret — required to verify webhook payloads in production |
+| `STRIPE_PRO_PRICE_ID` | no | Stripe Price ID for the Pro plan (e.g. `price_xxx`) |
 
 ---
 
@@ -268,6 +271,32 @@ Response:
 
 Query parameters: `email` (optional, partial match), `page` (default 1), `size` (default 20, max 100).
 
+### Plans & billing
+
+```bash
+# Activate enterprise plan (root/system only)
+curl -X POST http://localhost:8080/v1/api/orgs/1/plan/enterprise \
+  -H "Authorization: Bearer <root-token>"
+
+# Create Stripe Checkout session (org owner, root, or system)
+# Redirect the user to the returned URL to complete payment.
+curl -X POST "http://localhost:8080/v1/api/orgs/1/billing/checkout?locale=en" \
+  -H "Authorization: Bearer <token>"
+# Returns: {"data":{"url":"https://checkout.stripe.com/..."}}
+
+# Cancel Pro subscription (org owner, root, or system)
+# Plan reverts to free when the webhook fires.
+curl -X DELETE http://localhost:8080/v1/api/orgs/1/billing/subscription \
+  -H "Authorization: Bearer <token>"
+```
+
+Stripe webhooks are received at `POST /stripe/webhook`. To test locally:
+
+```bash
+stripe listen --forward-to localhost:8080/stripe/webhook
+stripe trigger checkout.session.completed
+```
+
 ### Organisation management (system/root)
 
 ```bash
@@ -410,7 +439,21 @@ If Valkey is unreachable or a cache operation fails, the server logs the error a
 
 ---
 
-## 9. Deploy to production
+## 9. Plans
+
+Every organisation belongs to one of three tiers:
+
+| Plan | Owners | Admins | Operationals | Activation |
+|---|---|---|---|---|
+| `free` | 1 | not allowed | up to 5 | default |
+| `pro` | 1 | up to 3 | up to 15 | Stripe Checkout |
+| `enterprise` | unlimited | unlimited | unlimited | manual (root/system API) |
+
+Member-limit enforcement happens in `AddMember` and `UpdateMember`. Existing members that exceed a plan's limits after a downgrade are not automatically removed; only new additions are blocked.
+
+---
+
+## 10. Deploy to production
 
 ```bash
 make build-release

@@ -142,5 +142,23 @@
     "cancel": "Annulla",
     "codePlaceholder": "000000",
     "backToDashboard": "Torna alla dashboard"
+  },
+  "billing": {
+    "currentPlan": "Piano attuale",
+    "planFree": "Gratuito",
+    "planPro": "Pro",
+    "planEnterprise": "Enterprise",
+    "freeLimits": "1 titolare · 5 operativi",
+    "proLimits": "1 titolare · 3 amministratori · 15 operativi",
+    "enterpriseLimits": "Membri illimitati",
+    "upgradeToPro": "Passa a Pro — €25/mese",
+    "activateEnterprise": "Attiva Enterprise",
+    "cancelSubscription": "Annulla abbonamento",
+    "cancelConfirm": "Annullare il piano Pro? Il piano tornerà a Gratuito alla fine del periodo di fatturazione.",
+    "successTitle": "Abbonamento confermato!",
+    "successBody": "Il tuo abbonamento è in elaborazione. Il piano verrà aggiornato a breve.",
+    "cancelTitle": "Pagamento annullato",
+    "cancelBody": "Nessun pagamento è stato effettuato. Puoi eseguire l'upgrade in qualsiasi momento.",
+    "backToOrg": "Torna all'organizzazione"
   }
 }

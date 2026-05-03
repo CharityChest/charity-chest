@@ -142,5 +142,23 @@
     "cancel": "Cancel",
     "codePlaceholder": "000000",
     "backToDashboard": "Back to Dashboard"
+  },
+  "billing": {
+    "currentPlan": "Current plan",
+    "planFree": "Free",
+    "planPro": "Pro",
+    "planEnterprise": "Enterprise",
+    "freeLimits": "1 owner · 5 operationals",
+    "proLimits": "1 owner · 3 admins · 15 operationals",
+    "enterpriseLimits": "Unlimited members",
+    "upgradeToPro": "Upgrade to Pro — €25/month",
+    "activateEnterprise": "Activate Enterprise",
+    "cancelSubscription": "Cancel subscription",
+    "cancelConfirm": "Cancel your Pro subscription? Your plan will revert to Free at end of the billing period.",
+    "successTitle": "Subscription successful!",
+    "successBody": "Your subscription is being processed. The plan will update shortly.",
+    "cancelTitle": "Checkout cancelled",
+    "cancelBody": "No payment was made. You can upgrade at any time.",
+    "backToOrg": "Back to organisation"
   }
 }

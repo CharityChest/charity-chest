@@ -24,14 +24,16 @@ charity-chest/
 │   │   ├── handler/profile.go      # SetupMFA, EnableMFA, DisableMFA
 │   │   ├── handler/system.go       # SystemStatus (public), AssignSystemRole (root only)
 │   │   ├── handler/admin.go         # SearchUsers (root only) — paginated user search with org memberships
-│   │   ├── handler/organization.go # Org CRUD + member management (role hierarchy enforced)
+│   │   ├── handler/organization.go # Org CRUD + member management (role hierarchy + plan limits enforced)
+│   │   ├── handler/billing.go      # BillingHandler: Stripe Checkout, webhook, cancel subscription, enterprise activation
 │   │   ├── handler/response.go     # dataJSON + dataWithMetaJSON helpers — wrap success responses in {"data": ...} or {"data": ..., "metadata": ...}
 │   │   ├── i18n/messages.go        # Message keys + EN/IT translations; T(locale, key) lookup
 │   │   ├── middleware/jwt.go       # Bearer token validation; injects UserIDContextKey + EmailContextKey + RoleContextKey
 │   │   ├── middleware/locale.go    # Accept-Language parser; stores resolved locale in context; defines LocaleEN/LocaleIT
 │   │   ├── middleware/acl.go       # RequireSystemRole(...) and RequireOrgRole(db, ...) middleware factories
 │   │   ├── model/user.go           # GORM User model (supports password + Google OAuth + Role)
-│   │   ├── model/organization.go   # Organization + OrgMember GORM models
+│   │   ├── model/organization.go   # Organization + OrgMember GORM models (includes Plan, Stripe fields)
+│   │   ├── model/plan.go           # Plan type (free/pro/enterprise), PlanLimits, LimitsFor()
 │   │   ├── model/role.go           # Role constants + CanAssignOrgRole + ValidOrgRole
 │   │   └── routes/
 │   │       └── v1/                 # Route registration for the v1 API (one file per group)
@@ -42,6 +44,7 @@ charity-chest/
 │   │           ├── organization.go # RegisterOrgs(v1, db, cache, jwtSecret) — org CRUD + member management
 │   │           ├── profile.go      # RegisterProfile(v1, db, cfg, cache, jwtSecret) — MFA management
 │   │           ├── admin.go        # RegisterAdmin(v1, db, cache, jwtSecret) — root-only admin endpoints
+│   │           ├── billing.go      # RegisterBilling(e, v1, db, cache, cfg, jwtSecret) — billing + plan routes
 │   │           └── routes_test.go  # E2e tests for every endpoint (full stack, in-memory SQLite)
 │   ├── migrations/                 # Raw SQL migrations (golang-migrate, file source)
 │   │   ├── 000001_create_users_table.up.sql
@@ -53,7 +56,9 @@ charity-chest/
 │   │   ├── 000004_create_org_members.up.sql
 │   │   ├── 000004_create_org_members.down.sql
 │   │   ├── 000005_add_mfa_to_users.up.sql
-│   │   └── 000005_add_mfa_to_users.down.sql
+│   │   ├── 000005_add_mfa_to_users.down.sql
+│   │   ├── 000006_add_plan_to_organizations.up.sql
+│   │   └── 000006_add_plan_to_organizations.down.sql
 │   └── .docker-dev/                # Docker Compose demo environment
 │       ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
 │       ├── docker-compose.yml      # Postgres + Valkey + server; server waits for both health checks
@@ -139,6 +144,10 @@ When a breaking change is needed, introduce a `/v2/` group in `main.go` alongsid
 | PUT | `/v1/api/orgs/:orgID/members/:userID` | Bearer JWT | hierarchy enforced | Update a member's role |
 | DELETE | `/v1/api/orgs/:orgID/members/:userID` | Bearer JWT | hierarchy enforced | Remove a member |
 | GET | `/v1/api/admin/users?email=&page=&size=` | Bearer JWT | root | Search users by email with pagination |
+| POST | `/v1/api/orgs/:orgID/billing/checkout` | Bearer JWT | org owner, system, root | Create Stripe Checkout Session → `{url}` |
+| DELETE | `/v1/api/orgs/:orgID/billing/subscription` | Bearer JWT | org owner, system, root | Cancel Stripe subscription (plan reverts to free via webhook) |
+| POST | `/v1/api/orgs/:orgID/plan/enterprise` | Bearer JWT | system, root | Manually activate enterprise plan |
+| POST | `/stripe/webhook` | Stripe-Signature | — | Stripe lifecycle events (checkout completed → pro; subscription deleted → free) |
 
 Protected routes live under `/v1/api/` and require a valid `Authorization: Bearer <token>` header. The JWT middleware (`internal/middleware/jwt.go`) validates the token and injects `middleware.UserIDContextKey` (uint), `middleware.EmailContextKey` (string), and `middleware.RoleContextKey` (*string, nil for roleless users) into the Echo context.
 
@@ -153,6 +162,7 @@ Protected routes live under `/v1/api/` and require a valid `Authorization: Beare
 - Required vars: `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
 - Optional vars with defaults: `GOOGLE_REDIRECT_URL` (default `http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (default `http://localhost:3000`), `PORT` (default `8080`), `APP_ENV` (set to `production` on live deployments — currently used only to block `seed-root`).
 - Cache vars (all optional): `CACHE_ENABLED` (default `false`), `CACHE_URL` (default `redis://localhost:6379`), `CACHE_TTL` (default `5m` — any `time.ParseDuration` string).
+- Stripe vars (all optional — billing endpoints return 503 when `STRIPE_SECRET_KEY` is unset): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`.
 - `FRONTEND_URL` is used by `GoogleCallback` to redirect the browser back to the webapp after the OAuth exchange.
 
 ---
@@ -242,6 +252,25 @@ Use `cache.KeyUser(id)`, `cache.KeyOrg(id)`, etc. from `internal/cache/keys.go` 
 2. Call `h.cache.Set(ctx, key, value)` after a successful DB query.
 3. On any write that affects this key, call `h.cache.Del(ctx, key)` (or `DelPattern` for wildcard keys).
 4. Use a key builder from `internal/cache/keys.go` or add one there.
+
+---
+
+## Billing & plans
+
+Organisations have one of three subscription plans stored in `organizations.plan`:
+
+| Plan | Owners | Admins | Operationals | Activation |
+|---|---|---|---|---|
+| `free` | 1 | 0 (not allowed) | 5 | default |
+| `pro` | 1 | 3 | 15 | Stripe Checkout (webhook flips plan) |
+| `enterprise` | unlimited | unlimited | unlimited | `POST /v1/api/orgs/:orgID/plan/enterprise` by root/system |
+
+- Plan limits are enforced in `AddMember` and `UpdateMember` via `checkMemberLimit` in `handler/organization.go`.
+- Downgrades do **not** remove existing over-limit members ("grandfathering") — only new additions are blocked.
+- Plan type, constants, and `LimitsFor()` live in `model/plan.go`.
+- Stripe integration is optional: set `STRIPE_SECRET_KEY` to enable. Billing endpoints return 503 when unset.
+- `HandleWebhook` skips signature verification when `STRIPE_WEBHOOK_SECRET` is empty (dev/test mode).
+- The `StripeGateway` interface in `handler/billing.go` is exported so tests can inject a mock via `NewBillingHandlerWithGateway`.
 
 ---
 

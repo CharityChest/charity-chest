@@ -22,6 +22,10 @@ type Config struct {
 	CacheEnabled       bool
 	CacheURL           string
 	CacheTTL           time.Duration
+	// Stripe (all optional — billing endpoints return 503 when StripeSecretKey is unset)
+	StripeSecretKey     string
+	StripeWebhookSecret string
+	StripePriceIDPro    string
 }
 
 // Load reads configuration from environment variables.
@@ -30,15 +34,18 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		DatabaseURL:        os.Getenv("DATABASE_URL"),
-		JWTSecret:          os.Getenv("JWT_SECRET"),
-		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-		GoogleRedirectURL:  envOrDefault("GOOGLE_REDIRECT_URL", "http://localhost:8080/v1/auth/google/callback"),
-		FrontendURL:        envOrDefault("FRONTEND_URL", "http://localhost:3000"),
-		Port:               envOrDefault("PORT", "8080"),
-		CacheEnabled: os.Getenv("CACHE_ENABLED") == "true",
-		CacheURL:     envOrDefault("CACHE_URL", "redis://localhost:6379"),
+		DatabaseURL:         os.Getenv("DATABASE_URL"),
+		JWTSecret:           os.Getenv("JWT_SECRET"),
+		GoogleClientID:      os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret:  os.Getenv("GOOGLE_CLIENT_SECRET"),
+		GoogleRedirectURL:   envOrDefault("GOOGLE_REDIRECT_URL", "http://localhost:8080/v1/auth/google/callback"),
+		FrontendURL:         envOrDefault("FRONTEND_URL", "http://localhost:3000"),
+		Port:                envOrDefault("PORT", "8080"),
+		CacheEnabled:        os.Getenv("CACHE_ENABLED") == "true",
+		CacheURL:            envOrDefault("CACHE_URL", "redis://localhost:6379"),
+		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
+		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		StripePriceIDPro:    os.Getenv("STRIPE_PRO_PRICE_ID"),
 	}
 
 	cacheTTL, err := parseDuration(os.Getenv("CACHE_TTL"), 5*time.Minute)

@@ -69,6 +69,7 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 	routesv1.RegisterOrgs(v1, db, noCache, cfg.JWTSecret)
 	routesv1.RegisterProfile(v1, db, cfg, noCache, cfg.JWTSecret)
 	routesv1.RegisterAdmin(v1, db, noCache, cfg.JWTSecret)
+	routesv1.RegisterBilling(e, v1, db, noCache, cfg, cfg.JWTSecret)
 
 	return e, db
 }
@@ -109,12 +110,24 @@ func makeOrgMember(t *testing.T, db *gorm.DB, orgID, userID uint, role model.Mem
 	return m
 }
 
-// makeOrg creates an organisation and returns it.
+// makeOrg creates an enterprise organisation and returns it.
+// Enterprise plan avoids member-limit interference in tests that focus on
+// role hierarchy or other non-plan-related behaviour.
 func makeOrg(t *testing.T, db *gorm.DB, name string) model.Organization {
 	t.Helper()
-	org := model.Organization{Name: name}
+	org := model.Organization{Name: name, Plan: model.PlanEnterprise}
 	if err := db.Create(&org).Error; err != nil {
 		t.Fatalf("makeOrg: %v", err)
+	}
+	return org
+}
+
+// makeFreeOrg creates a free-plan organisation for plan-limit tests.
+func makeFreeOrg(t *testing.T, db *gorm.DB, name string) model.Organization {
+	t.Helper()
+	org := model.Organization{Name: name, Plan: model.PlanFree}
+	if err := db.Create(&org).Error; err != nil {
+		t.Fatalf("makeFreeOrg: %v", err)
 	}
 	return org
 }
@@ -1480,5 +1493,129 @@ func TestSearchUsers_PaginationE2E(t *testing.T) {
 	// root user + 5 registered = 6 total; size=2 → 3 pages
 	if meta["total_pages"].(float64) != 3 {
 		t.Errorf("total_pages = %v, want 3", meta["total_pages"])
+	}
+}
+
+// --- Billing & plan management ---
+
+func TestBillingCheckout_Unauthenticated_Returns401(t *testing.T) {
+	e, db := newServer(t)
+	org := makeFreeOrg(t, db, "Org")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestBillingCheckout_StripeNotConfigured_Returns503(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	org := makeFreeOrg(t, db, "Org")
+	makeOrgMember(t, db, org.ID, 1, model.OrgRoleOwner)
+
+	// cfg has no StripeSecretKey → 503
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", rootToken, "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestAssignEnterprisePlan_ByRoot_Returns200(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	org := makeFreeOrg(t, db, "Org")
+
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", rootToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	data := decodeDataBody(t, rec)
+	if data["plan"] != string(model.PlanEnterprise) {
+		t.Errorf("plan = %v, want enterprise", data["plan"])
+	}
+}
+
+func TestAssignEnterprisePlan_BySystem_Returns200(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+	org := makeFreeOrg(t, db, "Org")
+
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", sysToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAssignEnterprisePlan_ByNonSystem_Returns403(t *testing.T) {
+	e, db := newServer(t)
+	// Regular user with no system role.
+	userToken := registerUser(t, e, "plain@example.com", "password123", "Plain")
+	org := makeFreeOrg(t, db, "Org")
+
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", userToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestWebhook_CheckoutCompleted_FlipsToPro(t *testing.T) {
+	e, db := newServer(t)
+	org := makeFreeOrg(t, db, "Org")
+
+	body := fmt.Sprintf(`{"type":"checkout.session.completed","data":{"object":{"metadata":{"org_id":"%d"},"customer":"cus_test","subscription":"sub_test"}}}`, org.ID)
+	rec := do(e, http.MethodPost, "/stripe/webhook", body, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("webhook status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var updated model.Organization
+	db.First(&updated, org.ID)
+	if updated.Plan != model.PlanPro {
+		t.Errorf("plan = %q, want pro", updated.Plan)
+	}
+}
+
+func TestWebhook_SubscriptionDeleted_FlipsToFree(t *testing.T) {
+	e, db := newServer(t)
+	subID := "sub_e2e_delete"
+	org := model.Organization{Name: "Org", Plan: model.PlanPro, StripeSubscriptionID: &subID}
+	db.Create(&org)
+
+	body := fmt.Sprintf(`{"type":"customer.subscription.deleted","data":{"object":{"id":%q}}}`, subID)
+	rec := do(e, http.MethodPost, "/stripe/webhook", body, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("webhook status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var updated model.Organization
+	db.First(&updated, org.ID)
+	if updated.Plan != model.PlanFree {
+		t.Errorf("plan = %q, want free", updated.Plan)
+	}
+}
+
+func TestAddMember_PlanLimitReached_E2e(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, rootUser := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	org := makeFreeOrg(t, db, "Free Org")
+	makeOrgMember(t, db, org.ID, rootUser.ID, model.OrgRoleOwner)
+
+	// Fill the 5-operational limit.
+	for i := range 5 {
+		registerUser(t, e, fmt.Sprintf("op%d@e2e.com", i), "password123", fmt.Sprintf("Op%d", i))
+		var u model.User
+		db.Where("email = ?", fmt.Sprintf("op%d@e2e.com", i)).First(&u)
+		makeOrgMember(t, db, org.ID, u.ID, model.OrgRoleOperational)
+	}
+
+	// Adding a 6th operational must fail.
+	registerUser(t, e, "sixth@e2e.com", "password123", "Sixth")
+	var sixth model.User
+	db.Where("email = ?", "sixth@e2e.com").First(&sixth)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, sixth.ID)
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, rootToken, "")
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", rec.Code)
 	}
 }

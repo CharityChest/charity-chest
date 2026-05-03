@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { useLocale } from 'next-intl';
 import { Link, useRouter } from '@/i18n/navigation';
 import { api, ApiError } from '@/lib/api';
 import { clearToken, getRole, isAuthenticated } from '@/lib/auth';
@@ -23,6 +24,7 @@ export default function OrgDetailPage({
 }) {
   const t = useTranslations();
   const router = useRouter();
+  const locale = useLocale();
   const [orgId, setOrgId] = useState<number | null>(null);
 
   const [org, setOrg] = useState<Organization | null>(null);
@@ -50,6 +52,11 @@ export default function OrgDetailPage({
   // Change-role state (per member)
   const [changingRole, setChangingRole] = useState<number | null>(null);
   const [pendingRole, setPendingRole] = useState('');
+
+  // Billing state
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [billingError, setBillingError] = useState('');
+  const [activatingEnterprise, setActivatingEnterprise] = useState(false);
 
   useEffect(() => {
     params.then(({ orgID }) => setOrgId(parseInt(orgID, 10)));
@@ -157,6 +164,44 @@ export default function OrgDetailPage({
 
   const isSystemOrRoot = systemRole === 'root' || systemRole === 'system';
   const canEditOrg = isSystemOrRoot;
+  const canManageBilling = isSystemOrRoot || myOrgRole === 'owner';
+
+  async function handleUpgradeToPro() {
+    if (!orgId) return;
+    setCheckingOut(true);
+    setBillingError('');
+    try {
+      const { url } = await api.createCheckoutSession(orgId, locale);
+      window.location.href = url;
+    } catch (err) {
+      setBillingError(err instanceof ApiError ? err.message : 'Failed to start checkout');
+      setCheckingOut(false);
+    }
+  }
+
+  async function handleActivateEnterprise() {
+    if (!orgId) return;
+    setActivatingEnterprise(true);
+    setBillingError('');
+    try {
+      const updated = await api.assignEnterprisePlan(orgId);
+      setOrg(updated);
+    } catch (err) {
+      setBillingError(err instanceof ApiError ? err.message : 'Failed to activate enterprise');
+    } finally {
+      setActivatingEnterprise(false);
+    }
+  }
+
+  async function handleCancelSubscription() {
+    if (!orgId || !confirm(t('billing.cancelConfirm'))) return;
+    setBillingError('');
+    try {
+      await api.cancelSubscription(orgId);
+    } catch (err) {
+      setBillingError(err instanceof ApiError ? err.message : 'Failed to cancel subscription');
+    }
+  }
 
   if (loadError) {
     return (
@@ -230,6 +275,52 @@ export default function OrgDetailPage({
           <Link href={isSystemOrRoot ? '/orgs' : '/dashboard'} className="shrink-0 text-sm text-gray-500 hover:underline">
             ←{' '}{isSystemOrRoot ? t('orgs.title') : t('dashboard.title')}
           </Link>
+        </div>
+
+        {/* Plan section */}
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{t('billing.currentPlan')}</p>
+              <div className="mt-1 flex items-center gap-2">
+                <PlanBadge plan={org.plan} t={t} />
+                <span className="text-xs text-gray-400">
+                  {org.plan === 'enterprise' ? t('billing.enterpriseLimits')
+                    : org.plan === 'pro' ? t('billing.proLimits')
+                    : t('billing.freeLimits')}
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {org.plan !== 'enterprise' && org.plan !== 'pro' && canManageBilling && (
+                <button
+                  onClick={handleUpgradeToPro}
+                  disabled={checkingOut}
+                  className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 sm:py-1.5"
+                >
+                  {checkingOut ? t('common.loading') : t('billing.upgradeToPro')}
+                </button>
+              )}
+              {org.plan !== 'enterprise' && isSystemOrRoot && (
+                <button
+                  onClick={handleActivateEnterprise}
+                  disabled={activatingEnterprise}
+                  className="rounded-md bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 sm:py-1.5"
+                >
+                  {activatingEnterprise ? t('common.loading') : t('billing.activateEnterprise')}
+                </button>
+              )}
+              {org.plan === 'pro' && canManageBilling && (
+                <button
+                  onClick={handleCancelSubscription}
+                  className="rounded-md border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 sm:py-1.5"
+                >
+                  {t('billing.cancelSubscription')}
+                </button>
+              )}
+            </div>
+          </div>
+          <ErrorBanner message={billingError} />
         </div>
 
         {/* Members section */}
@@ -352,6 +443,24 @@ export default function OrgDetailPage({
         </div>
       </div>
     </main>
+  );
+}
+
+function PlanBadge({ plan, t }: { plan: string; t: ReturnType<typeof useTranslations> }) {
+  const colours: Record<string, string> = {
+    free: 'bg-gray-100 text-gray-600',
+    pro: 'bg-blue-100 text-blue-700',
+    enterprise: 'bg-purple-100 text-purple-700',
+  };
+  const labels: Record<string, string> = {
+    free: t('billing.planFree'),
+    pro: t('billing.planPro'),
+    enterprise: t('billing.planEnterprise'),
+  };
+  return (
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${colours[plan] ?? 'bg-gray-100 text-gray-600'}`}>
+      {labels[plan] ?? plan}
+    </span>
   );
 }
 

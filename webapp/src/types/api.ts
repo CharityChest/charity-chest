@@ -42,13 +42,22 @@ export interface SystemStatus {
   configured: boolean;
 }
 
+/** Subscription plan for an organisation. */
+export type Plan = 'free' | 'pro' | 'enterprise';
+
 /** Returned by GET /v1/api/orgs and GET /v1/api/orgs/:orgID. */
 export interface Organization {
   id: number;
   name: string;
+  plan: Plan;
   created_at: string;
   updated_at: string;
   members?: OrganizationMember[];
+}
+
+/** Returned by POST /v1/api/orgs/:orgID/billing/checkout. */
+export interface BillingCheckoutResponse {
+  url: string;
 }
 
 /** A single row from GET /v1/api/orgs/:orgID/members. */
