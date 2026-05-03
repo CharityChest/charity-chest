@@ -116,7 +116,7 @@ Migrations run automatically on startup. The server listens on `http://localhost
 
 SQL migration files live in `migrations/`, named `NNNNNN_<description>.{up,down}.sql`. The server applies all pending up migrations automatically at startup. The Makefile targets let you drive migrations manually when needed.
 
-`golang-migrate` is already in `go.mod` — no separate CLI install is required. `DATABASE_URL` must be set in your shell (or in `.env`):
+`golang-migrate` is already in `go.mod` — no separate CLI install is required. `DATABASE_URL` must be set in your shell (or in `.env`). All three migration targets validate this at startup and exit immediately with a clear error message if it is missing:
 
 ```bash
 export DATABASE_URL="postgres://user:password@localhost:5432/charitychest?sslmode=disable"
@@ -365,6 +365,12 @@ curl -X DELETE http://localhost:8080/v1/api/orgs/1/billing/subscription \
 ```
 
 Stripe webhooks are received at `POST /stripe/webhook`. Signature verification is enforced when `APP_ENV=production`; outside production, raw unsigned payloads are accepted so local dev and automated tests can POST events without a real Stripe account.
+
+**Webhook behaviour notes:**
+- `checkout.session.completed` — if the org is already on the enterprise plan the webhook cancels the new Stripe subscription and refunds the initial payment, then returns 409. The org's plan is not changed.
+- `customer.subscription.deleted` — downgrades the org to `free` and clears `stripe_subscription_id`.
+
+**`POST /v1/api/orgs/:orgID/plan/enterprise` behaviour note:** if the org has an active Stripe subscription, it is cancelled before the plan is promoted. If cancellation fails the request returns 500 and the org is not promoted — `stripe_subscription_id` is preserved for manual reconciliation.
 
 To test locally with the Stripe CLI:
 

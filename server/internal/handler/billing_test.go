@@ -25,6 +25,7 @@ import (
 type mockStripeGateway struct {
 	createFn func(ctx context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error)
 	cancelFn func(id string) error
+	refundFn func(paymentIntentID string) error
 }
 
 func (m *mockStripeGateway) CreateCheckoutSession(c context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error) {
@@ -37,6 +38,13 @@ func (m *mockStripeGateway) CreateCheckoutSession(c context.Context, params *str
 func (m *mockStripeGateway) CancelSubscription(id string) error {
 	if m.cancelFn != nil {
 		return m.cancelFn(id)
+	}
+	return nil
+}
+
+func (m *mockStripeGateway) RefundPayment(paymentIntentID string) error {
+	if m.refundFn != nil {
+		return m.refundFn(paymentIntentID)
 	}
 	return nil
 }
@@ -249,6 +257,45 @@ func TestHandleWebhook_CheckoutCompleted_UpgradesToPro(t *testing.T) {
 	}
 	if updated.StripeSubscriptionID == nil || *updated.StripeSubscriptionID != "sub_test123" {
 		t.Errorf("stripe_subscription_id = %v, want sub_test123", updated.StripeSubscriptionID)
+	}
+}
+
+func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelsAndRefundsReturns409(t *testing.T) {
+	db := newOrgTestDB(t)
+	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
+	db.Create(&org)
+
+	var cancelledSub, refundedPI string
+	mock := &mockStripeGateway{
+		cancelFn: func(id string) error { cancelledSub = id; return nil },
+		refundFn: func(id string) error { refundedPI = id; return nil },
+	}
+	cfg := &config.Config{AppEnv: config.AppEnvLocal, StripeWebhookSecret: "whsec_test",
+		StripeSecretKey: "sk_test_xxx", StripePriceIDPro: "price_test"}
+	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), cfg, mock)
+
+	body := stripeEventBody("checkout.session.completed", map[string]any{
+		"metadata":       map[string]string{"org_id": fmt.Sprintf("%d", org.ID)},
+		"customer":       "cus_test",
+		"subscription":   "sub_test",
+		"payment_intent": "pi_test",
+	})
+	c, _ := newWebhookContext(t, body)
+	err := h.HandleWebhook(c)
+	he, ok := err.(*echo.HTTPError)
+	if !ok || he.Code != http.StatusConflict {
+		t.Errorf("expected 409 HTTPError, got %v", err)
+	}
+	if cancelledSub != "sub_test" {
+		t.Errorf("CancelSubscription called with %q, want sub_test", cancelledSub)
+	}
+	if refundedPI != "pi_test" {
+		t.Errorf("RefundPayment called with %q, want pi_test", refundedPI)
+	}
+	var unchanged model.Organization
+	db.First(&unchanged, org.ID)
+	if unchanged.Plan != model.PlanEnterprise {
+		t.Errorf("plan = %q, want enterprise (must not be downgraded)", unchanged.Plan)
 	}
 }
 

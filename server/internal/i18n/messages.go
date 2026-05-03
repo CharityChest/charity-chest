@@ -55,7 +55,8 @@ const (
 	KeyStripeNotConfigured     Key = "stripe_not_configured"
 	KeyBillingCheckoutFailed   Key = "billing_checkout_failed"
 	KeyInvalidWebhookSignature Key = "invalid_webhook_signature"
-	KeySubscriptionNotFound    Key = "subscription_not_found"
+	KeySubscriptionNotFound        Key = "subscription_not_found"
+	KeyEnterpriseCheckoutConflict  Key = "enterprise_checkout_conflict"
 )
 
 // messages maps locale → Key → translated string.
@@ -111,7 +112,8 @@ var messages = map[string]map[Key]string{
 		KeyStripeNotConfigured:     "payment processing is not configured",
 		KeyBillingCheckoutFailed:   "failed to create checkout session",
 		KeyInvalidWebhookSignature: "invalid webhook signature",
-		KeySubscriptionNotFound:    "no active subscription found",
+		KeySubscriptionNotFound:       "no active subscription found",
+		KeyEnterpriseCheckoutConflict: "checkout rejected: organization is already on the enterprise plan",
 	},
 	"it": {
 		KeyInvalidBody:        "corpo della richiesta non valido",
@@ -163,7 +165,8 @@ var messages = map[string]map[Key]string{
 		KeyStripeNotConfigured:     "il sistema di pagamento non è configurato",
 		KeyBillingCheckoutFailed:   "errore nella creazione della sessione di pagamento",
 		KeyInvalidWebhookSignature: "firma del webhook non valida",
-		KeySubscriptionNotFound:    "nessun abbonamento attivo trovato",
+		KeySubscriptionNotFound:       "nessun abbonamento attivo trovato",
+		KeyEnterpriseCheckoutConflict: "checkout rifiutato: l'organizzazione ha già il piano Enterprise",
 	},
 }
 

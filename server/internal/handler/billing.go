@@ -26,6 +26,7 @@ import (
 type StripeGateway interface {
 	CreateCheckoutSession(c context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error)
 	CancelSubscription(id string) error
+	RefundPayment(paymentIntentID string) error
 }
 
 // BillingHandler handles subscription plan management and Stripe integration.
@@ -74,6 +75,15 @@ func (g *stripeGoGateway) CreateCheckoutSession(c context.Context, params *strip
 func (g *stripeGoGateway) CancelSubscription(id string) error {
 	params := &stripe.SubscriptionCancelParams{}
 	_, err := g.client.V1Subscriptions.Cancel(context.TODO(), id, params)
+	return err
+}
+
+// RefundPayment issues a full refund for the given PaymentIntent.
+func (g *stripeGoGateway) RefundPayment(paymentIntentID string) error {
+	params := &stripe.RefundCreateParams{
+		PaymentIntent: stripe.String(paymentIntentID),
+	}
+	_, err := g.client.V1Refunds.Create(context.TODO(), params)
 	return err
 }
 
@@ -168,9 +178,10 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 	switch event.Type {
 	case "checkout.session.completed":
 		var sess struct {
-			Metadata     map[string]string `json:"metadata"`
-			Customer     string            `json:"customer"`
-			Subscription string            `json:"subscription"`
+			Metadata      map[string]string `json:"metadata"`
+			Customer      string            `json:"customer"`
+			Subscription  string            `json:"subscription"`
+			PaymentIntent string            `json:"payment_intent"`
 		}
 		if err := json.Unmarshal(event.Data.Raw, &sess); err != nil {
 			log.Printf("webhook: unmarshal checkout.session.completed: %v", err)
@@ -185,6 +196,26 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 			break
 		}
 		orgID := uint(orgID64)
+
+		// If the org is already on enterprise, cancel the new subscription and
+		// refund the payment rather than silently downgrading the plan.
+		var existing model.Organization
+		if err := h.db.First(&existing, orgID).Error; err == nil && existing.Plan == model.PlanEnterprise {
+			if h.stripe != nil {
+				if sess.Subscription != "" {
+					if err := h.stripe.CancelSubscription(sess.Subscription); err != nil {
+						log.Printf("webhook: cancel subscription %s for enterprise org %d: %v", sess.Subscription, orgID, err)
+					}
+				}
+				if sess.PaymentIntent != "" {
+					if err := h.stripe.RefundPayment(sess.PaymentIntent); err != nil {
+						log.Printf("webhook: refund payment %s for enterprise org %d: %v", sess.PaymentIntent, orgID, err)
+					}
+				}
+			}
+			return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyEnterpriseCheckoutConflict))
+		}
+
 		updates := map[string]any{
 			"plan":                   model.PlanPro,
 			"stripe_customer_id":     sess.Customer,

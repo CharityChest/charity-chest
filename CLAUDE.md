@@ -271,7 +271,9 @@ Organisations have one of three subscription plans stored in `organizations.plan
 - Plan type, constants, and `LimitsFor()` live in `model/plan.go`.
 - Stripe integration is optional: set `STRIPE_SECRET_KEY` to enable. Billing endpoints return 503 when unset.
 - `HandleWebhook` returns 503 immediately when `STRIPE_WEBHOOK_SECRET` is unset, in **any** environment — unsigned events are never processed. When the secret is set and `APP_ENV != production`, signature verification is skipped so local dev and automated tests can send raw payloads. In production the `Stripe-Signature` header is always validated.
-- The `StripeGateway` interface in `handler/billing.go` is exported so tests can inject a mock via `NewBillingHandlerWithGateway`. The real gateway (`stripeGoGateway`) is constructed once with a per-client `*stripeclient.API` — the global `stripe.Key` is never mutated.
+- In the `checkout.session.completed` webhook case, if the org is already on the enterprise plan, the newly created Stripe subscription is cancelled and the payment is refunded (both best-effort — errors are logged); the handler returns 409 and the org's plan is never altered.
+- `AssignEnterprisePlan` cancels an existing Stripe subscription before promoting the org. If the cancellation fails the handler returns 500 and aborts — the org is not promoted and `stripe_subscription_id` is preserved so the subscription can be reconciled later.
+- The `StripeGateway` interface in `handler/billing.go` is exported so tests can inject a mock via `NewBillingHandlerWithGateway`. It exposes three methods: `CreateCheckoutSession`, `CancelSubscription`, and `RefundPayment`. The real gateway (`stripeGoGateway`) is constructed once with a per-client `*stripeclient.API` — the global `stripe.Key` is never mutated.
 
 ---
 
