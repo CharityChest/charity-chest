@@ -1610,3 +1610,57 @@ func TestAddMember_PlanLimitReached_E2e(t *testing.T) {
 		t.Errorf("status = %d, want 422", rec.Code)
 	}
 }
+
+func TestAssignEnterprisePlan_Unauthenticated_Returns401(t *testing.T) {
+	e, db := newServer(t)
+	org := makeFreeOrg(t, db, "Org")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestBillingCheckout_ByNonOwner_Returns403(t *testing.T) {
+	e, db := newServer(t)
+	userToken := registerUser(t, e, "plain@example.com", "password123", "Plain")
+	org := makeFreeOrg(t, db, "Org")
+	// plain user is not an org member → RequireOrgRole returns 403
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", userToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestCancelSubscription_Unauthenticated_Returns401(t *testing.T) {
+	e, db := newServer(t)
+	org := makeFreeOrg(t, db, "Org")
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestCancelSubscription_ByNonOwner_Returns403(t *testing.T) {
+	e, db := newServer(t)
+	userToken := registerUser(t, e, "plain@example.com", "password123", "Plain")
+	org := makeFreeOrg(t, db, "Org")
+	// plain user is not an org member → RequireOrgRole returns 403
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", userToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestCancelSubscription_ByOwner_StripeNotConfigured_Returns503(t *testing.T) {
+	e, db := newServer(t)
+	ownerToken := registerUser(t, e, "owner@example.com", "password123", "Owner")
+	var ownerUser model.User
+	db.Where("email = ?", "owner@example.com").First(&ownerUser)
+	org := makeFreeOrg(t, db, "Org")
+	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
+	// Owner passes JWT and role checks; cfg has no StripeSecretKey → 503.
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", ownerToken, "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+}
