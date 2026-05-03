@@ -54,6 +54,7 @@ func NewBillingHandlerWithGateway(db *gorm.DB, c *cache.Cache, cfg *config.Confi
 
 // --- Real Stripe gateway ---
 
+// stripeGoGateway is the production StripeGateway implementation backed by stripe-go.
 type stripeGoGateway struct {
 	client *stripeclient.API
 }
@@ -64,10 +65,12 @@ func newStripeGoGateway(secretKey string) *stripeGoGateway {
 	return &stripeGoGateway{client: stripeclient.New(secretKey, nil)}
 }
 
+// CreateCheckoutSession delegates to the Stripe CheckoutSessions API.
 func (g *stripeGoGateway) CreateCheckoutSession(params *stripe.CheckoutSessionParams) (*stripe.CheckoutSession, error) {
 	return g.client.CheckoutSessions.New(params)
 }
 
+// CancelSubscription cancels a Stripe subscription immediately.
 func (g *stripeGoGateway) CancelSubscription(id string) error {
 	_, err := g.client.Subscriptions.Cancel(id, nil)
 	return err

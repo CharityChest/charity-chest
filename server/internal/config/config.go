@@ -13,6 +13,7 @@ import (
 // AppEnv identifies the deployment environment.
 type AppEnv string
 
+// Known AppEnv values — the application refuses to start with any other value.
 const (
 	AppEnvLocal      AppEnv = "local"
 	AppEnvTesting    AppEnv = "testing"
@@ -119,6 +120,7 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// envOrDefault returns the value of the environment variable key, or def if it is unset.
 func envOrDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -126,6 +128,7 @@ func envOrDefault(key, def string) string {
 	return def
 }
 
+// parseDuration parses a duration string; returns def when s is empty.
 func parseDuration(s string, def time.Duration) (time.Duration, error) {
 	if s == "" {
 		return def, nil

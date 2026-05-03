@@ -25,12 +25,14 @@ func NewAdminHandler(db *gorm.DB, c *cache.Cache) *AdminHandler {
 	return &AdminHandler{db: db, cache: c}
 }
 
+// orgSummary is the compact org representation embedded in userWithOrgs.
 type orgSummary struct {
 	ID   uint             `json:"id"`
 	Name string           `json:"name"`
 	Role model.MemberRole `json:"role"`
 }
 
+// userWithOrgs is the per-row shape returned by SearchUsers, including org memberships.
 type userWithOrgs struct {
 	ID            uint                      `json:"id"`
 	Email         string                    `json:"email"`
@@ -41,6 +43,7 @@ type userWithOrgs struct {
 	Organizations []orgSummary              `json:"organizations"`
 }
 
+// orgMemberRow is a flat scan target for the org membership join query.
 type orgMemberRow struct {
 	UserID  uint
 	OrgID   uint
@@ -48,6 +51,7 @@ type orgMemberRow struct {
 	Role    model.MemberRole
 }
 
+// cachedSearchResult is the structure stored in cache for a paginated user search.
 type cachedSearchResult struct {
 	Data []userWithOrgs `json:"data"`
 	Meta PaginationMeta `json:"meta"`

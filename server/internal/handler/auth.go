@@ -64,17 +64,20 @@ func NewAuthHandler(db *gorm.DB, cfg *config.Config, c *cache.Cache) *AuthHandle
 
 // --- Request / Response types ---
 
+// registerRequest is the JSON body for POST /auth/register.
 type registerRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Name     string `json:"name"`
 }
 
+// loginRequest is the JSON body for POST /auth/login.
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
+// authResponse is the JSON envelope returned by register, login, and mfa/verify.
 type authResponse struct {
 	Token       string      `json:"token,omitempty"`
 	User        *model.User `json:"user,omitempty"`
@@ -82,6 +85,7 @@ type authResponse struct {
 	MFAToken    string      `json:"mfa_token,omitempty"`
 }
 
+// mfaVerifyRequest is the JSON body for POST /auth/mfa/verify.
 type mfaVerifyRequest struct {
 	MFAToken string `json:"mfa_token"`
 	Code     string `json:"code"`
@@ -329,12 +333,14 @@ func locale(c echo.Context) string {
 	return middleware.LocaleEN
 }
 
+// googleUserInfo holds the fields we use from the Google userinfo endpoint.
 type googleUserInfo struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
 	Name  string `json:"name"`
 }
 
+// fetchGoogleUserInfo calls the Google userinfo endpoint and returns the user's profile.
 func fetchGoogleUserInfo(accessToken string) (*googleUserInfo, error) {
 	req, err := http.NewRequest(http.MethodGet, "https://www.googleapis.com/oauth2/v2/userinfo", nil)
 	if err != nil {
@@ -360,6 +366,8 @@ func fetchGoogleUserInfo(accessToken string) (*googleUserInfo, error) {
 	return &info, nil
 }
 
+// findOrCreateGoogleUser looks up the user by Google ID, then by email (linking the account),
+// and creates a new record if neither match is found.
 func (h *AuthHandler) findOrCreateGoogleUser(gUser *googleUserInfo) (*model.User, error) {
 	ctx := context.Background()
 	var user model.User
@@ -407,6 +415,7 @@ func (h *AuthHandler) findOrCreateGoogleUser(gUser *googleUserInfo) (*model.User
 	return &user, nil
 }
 
+// generateJWT creates a signed HS256 token valid for 24 hours.
 func (h *AuthHandler) generateJWT(user *model.User) (string, error) {
 	claims := middleware.Claims{
 		UserID: user.ID,
@@ -435,6 +444,7 @@ func (h *AuthHandler) generateMFAPendingJWT(user *model.User) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(h.cfg.JWTSecret))
 }
 
+// randomState generates a 16-byte hex-encoded CSRF state value for the OAuth flow.
 func randomState() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {

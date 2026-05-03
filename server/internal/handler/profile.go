@@ -29,15 +29,18 @@ func NewProfileHandler(db *gorm.DB, cfg *config.Config, c *cache.Cache) *Profile
 
 // --- Request / Response types ---
 
+// mfaSetupResponse carries the TOTP provisioning URI and raw secret for the setup step.
 type mfaSetupResponse struct {
 	URI    string `json:"uri"`
 	Secret string `json:"secret"`
 }
 
+// mfaStatusResponse reports whether MFA is currently active for the user.
 type mfaStatusResponse struct {
 	MFAEnabled bool `json:"mfa_enabled"`
 }
 
+// mfaCodeRequest is the JSON body for the enable/disable MFA endpoints.
 type mfaCodeRequest struct {
 	Code string `json:"code"`
 }

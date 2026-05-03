@@ -29,19 +29,23 @@ func NewOrgHandler(db *gorm.DB, c *cache.Cache) *OrgHandler {
 
 // --- Request types ---
 
+// createOrgRequest is the JSON body for POST /v1/api/orgs.
 type createOrgRequest struct {
 	Name string `json:"name"`
 }
 
+// updateOrgRequest is the JSON body for PUT /v1/api/orgs/:orgID.
 type updateOrgRequest struct {
 	Name string `json:"name"`
 }
 
+// addMemberRequest is the JSON body for POST /v1/api/orgs/:orgID/members.
 type addMemberRequest struct {
 	UserID uint             `json:"user_id"`
 	Role   model.MemberRole `json:"role"`
 }
 
+// updateMemberRequest is the JSON body for PUT /v1/api/orgs/:orgID/members/:userID.
 type updateMemberRequest struct {
 	Role model.MemberRole `json:"role"`
 }
@@ -366,6 +370,7 @@ func (h *OrgHandler) enforceCanAssign(c echo.Context, orgID uint, targetRole mod
 	return nil
 }
 
+// loadOrg parses :orgID from the route and fetches the organization from the database.
 func (h *OrgHandler) loadOrg(c echo.Context) (*model.Organization, error) {
 	orgID, err := parseOrgID(c)
 	if err != nil {
@@ -405,11 +410,13 @@ func checkPlanLimit(tx *gorm.DB, loc string, org model.Organization, targetRole 
 	return nil
 }
 
+// parseOrgID parses the :orgID path parameter as a uint.
 func parseOrgID(c echo.Context) (uint, error) {
 	id, err := strconv.ParseUint(c.Param("orgID"), 10, 64)
 	return uint(id), err
 }
 
+// parseUserIDParam parses the :userID path parameter as a uint.
 func parseUserIDParam(c echo.Context) (uint, error) {
 	id, err := strconv.ParseUint(c.Param("userID"), 10, 64)
 	return uint(id), err
