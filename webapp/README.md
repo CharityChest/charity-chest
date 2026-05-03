@@ -75,7 +75,7 @@ webapp/
 │       └── api.ts              # TypeScript types mirroring the server's JSON
 ├── .env.example                # Template — copy to .env.local
 └── .docker-dev/
-    ├── Dockerfile              # node:20-alpine, hot reload via next dev
+    ├── Dockerfile              # node:24-alpine, hot reload via next dev
     ├── docker-compose.yml      # Mounts source; named volumes for node_modules/.next
     └── .env.example
 ```

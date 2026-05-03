@@ -91,7 +91,7 @@ charity-chest/
     │   └── types/api.ts            # TypeScript types mirroring server JSON responses
     ├── .env.example                # Template: NEXT_PUBLIC_API_URL
     └── .docker-dev/                # Docker Compose dev environment for the webapp
-        ├── Dockerfile              # node:20-alpine, hot reload via next dev
+        ├── Dockerfile              # node:24-alpine, hot reload via next dev
         ├── docker-compose.yml      # Source mount + named volumes for node_modules/.next
         └── .env.example
 ```
