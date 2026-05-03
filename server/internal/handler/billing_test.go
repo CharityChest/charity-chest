@@ -267,8 +267,8 @@ func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelsAndRefundsReturns2
 
 	var cancelledSub, refundedPI string
 	mock := &mockStripeGateway{
-		cancelFn: func(id string) error { cancelledSub = id; return nil },
-		refundFn: func(id string) error { refundedPI = id; return nil },
+		cancelFn: func(_ context.Context, id string) error { cancelledSub = id; return nil },
+		refundFn: func(_ context.Context, id string) error { refundedPI = id; return nil },
 	}
 	cfg := &config.Config{AppEnv: config.AppEnvLocal, StripeWebhookSecret: "whsec_test",
 		StripeSecretKey: "sk_test_xxx", StripePriceIDPro: "price_test"}
@@ -427,7 +427,7 @@ func TestCancelSubscription_Success_Returns204(t *testing.T) {
 
 	var cancelledID string
 	mock := &mockStripeGateway{
-		cancelFn: func(id string) error {
+		cancelFn: func(_ context.Context, id string) error {
 			cancelledID = id
 			return nil
 		},
@@ -493,7 +493,7 @@ func TestAssignEnterprisePlan_CancelsStripeSubscription(t *testing.T) {
 
 	var cancelledID string
 	mock := &mockStripeGateway{
-		cancelFn: func(id string) error {
+		cancelFn: func(_ context.Context, id string) error {
 			cancelledID = id
 			return nil
 		},
@@ -521,7 +521,7 @@ func TestAssignEnterprisePlan_CancelFails_Returns500(t *testing.T) {
 	db.Create(&org)
 
 	mock := &mockStripeGateway{
-		cancelFn: func(id string) error {
+		cancelFn: func(_ context.Context, _ string) error {
 			return fmt.Errorf("stripe unreachable")
 		},
 	}

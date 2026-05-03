@@ -59,9 +59,9 @@ func (m *mockStripeGateway) CreateCheckoutSession(_ context.Context, _ *stripe.C
 	return &stripe.CheckoutSession{URL: "https://checkout.stripe.com/pay/mock-session"}, nil
 }
 
-func (m *mockStripeGateway) CancelSubscription(_ string) error { return nil }
+func (m *mockStripeGateway) CancelSubscription(_ context.Context, _ string) error { return nil }
 
-func (m *mockStripeGateway) RefundPayment(_ string) error { return nil }
+func (m *mockStripeGateway) RefundPayment(_ context.Context, _ string) error { return nil }
 
 // newServerWithStripe wires the full Echo instance with an injectable Stripe
 // gateway. Pass nil to get the default behaviour (real gateway from cfg, which
