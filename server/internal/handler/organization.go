@@ -217,7 +217,10 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 		var org model.Organization
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Select("id", "plan").First(&org, orgID).Error; err != nil {
-			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+			}
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 		}
 		var existing model.OrgMember
 		lookupErr := tx.Where("org_id = ? AND user_id = ?", orgID, req.UserID).First(&existing).Error
@@ -231,13 +234,16 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 			return err
 		}
 		member = model.OrgMember{OrgID: orgID, UserID: req.UserID, Role: req.Role}
-		return tx.Create(&member).Error
+		if err := tx.Create(&member).Error; err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
+		return nil
 	})
 	if txErr != nil {
 		if he, ok := txErr.(*echo.HTTPError); ok {
 			return he
 		}
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to add member")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 
 	ctx := c.Request().Context()
@@ -278,10 +284,16 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 		var org model.Organization
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Select("id", "plan").First(&org, orgID).Error; err != nil {
-			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+			}
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 		}
 		if err := tx.Where("org_id = ? AND user_id = ?", orgID, targetUserID).First(&member).Error; err != nil {
-			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
+			}
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 		}
 		if member.Role == req.Role {
 			return nil
@@ -290,13 +302,16 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 			return err
 		}
 		member.Role = req.Role
-		return tx.Save(&member).Error
+		if err := tx.Save(&member).Error; err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
+		return nil
 	})
 	if txErr != nil {
 		if he, ok := txErr.(*echo.HTTPError); ok {
 			return he
 		}
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update member")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 
 	ctx := c.Request().Context()
