@@ -137,7 +137,7 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 // signature verification is skipped to support local dev and automated tests.
 func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 	loc := locale(c)
-	if h.cfg.AppEnv == "production" && h.cfg.StripeWebhookSecret == "" {
+	if h.cfg.AppEnv == config.AppEnvProduction && h.cfg.StripeWebhookSecret == "" {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, i18n.T(loc, i18n.KeyStripeNotConfigured))
 	}
 

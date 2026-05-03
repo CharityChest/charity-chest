@@ -10,6 +10,25 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// AppEnv identifies the deployment environment.
+type AppEnv string
+
+const (
+	AppEnvLocal      AppEnv = "local"
+	AppEnvTesting    AppEnv = "testing"
+	AppEnvStaging    AppEnv = "staging"
+	AppEnvProduction AppEnv = "production"
+)
+
+// validAppEnv reports whether e is a recognised AppEnv value.
+func validAppEnv(e AppEnv) bool {
+	switch e {
+	case AppEnvLocal, AppEnvTesting, AppEnvStaging, AppEnvProduction:
+		return true
+	}
+	return false
+}
+
 // Config holds all runtime configuration values loaded from environment variables.
 type Config struct {
 	DatabaseURL        string
@@ -19,7 +38,7 @@ type Config struct {
 	GoogleRedirectURL  string
 	FrontendURL        string
 	Port               string
-	AppEnv             string
+	AppEnv             AppEnv
 	CacheEnabled       bool
 	CacheURL           string
 	CacheTTL           time.Duration
@@ -41,9 +60,8 @@ func Load() (*Config, error) {
 		GoogleClientSecret:  os.Getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:   envOrDefault("GOOGLE_REDIRECT_URL", "http://localhost:8080/v1/auth/google/callback"),
 		FrontendURL:         envOrDefault("FRONTEND_URL", "http://localhost:3000"),
-		Port:                envOrDefault("PORT", "8080"),
-		AppEnv:              os.Getenv("APP_ENV"),
-		CacheEnabled:        os.Getenv("CACHE_ENABLED") == "true",
+		Port:         envOrDefault("PORT", "8080"),
+		CacheEnabled: os.Getenv("CACHE_ENABLED") == "true",
 		CacheURL:            envOrDefault("CACHE_URL", "redis://localhost:6379"),
 		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
 		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
@@ -57,6 +75,19 @@ func Load() (*Config, error) {
 	cfg.CacheTTL = cacheTTL
 
 	var missing []string
+
+	// APP_ENV is required and must be one of the known values.
+	rawAppEnv := os.Getenv("APP_ENV")
+	if rawAppEnv == "" {
+		missing = append(missing, "APP_ENV")
+	} else {
+		env := AppEnv(rawAppEnv)
+		if !validAppEnv(env) {
+			return nil, fmt.Errorf("invalid APP_ENV %q: must be one of local, testing, staging, production", rawAppEnv)
+		}
+		cfg.AppEnv = env
+	}
+
 	if cfg.DatabaseURL == "" {
 		missing = append(missing, "DATABASE_URL")
 	}

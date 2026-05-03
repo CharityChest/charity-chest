@@ -14,6 +14,7 @@ var allRequired = map[string]string{
 	"JWT_SECRET":           "supersecret",
 	"GOOGLE_CLIENT_ID":     "client-id",
 	"GOOGLE_CLIENT_SECRET": "client-secret",
+	"APP_ENV":              "local",
 }
 
 func setEnv(t *testing.T, env map[string]string) {
@@ -284,28 +285,53 @@ func TestLoad_StripeMissingBothCompanions_ErrorMentionsBoth(t *testing.T) {
 
 // --- AppEnv ---
 
-func TestLoad_AppEnv_IsLoaded(t *testing.T) {
-	setEnv(t, allRequired)
-	t.Setenv("APP_ENV", "production")
-
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestLoad_AppEnv_EachValidValue(t *testing.T) {
+	cases := []config.AppEnv{
+		config.AppEnvLocal,
+		config.AppEnvTesting,
+		config.AppEnvStaging,
+		config.AppEnvProduction,
 	}
-	if cfg.AppEnv != "production" {
-		t.Errorf("AppEnv = %q, want production", cfg.AppEnv)
+	for _, want := range cases {
+		t.Run(string(want), func(t *testing.T) {
+			setEnv(t, allRequired)
+			t.Setenv("APP_ENV", string(want))
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("unexpected error for APP_ENV=%q: %v", want, err)
+			}
+			if cfg.AppEnv != want {
+				t.Errorf("AppEnv = %q, want %q", cfg.AppEnv, want)
+			}
+		})
 	}
 }
 
-func TestLoad_AppEnv_DefaultIsEmpty(t *testing.T) {
+func TestLoad_AppEnv_UnsetReturnsError(t *testing.T) {
 	setEnv(t, allRequired)
 	t.Setenv("APP_ENV", "")
 
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when APP_ENV is empty, got nil")
 	}
-	if cfg.AppEnv != "" {
-		t.Errorf("AppEnv = %q, want empty string", cfg.AppEnv)
+	if !strings.Contains(err.Error(), "APP_ENV") {
+		t.Errorf("error %q does not mention APP_ENV", err.Error())
+	}
+}
+
+func TestLoad_AppEnv_InvalidValueReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("APP_ENV", "dev")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for invalid APP_ENV, got nil")
+	}
+	if !strings.Contains(err.Error(), "APP_ENV") {
+		t.Errorf("error %q does not mention APP_ENV", err.Error())
+	}
+	if !strings.Contains(err.Error(), "dev") {
+		t.Errorf("error %q does not mention the invalid value", err.Error())
 	}
 }

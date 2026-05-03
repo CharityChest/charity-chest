@@ -311,7 +311,7 @@ func TestHandleWebhook_UnknownEvent_Returns200(t *testing.T) {
 
 func TestHandleWebhook_ProductionWithoutSecret_Returns503(t *testing.T) {
 	db := newOrgTestDB(t)
-	cfg := &config.Config{AppEnv: "production", StripeWebhookSecret: ""}
+	cfg := &config.Config{AppEnv: config.AppEnvProduction, StripeWebhookSecret: ""}
 	h := handler.NewBillingHandler(db, cache.Disabled(), cfg)
 
 	body := stripeEventBody("checkout.session.completed", map[string]any{
@@ -329,7 +329,7 @@ func TestHandleWebhook_NonProductionWithoutSecret_Accepts(t *testing.T) {
 	db := newOrgTestDB(t)
 	org := model.Organization{Name: "Org", Plan: model.PlanFree}
 	db.Create(&org)
-	cfg := &config.Config{AppEnv: "", StripeWebhookSecret: ""}
+	cfg := &config.Config{AppEnv: config.AppEnvLocal, StripeWebhookSecret: ""}
 	h := handler.NewBillingHandler(db, cache.Disabled(), cfg)
 
 	body := stripeEventBody("checkout.session.completed", map[string]any{
