@@ -49,14 +49,14 @@ const (
 	KeyInvalidEventPayload      Key = "invalid_event_payload"
 	KeyCancelSubscriptionFailed Key = "cancel_subscription_failed"
 
-	KeyRoleNotAllowedOnPlan    Key = "role_not_allowed_on_plan"
-	KeyPlanMemberLimitReached  Key = "plan_member_limit_reached"
-	KeyPlanAlreadyActive       Key = "plan_already_active"
-	KeyStripeNotConfigured     Key = "stripe_not_configured"
-	KeyBillingCheckoutFailed   Key = "billing_checkout_failed"
-	KeyInvalidWebhookSignature Key = "invalid_webhook_signature"
-	KeySubscriptionNotFound        Key = "subscription_not_found"
-	KeyEnterpriseCheckoutConflict  Key = "enterprise_checkout_conflict"
+	KeyRoleNotAllowedOnPlan       Key = "role_not_allowed_on_plan"
+	KeyPlanMemberLimitReached     Key = "plan_member_limit_reached"
+	KeyPlanAlreadyActive          Key = "plan_already_active"
+	KeyStripeNotConfigured        Key = "stripe_not_configured"
+	KeyBillingCheckoutFailed      Key = "billing_checkout_failed"
+	KeyInvalidWebhookSignature    Key = "invalid_webhook_signature"
+	KeySubscriptionNotFound       Key = "subscription_not_found"
+	KeyEnterpriseCheckoutConflict Key = "enterprise_checkout_conflict"
 )
 
 // messages maps locale → Key → translated string.
@@ -106,12 +106,12 @@ var messages = map[string]map[Key]string{
 		KeyInvalidEventPayload:      "invalid event payload",
 		KeyCancelSubscriptionFailed: "failed to cancel subscription",
 
-		KeyRoleNotAllowedOnPlan:    "this role is not available on your current plan",
-		KeyPlanMemberLimitReached:  "member limit for this role has been reached on your current plan",
-		KeyPlanAlreadyActive:       "this plan is already active",
-		KeyStripeNotConfigured:     "payment processing is not configured",
-		KeyBillingCheckoutFailed:   "failed to create checkout session",
-		KeyInvalidWebhookSignature: "invalid webhook signature",
+		KeyRoleNotAllowedOnPlan:       "this role is not available on your current plan",
+		KeyPlanMemberLimitReached:     "member limit for this role has been reached on your current plan",
+		KeyPlanAlreadyActive:          "this plan is already active",
+		KeyStripeNotConfigured:        "payment processing is not configured",
+		KeyBillingCheckoutFailed:      "failed to create checkout session",
+		KeyInvalidWebhookSignature:    "invalid webhook signature",
 		KeySubscriptionNotFound:       "no active subscription found",
 		KeyEnterpriseCheckoutConflict: "checkout rejected: organization is already on the enterprise plan",
 	},
@@ -159,12 +159,12 @@ var messages = map[string]map[Key]string{
 		KeyInvalidEventPayload:      "payload dell'evento non valido",
 		KeyCancelSubscriptionFailed: "errore nella cancellazione dell'abbonamento",
 
-		KeyRoleNotAllowedOnPlan:    "questo ruolo non è disponibile nel piano attuale",
-		KeyPlanMemberLimitReached:  "il limite di membri per questo ruolo è stato raggiunto nel piano attuale",
-		KeyPlanAlreadyActive:       "questo piano è già attivo",
-		KeyStripeNotConfigured:     "il sistema di pagamento non è configurato",
-		KeyBillingCheckoutFailed:   "errore nella creazione della sessione di pagamento",
-		KeyInvalidWebhookSignature: "firma del webhook non valida",
+		KeyRoleNotAllowedOnPlan:       "questo ruolo non è disponibile nel piano attuale",
+		KeyPlanMemberLimitReached:     "il limite di membri per questo ruolo è stato raggiunto nel piano attuale",
+		KeyPlanAlreadyActive:          "questo piano è già attivo",
+		KeyStripeNotConfigured:        "il sistema di pagamento non è configurato",
+		KeyBillingCheckoutFailed:      "errore nella creazione della sessione di pagamento",
+		KeyInvalidWebhookSignature:    "firma del webhook non valida",
 		KeySubscriptionNotFound:       "nessun abbonamento attivo trovato",
 		KeyEnterpriseCheckoutConflict: "checkout rifiutato: l'organizzazione ha già il piano Enterprise",
 	},
