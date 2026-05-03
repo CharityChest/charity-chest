@@ -232,7 +232,8 @@ export const api = {
 
   /** POST /v1/api/orgs/:orgID/billing/checkout — returns a Stripe Checkout URL */
   createCheckoutSession(orgId: number, locale: string): Promise<BillingCheckoutResponse> {
-    return request(`/v1/api/orgs/${orgId}/billing/checkout?locale=${locale}`, {
+    const qs = new URLSearchParams({ locale }).toString();
+    return request(`/v1/api/orgs/${orgId}/billing/checkout?${qs}`, {
       method: 'POST',
       headers: bearerHeader(),
     });
