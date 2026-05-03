@@ -224,7 +224,7 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyMemberExists))
 		}
 		if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
-			return echo.NewHTTPError(http.StatusInternalServerError, "database error")
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 		}
 		member = model.OrgMember{OrgID: orgID, UserID: req.UserID, Role: req.Role}
 		return tx.Create(&member).Error
@@ -397,7 +397,7 @@ func checkPlanLimit(tx *gorm.DB, loc string, org model.Organization, targetRole 
 	}
 	var count int64
 	if err := query.Count(&count).Error; err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "database error")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 	if int(count) >= limit {
 		return echo.NewHTTPError(http.StatusUnprocessableEntity, i18n.T(loc, i18n.KeyPlanMemberLimitReached))

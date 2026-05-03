@@ -44,6 +44,8 @@ const (
 	KeyMFAGenerateSecret      Key = "mfa_generate_secret"
 	KeyMFAInvalidPendingToken Key = "mfa_invalid_pending_token"
 
+	KeyDatabaseError           Key = "database_error"
+
 	KeyRoleNotAllowedOnPlan    Key = "role_not_allowed_on_plan"
 	KeyPlanMemberLimitReached  Key = "plan_member_limit_reached"
 	KeyPlanAlreadyActive       Key = "plan_already_active"
@@ -95,6 +97,8 @@ var messages = map[string]map[Key]string{
 		KeyMFAGenerateSecret:      "failed to generate mfa secret",
 		KeyMFAInvalidPendingToken: "invalid or expired mfa session",
 
+		KeyDatabaseError:           "a database error occurred",
+
 		KeyRoleNotAllowedOnPlan:    "this role is not available on your current plan",
 		KeyPlanMemberLimitReached:  "member limit for this role has been reached on your current plan",
 		KeyPlanAlreadyActive:       "this plan is already active",
@@ -141,6 +145,8 @@ var messages = map[string]map[Key]string{
 		KeyMFASetupRequired:       "completa prima la configurazione mfa",
 		KeyMFAGenerateSecret:      "errore nella generazione del segreto mfa",
 		KeyMFAInvalidPendingToken: "sessione mfa non valida o scaduta",
+
+		KeyDatabaseError:           "si è verificato un errore nel database",
 
 		KeyRoleNotAllowedOnPlan:    "questo ruolo non è disponibile nel piano attuale",
 		KeyPlanMemberLimitReached:  "il limite di membri per questo ruolo è stato raggiunto nel piano attuale",
