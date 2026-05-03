@@ -71,14 +71,17 @@ seed-root:
 
 # Apply all pending migrations.
 migrate:
+	@test -n "$(DATABASE_URL)" || (echo "ERROR: DATABASE_URL is required"; exit 1)
 	$(MIGRATE) -path migrations -database "$(DATABASE_URL)" up
 
 # Roll back N migration steps.
 # Usage: make migrate-down N=1
 migrate-down:
+	@test -n "$(DATABASE_URL)" || (echo "ERROR: DATABASE_URL is required"; exit 1)
 	@test -n "$(N)" || (echo "ERROR: N is required (e.g. make migrate-down N=1)"; exit 1)
 	$(MIGRATE) -path migrations -database "$(DATABASE_URL)" down $(N)
 
 # Print the current migration version.
 migrate-version:
+	@test -n "$(DATABASE_URL)" || (echo "ERROR: DATABASE_URL is required"; exit 1)
 	$(MIGRATE) -path migrations -database "$(DATABASE_URL)" version
