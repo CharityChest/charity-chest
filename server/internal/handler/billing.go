@@ -132,9 +132,15 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 
 // HandleWebhook godoc — POST /stripe/webhook
 // Processes Stripe subscription lifecycle events to update org plans.
-// Signature verification is skipped when StripeWebhookSecret is empty (dev/test mode).
+// In production (APP_ENV=production) a missing STRIPE_WEBHOOK_SECRET is rejected
+// immediately so unsigned events can never alter plan state. Outside production,
+// signature verification is skipped to support local dev and automated tests.
 func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 	loc := locale(c)
+	if h.cfg.AppEnv == "production" && h.cfg.StripeWebhookSecret == "" {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, i18n.T(loc, i18n.KeyStripeNotConfigured))
+	}
+
 	payload, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyReadBodyFailed))

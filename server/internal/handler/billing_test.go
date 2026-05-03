@@ -309,6 +309,43 @@ func TestHandleWebhook_UnknownEvent_Returns200(t *testing.T) {
 	}
 }
 
+func TestHandleWebhook_ProductionWithoutSecret_Returns503(t *testing.T) {
+	db := newOrgTestDB(t)
+	cfg := &config.Config{AppEnv: "production", StripeWebhookSecret: ""}
+	h := handler.NewBillingHandler(db, cache.Disabled(), cfg)
+
+	body := stripeEventBody("checkout.session.completed", map[string]any{
+		"metadata": map[string]string{"org_id": "1"},
+	})
+	c, _ := newWebhookContext(t, body)
+	err := h.HandleWebhook(c)
+	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 in production without webhook secret, got %v", err)
+	}
+}
+
+func TestHandleWebhook_NonProductionWithoutSecret_Accepts(t *testing.T) {
+	// Outside production, empty secret is allowed (dev/test mode).
+	db := newOrgTestDB(t)
+	org := model.Organization{Name: "Org", Plan: model.PlanFree}
+	db.Create(&org)
+	cfg := &config.Config{AppEnv: "", StripeWebhookSecret: ""}
+	h := handler.NewBillingHandler(db, cache.Disabled(), cfg)
+
+	body := stripeEventBody("checkout.session.completed", map[string]any{
+		"metadata":     map[string]string{"org_id": fmt.Sprintf("%d", org.ID)},
+		"customer":     "cus_x",
+		"subscription": "sub_x",
+	})
+	c, rec := newWebhookContext(t, body)
+	if err := h.HandleWebhook(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
 // --- CancelSubscription ---
 
 func TestCancelSubscription_StripeNotConfigured_Returns503(t *testing.T) {

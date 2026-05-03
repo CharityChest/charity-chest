@@ -19,6 +19,7 @@ type Config struct {
 	GoogleRedirectURL  string
 	FrontendURL        string
 	Port               string
+	AppEnv             string
 	CacheEnabled       bool
 	CacheURL           string
 	CacheTTL           time.Duration
@@ -41,6 +42,7 @@ func Load() (*Config, error) {
 		GoogleRedirectURL:   envOrDefault("GOOGLE_REDIRECT_URL", "http://localhost:8080/v1/auth/google/callback"),
 		FrontendURL:         envOrDefault("FRONTEND_URL", "http://localhost:3000"),
 		Port:                envOrDefault("PORT", "8080"),
+		AppEnv:              os.Getenv("APP_ENV"),
 		CacheEnabled:        os.Getenv("CACHE_ENABLED") == "true",
 		CacheURL:            envOrDefault("CACHE_URL", "redis://localhost:6379"),
 		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),

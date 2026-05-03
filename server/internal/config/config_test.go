@@ -281,3 +281,31 @@ func TestLoad_StripeMissingBothCompanions_ErrorMentionsBoth(t *testing.T) {
 		t.Errorf("error %q does not mention STRIPE_PRO_PRICE_ID", err.Error())
 	}
 }
+
+// --- AppEnv ---
+
+func TestLoad_AppEnv_IsLoaded(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("APP_ENV", "production")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.AppEnv != "production" {
+		t.Errorf("AppEnv = %q, want production", cfg.AppEnv)
+	}
+}
+
+func TestLoad_AppEnv_DefaultIsEmpty(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("APP_ENV", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.AppEnv != "" {
+		t.Errorf("AppEnv = %q, want empty string", cfg.AppEnv)
+	}
+}
