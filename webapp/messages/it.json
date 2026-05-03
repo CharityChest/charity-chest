@@ -159,6 +159,9 @@
     "successBody": "Il tuo abbonamento è in elaborazione. Il piano verrà aggiornato a breve.",
     "cancelTitle": "Pagamento annullato",
     "cancelBody": "Nessun pagamento è stato effettuato. Puoi eseguire l'upgrade in qualsiasi momento.",
-    "backToOrg": "Torna all'organizzazione"
+    "backToOrg": "Torna all'organizzazione",
+    "checkoutFailed": "Impossibile avviare il checkout",
+    "activateEnterpriseFailed": "Impossibile attivare il piano Enterprise",
+    "cancelSubscriptionFailed": "Impossibile annullare l'abbonamento"
   }
 }

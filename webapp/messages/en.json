@@ -159,6 +159,9 @@
     "successBody": "Your subscription is being processed. The plan will update shortly.",
     "cancelTitle": "Checkout cancelled",
     "cancelBody": "No payment was made. You can upgrade at any time.",
-    "backToOrg": "Back to organization"
+    "backToOrg": "Back to organization",
+    "checkoutFailed": "Failed to start checkout",
+    "activateEnterpriseFailed": "Failed to activate enterprise",
+    "cancelSubscriptionFailed": "Failed to cancel subscription"
   }
 }

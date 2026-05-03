@@ -174,7 +174,7 @@ export default function OrgDetailPage({
       const { url } = await api.createCheckoutSession(orgId, locale);
       window.location.href = url;
     } catch (err) {
-      setBillingError(err instanceof ApiError ? err.message : 'Failed to start checkout');
+      setBillingError(err instanceof ApiError ? err.message : t('billing.checkoutFailed'));
       setCheckingOut(false);
     }
   }
@@ -187,7 +187,7 @@ export default function OrgDetailPage({
       const updated = await api.assignEnterprisePlan(orgId);
       setOrg(updated);
     } catch (err) {
-      setBillingError(err instanceof ApiError ? err.message : 'Failed to activate enterprise');
+      setBillingError(err instanceof ApiError ? err.message : t('billing.activateEnterpriseFailed'));
     } finally {
       setActivatingEnterprise(false);
     }
@@ -199,7 +199,7 @@ export default function OrgDetailPage({
     try {
       await api.cancelSubscription(orgId);
     } catch (err) {
-      setBillingError(err instanceof ApiError ? err.message : 'Failed to cancel subscription');
+      setBillingError(err instanceof ApiError ? err.message : t('billing.cancelSubscriptionFailed'));
     }
   }
 
