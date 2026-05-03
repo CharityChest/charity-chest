@@ -59,7 +59,7 @@ cp .env.example .env
 | `CACHE_URL` | no | Valkey/Redis connection URL (default `redis://localhost:6379`) |
 | `CACHE_TTL` | no | TTL for all cache entries, e.g. `30s`, `2m`, `10m` (default `5m`) |
 | `STRIPE_SECRET_KEY` | no | Stripe secret key. When unset, all billing endpoints return 503. |
-| `STRIPE_WEBHOOK_SECRET` | if Stripe enabled | Stripe webhook signing secret. **Required** when `STRIPE_SECRET_KEY` is set — the server refuses to start without it. Also required at runtime: in production a missing secret causes `POST /stripe/webhook` to return 503 immediately. |
+| `STRIPE_WEBHOOK_SECRET` | if Stripe enabled | Stripe webhook signing secret. **Required** when `STRIPE_SECRET_KEY` is set — the server refuses to start without it. Also enforced at runtime: `POST /stripe/webhook` returns 503 immediately whenever this is unset, in any environment, so unsigned events can never alter plan state. |
 | `STRIPE_PRO_PRICE_ID` | if Stripe enabled | Stripe Price ID for the Pro plan (e.g. `price_xxx`). **Required** when `STRIPE_SECRET_KEY` is set. |
 
 ---
@@ -367,7 +367,7 @@ curl -X DELETE http://localhost:8080/v1/api/orgs/1/billing/subscription \
 Stripe webhooks are received at `POST /stripe/webhook`. Signature verification is enforced when `APP_ENV=production`; outside production, raw unsigned payloads are accepted so local dev and automated tests can POST events without a real Stripe account.
 
 **Webhook behaviour notes:**
-- `checkout.session.completed` — if the org is already on the enterprise plan the webhook cancels the new Stripe subscription and refunds the initial payment, then returns 409. The org's plan is not changed.
+- `checkout.session.completed` — if the org is already on the enterprise plan, the handler persists a `BillingCleanupJob` row (with the duplicate subscription ID and payment intent ID) **before** acknowledging the webhook, then attempts to cancel the new Stripe subscription and refund the initial payment in-line. The webhook is acknowledged with 200 once the cleanup job is durable; only DB persistence errors return 500 (so Stripe retries). Stripe call failures are recorded in `last_error` on the job row for an out-of-band retry worker. The org's plan is never changed.
 - `customer.subscription.deleted` — downgrades the org to `free` and clears `stripe_subscription_id`.
 
 **`POST /v1/api/orgs/:orgID/plan/enterprise` behaviour note:** if the org has an active Stripe subscription, it is cancelled before the plan is promoted. If cancellation fails the request returns 500 and the org is not promoted — `stripe_subscription_id` is preserved for manual reconciliation.
