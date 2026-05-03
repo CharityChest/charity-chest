@@ -192,6 +192,7 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 		}
 		if err := h.db.Model(&model.Organization{}).Where("id = ?", orgID).Updates(updates).Error; err != nil {
 			log.Printf("webhook: upgrade org %d to pro: %v", orgID, err)
+			return echo.NewHTTPError(http.StatusInternalServerError)
 		}
 		if err := h.cache.Del(ctx, cache.KeyOrg(orgID), cache.KeyOrgsList); err != nil {
 			log.Printf("webhook: cache invalidate org %d: %v", orgID, err)
@@ -215,6 +216,7 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 		}
 		if err := h.db.Model(&org).Updates(updates).Error; err != nil {
 			log.Printf("webhook: downgrade org %d to free: %v", org.ID, err)
+			return echo.NewHTTPError(http.StatusInternalServerError)
 		}
 		if err := h.cache.Del(ctx, cache.KeyOrg(org.ID), cache.KeyOrgsList); err != nil {
 			log.Printf("webhook: cache invalidate org %d: %v", org.ID, err)
