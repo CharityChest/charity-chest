@@ -5,7 +5,7 @@ RELEASE := dist/release/$(BINARY)
 # golang-migrate is already in go.mod — no separate install needed.
 MIGRATE := go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate
 
-.PHONY: all build build-debug build-release test clean tidy seed-root migrate migrate-down migrate-version
+.PHONY: all build build-debug build-release test lint clean tidy seed-root migrate migrate-down migrate-version
 
 # ── Default ───────────────────────────────────────────────────────────────────
 
@@ -41,6 +41,9 @@ build-release:
 
 test:
 	go test -race ./internal/...
+
+lint:
+	golangci-lint run ./...
 
 tidy:
 	go mod tidy

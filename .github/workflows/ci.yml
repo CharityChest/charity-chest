@@ -6,6 +6,26 @@ on:
     branches: [main]
 
 jobs:
+  lint-server:
+    name: Server lint (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.11.4
+          working-directory: server
+
   test-server:
     name: Server tests (Go)
     runs-on: ubuntu-latest
