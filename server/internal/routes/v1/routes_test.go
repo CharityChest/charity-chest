@@ -1,6 +1,7 @@
 package v1_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
+	stripe "github.com/stripe/stripe-go/v82"
 	"gorm.io/gorm"
 )
 
@@ -49,9 +51,22 @@ func testCfg() *config.Config {
 	}
 }
 
-// newServer wires the full Echo instance — all routes plus middleware — mirroring
-// main.go so that locale detection and JWT enforcement behave identically in tests.
-func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
+// mockStripeGateway is a no-op StripeGateway used in e2e tests to exercise
+// billing happy paths without real Stripe network calls.
+type mockStripeGateway struct{}
+
+func (m *mockStripeGateway) CreateCheckoutSession(_ context.Context, _ *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error) {
+	return &stripe.CheckoutSession{URL: "https://checkout.stripe.com/pay/mock-session"}, nil
+}
+
+func (m *mockStripeGateway) CancelSubscription(_ string) error { return nil }
+
+func (m *mockStripeGateway) RefundPayment(_ string) error { return nil }
+
+// newServerWithStripe wires the full Echo instance with an injectable Stripe
+// gateway. Pass nil to get the default behaviour (real gateway from cfg, which
+// returns nil when StripeSecretKey is unset).
+func newServerWithStripe(t *testing.T, gw handler.StripeGateway) (*echo.Echo, *gorm.DB) {
 	t.Helper()
 	db := newTestDB(t)
 	cfg := testCfg()
@@ -71,9 +86,15 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 	routesv1.RegisterOrgs(v1, db, noCache, cfg.JWTSecret)
 	routesv1.RegisterProfile(v1, db, cfg, noCache, cfg.JWTSecret)
 	routesv1.RegisterAdmin(v1, db, noCache, cfg.JWTSecret)
-	routesv1.RegisterBilling(e, v1, db, noCache, cfg, cfg.JWTSecret)
+	routesv1.RegisterBilling(e, v1, db, noCache, cfg, cfg.JWTSecret, gw)
 
 	return e, db
+}
+
+// newServer wires the full Echo instance — all routes plus middleware — mirroring
+// main.go so that locale detection and JWT enforcement behave identically in tests.
+func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
+	return newServerWithStripe(t, nil)
 }
 
 // makeUserWithRole creates a user in the DB with the given system-level role and
@@ -1662,5 +1683,40 @@ func TestCancelSubscription_ByOwner_StripeNotConfigured_Returns503(t *testing.T)
 	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", ownerToken, "")
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestBillingCheckout_ByOwner_Returns200(t *testing.T) {
+	e, db := newServerWithStripe(t, &mockStripeGateway{})
+	ownerToken := registerUser(t, e, "owner@example.com", "password123", "Owner")
+	var ownerUser model.User
+	db.Where("email = ?", "owner@example.com").First(&ownerUser)
+	org := makeFreeOrg(t, db, "Org")
+	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
+
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", ownerToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	data := decodeDataBody(t, rec)
+	url, ok := data["url"].(string)
+	if !ok || url == "" {
+		t.Errorf("url field missing or empty in response: %v", data)
+	}
+}
+
+func TestCancelSubscription_ByOwner_Returns204(t *testing.T) {
+	e, db := newServerWithStripe(t, &mockStripeGateway{})
+	ownerToken := registerUser(t, e, "owner@example.com", "password123", "Owner")
+	var ownerUser model.User
+	db.Where("email = ?", "owner@example.com").First(&ownerUser)
+	subID := "sub_mock_test_123"
+	org := model.Organization{Name: "Org", Plan: model.PlanPro, StripeSubscriptionID: &subID}
+	db.Create(&org)
+	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
+
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", ownerToken, "")
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204; body: %s", rec.Code, rec.Body.String())
 	}
 }

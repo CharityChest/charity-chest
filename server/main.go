@@ -72,7 +72,7 @@ func main() {
 	routesv1.RegisterOrgs(v1, db, appCache, cfg.JWTSecret)
 	routesv1.RegisterProfile(v1, db, cfg, appCache, cfg.JWTSecret)
 	routesv1.RegisterAdmin(v1, db, appCache, cfg.JWTSecret)
-	routesv1.RegisterBilling(e, v1, db, appCache, cfg, cfg.JWTSecret)
+	routesv1.RegisterBilling(e, v1, db, appCache, cfg, cfg.JWTSecret, nil)
 
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(e.Start(":" + cfg.Port))

@@ -25,8 +25,16 @@ import (
 // Protected under /v1/api/orgs/:orgID/plan (root/system only):
 //
 //	POST /v1/api/orgs/:orgID/plan/enterprise
-func RegisterBilling(e *echo.Echo, v1 *echo.Group, db *gorm.DB, c *cache.Cache, cfg *config.Config, jwtSecret string) {
-	h := handler.NewBillingHandler(db, c, cfg)
+//
+// gw may be nil; when nil the handler auto-constructs a real Stripe gateway
+// from cfg.StripeSecretKey. Pass a non-nil value in tests to inject a mock.
+func RegisterBilling(e *echo.Echo, v1 *echo.Group, db *gorm.DB, c *cache.Cache, cfg *config.Config, jwtSecret string, gw handler.StripeGateway) {
+	var h *handler.BillingHandler
+	if gw != nil {
+		h = handler.NewBillingHandlerWithGateway(db, c, cfg, gw)
+	} else {
+		h = handler.NewBillingHandler(db, c, cfg)
+	}
 
 	// Stripe webhook — not versioned, no JWT (signature is the auth).
 	e.POST("/stripe/webhook", h.HandleWebhook)
