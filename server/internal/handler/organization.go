@@ -219,9 +219,6 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 			Select("id", "plan").First(&org, orgID).Error; err != nil {
 			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 		}
-		if err := checkPlanLimit(tx, loc, org, req.Role, 0); err != nil {
-			return err
-		}
 		var existing model.OrgMember
 		lookupErr := tx.Where("org_id = ? AND user_id = ?", orgID, req.UserID).First(&existing).Error
 		if lookupErr == nil {
@@ -229,6 +226,9 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 		}
 		if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
 			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
+		if err := checkPlanLimit(tx, loc, org, req.Role, 0); err != nil {
+			return err
 		}
 		member = model.OrgMember{OrgID: orgID, UserID: req.UserID, Role: req.Role}
 		return tx.Create(&member).Error
@@ -280,11 +280,14 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 			Select("id", "plan").First(&org, orgID).Error; err != nil {
 			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 		}
-		if err := checkPlanLimit(tx, loc, org, req.Role, targetUserID); err != nil {
-			return err
-		}
 		if err := tx.Where("org_id = ? AND user_id = ?", orgID, targetUserID).First(&member).Error; err != nil {
 			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
+		}
+		if member.Role == req.Role {
+			return nil
+		}
+		if err := checkPlanLimit(tx, loc, org, req.Role, targetUserID); err != nil {
+			return err
 		}
 		member.Role = req.Role
 		return tx.Save(&member).Error
