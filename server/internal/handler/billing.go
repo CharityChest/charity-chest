@@ -303,16 +303,18 @@ func (h *BillingHandler) AssignEnterprisePlan(c echo.Context) error {
 	if org.Plan == model.PlanEnterprise {
 		return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyPlanAlreadyActive))
 	}
-	if h.stripe != nil && org.StripeSubscriptionID != nil {
+	updates := map[string]any{
+		"plan": model.PlanEnterprise,
+	}
+	if org.StripeSubscriptionID != nil {
+		if h.stripe == nil {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, i18n.T(loc, i18n.KeyStripeNotConfigured))
+		}
 		if err := h.stripe.CancelSubscription(*org.StripeSubscriptionID); err != nil {
 			log.Printf("billing: cancel stripe subscription for org %d during enterprise upgrade: %v", orgID, err)
 			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyCancelSubscriptionFailed))
 		}
-	}
-
-	updates := map[string]any{
-		"plan":                   model.PlanEnterprise,
-		"stripe_subscription_id": nil,
+		updates["stripe_subscription_id"] = nil
 	}
 	if err := h.db.Model(&org).Updates(updates).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
