@@ -296,7 +296,7 @@ export default function OrgDetailPage({
                 <button
                   onClick={handleUpgradeToPro}
                   disabled={checkingOut}
-                  className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 sm:py-1.5"
+                  className="rounded-md bg-blue-600 px-3 py-3 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 sm:py-2"
                 >
                   {checkingOut ? t('common.loading') : t('billing.upgradeToPro')}
                 </button>
@@ -305,7 +305,7 @@ export default function OrgDetailPage({
                 <button
                   onClick={handleActivateEnterprise}
                   disabled={activatingEnterprise}
-                  className="rounded-md bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 sm:py-1.5"
+                  className="rounded-md bg-purple-600 px-3 py-3 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 sm:py-2"
                 >
                   {activatingEnterprise ? t('common.loading') : t('billing.activateEnterprise')}
                 </button>
@@ -313,7 +313,7 @@ export default function OrgDetailPage({
               {org.plan === 'pro' && canManageBilling && (
                 <button
                   onClick={handleCancelSubscription}
-                  className="rounded-md border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 sm:py-1.5"
+                  className="rounded-md border border-red-200 px-3 py-3 text-sm text-red-600 hover:bg-red-50 sm:py-2"
                 >
                   {t('billing.cancelSubscription')}
                 </button>
