@@ -112,7 +112,81 @@ Migrations run automatically on startup. The server listens on `http://localhost
 
 ---
 
-## 5. API reference
+## 5. Database migrations
+
+SQL migration files live in `migrations/`, named `NNNNNN_<description>.{up,down}.sql`. The server applies all pending up migrations automatically at startup. The Makefile targets let you drive migrations manually when needed.
+
+`golang-migrate` is already in `go.mod` — no separate CLI install is required. `DATABASE_URL` must be set in your shell (or in `.env`):
+
+```bash
+export DATABASE_URL="postgres://user:password@localhost:5432/charitychest?sslmode=disable"
+```
+
+### Quick reference
+
+| Command | What it does |
+|---|---|
+| `make migrate` | Apply all pending up migrations |
+| `make migrate-down N=1` | Roll back the last N migrations |
+| `make migrate-version` | Print the current schema version |
+
+### Apply pending migrations
+
+```bash
+make migrate
+```
+
+This runs every `.up.sql` file that has not yet been applied, in order. The server does the same automatically on startup, so this target is mainly useful when you want to migrate without starting the server.
+
+### Roll back N steps
+
+```bash
+# Roll back the last migration
+make migrate-down N=1
+
+# Roll back the last two migrations
+make migrate-down N=2
+```
+
+> **Never** pass `N` equal to the total number of migrations — that wipes the entire schema.
+
+### Check the current schema version
+
+```bash
+make migrate-version
+```
+
+### Go to a specific version
+
+```bash
+go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate \
+  -path migrations -database "$DATABASE_URL" goto 5
+```
+
+Runs up or down steps as needed to reach exactly version 5.
+
+### Recover from a failed migration
+
+A mid-flight failure leaves the schema in a "dirty" state. Fix the SQL, force the version back to the last clean migration, then re-run:
+
+```bash
+# Force version to 5 (last fully applied migration)
+go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate \
+  -path migrations -database "$DATABASE_URL" force 5
+
+# Re-apply
+make migrate
+```
+
+### Adding a new migration
+
+1. Create `migrations/NNNNNN_<description>.up.sql` and `migrations/NNNNNN_<description>.down.sql`.
+2. The `.down.sql` must exactly undo everything the `.up.sql` does.
+3. Never edit a migration that has already been applied to any environment — add a new one instead.
+
+---
+
+## 6. API reference
 
 All application endpoints are versioned under `/v1/`. The health probe is unversioned.
 
@@ -323,7 +397,7 @@ Role hierarchy for member assignment: `owner` → can assign `admin`, `operation
 
 ---
 
-## 6. Roles and initial setup
+## 7. Roles and initial setup
 
 The system uses two tiers of roles:
 
@@ -381,7 +455,7 @@ After the root user exists, `GET /v1/system/status` returns `{"configured":true}
 
 ---
 
-## 7. Test Google login
+## 8. Test Google login
 
 Google OAuth requires a real browser redirect flow. The full end-to-end flow is:
 
@@ -406,7 +480,7 @@ Then open `http://localhost:8080/v1/auth/google?locale=en` (or `?locale=it`) in 
 
 ---
 
-## 8. Cache (Valkey)
+## 9. Cache (Valkey)
 
 The server supports an optional Valkey (Redis-compatible) cache layer to reduce database load on read-heavy endpoints. It is **disabled by default** — enable it with `CACHE_ENABLED=true`.
 
@@ -441,7 +515,7 @@ If Valkey is unreachable or a cache operation fails, the server logs the error a
 
 ---
 
-## 9. Plans
+## 10. Plans
 
 Every organisation belongs to one of three tiers:
 
@@ -455,7 +529,7 @@ Member-limit enforcement happens in `AddMember` and `UpdateMember`. The org row 
 
 ---
 
-## 10. Deploy to production
+## 11. Deploy to production
 
 ```bash
 make build-release
