@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	stripe "github.com/stripe/stripe-go/v82"
 	stripewebhook "github.com/stripe/stripe-go/v82/webhook"
@@ -202,22 +203,30 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 		}
 		orgID := uint(orgID64)
 
-		// If the org is already on enterprise, cancel the new subscription and
-		// refund the payment rather than silently downgrading the plan.
+		// If the org is already on enterprise, the new subscription must be
+		// cancelled and the payment refunded rather than silently downgrading
+		// the plan. We persist a BillingCleanupJob *before* acknowledging the
+		// webhook so the cleanup intent survives a Stripe outage — if the
+		// inline cancel/refund fails the row stays in the DB for an
+		// out-of-band retry. Only DB persistence errors return 5xx (so Stripe
+		// retries the webhook); transient Stripe errors do not.
 		var existing model.Organization
 		if err := h.db.First(&existing, orgID).Error; err == nil && existing.Plan == model.PlanEnterprise {
-			if h.stripe != nil {
-				if sess.Subscription != "" {
-					if err := h.stripe.CancelSubscription(ctx, sess.Subscription); err != nil {
-						log.Printf("webhook: cancel subscription %s for enterprise org %d: %v", sess.Subscription, orgID, err)
-					}
-				}
-				if sess.PaymentIntent != "" {
-					if err := h.stripe.RefundPayment(ctx, sess.PaymentIntent); err != nil {
-						log.Printf("webhook: refund payment %s for enterprise org %d: %v", sess.PaymentIntent, orgID, err)
-					}
-				}
+			job := model.BillingCleanupJob{
+				OrgID:  orgID,
+				Reason: model.BillingCleanupReasonDuplicateEnterprise,
 			}
+			if sess.Subscription != "" {
+				job.StripeSubscriptionID = &sess.Subscription
+			}
+			if sess.PaymentIntent != "" {
+				job.StripePaymentIntentID = &sess.PaymentIntent
+			}
+			if err := h.db.Create(&job).Error; err != nil {
+				log.Printf("webhook: persist cleanup job for enterprise org %d: %v", orgID, err)
+				return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+			}
+			h.attemptEnterpriseCleanup(ctx, &job)
 			return c.NoContent(http.StatusOK)
 		}
 
@@ -264,6 +273,46 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+// attemptEnterpriseCleanup runs the cancel + refund Stripe calls in-line for a
+// freshly persisted cleanup job and records the outcome on the row. It is
+// best-effort — failures are logged and reflected in the row's last_error so
+// an out-of-band retry can finish the job, but the webhook still acknowledges
+// 200 because the durable record guarantees the work won't be lost.
+func (h *BillingHandler) attemptEnterpriseCleanup(ctx context.Context, job *model.BillingCleanupJob) {
+	if h.stripe == nil {
+		return
+	}
+	updates := map[string]any{
+		"attempt_count": gorm.Expr("attempt_count + 1"),
+	}
+	var lastErr error
+	if job.StripeSubscriptionID != nil {
+		if err := h.stripe.CancelSubscription(ctx, *job.StripeSubscriptionID); err != nil {
+			log.Printf("webhook: cancel subscription %s for cleanup job %d: %v", *job.StripeSubscriptionID, job.ID, err)
+			lastErr = err
+		} else {
+			updates["subscription_cancelled_at"] = time.Now()
+		}
+	}
+	if job.StripePaymentIntentID != nil {
+		if err := h.stripe.RefundPayment(ctx, *job.StripePaymentIntentID); err != nil {
+			log.Printf("webhook: refund payment %s for cleanup job %d: %v", *job.StripePaymentIntentID, job.ID, err)
+			lastErr = err
+		} else {
+			updates["payment_refunded_at"] = time.Now()
+		}
+	}
+	if lastErr != nil {
+		msg := lastErr.Error()
+		updates["last_error"] = &msg
+	} else {
+		updates["last_error"] = nil
+	}
+	if err := h.db.Model(job).Updates(updates).Error; err != nil {
+		log.Printf("webhook: update cleanup job %d after stripe attempt: %v", job.ID, err)
+	}
 }
 
 // CancelSubscription godoc — DELETE /v1/api/orgs/:orgID/billing/subscription

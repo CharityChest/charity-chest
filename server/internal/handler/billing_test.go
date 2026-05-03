@@ -296,6 +296,166 @@ func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelsAndRefundsReturns2
 	if unchanged.Plan != model.PlanEnterprise {
 		t.Errorf("plan = %q, want enterprise (must not be downgraded)", unchanged.Plan)
 	}
+	var job model.BillingCleanupJob
+	if err := db.Where("org_id = ?", org.ID).First(&job).Error; err != nil {
+		t.Fatalf("expected cleanup job persisted, got %v", err)
+	}
+	if job.Reason != model.BillingCleanupReasonDuplicateEnterprise {
+		t.Errorf("reason = %q, want %q", job.Reason, model.BillingCleanupReasonDuplicateEnterprise)
+	}
+	if job.StripeSubscriptionID == nil || *job.StripeSubscriptionID != "sub_test" {
+		t.Errorf("stripe_subscription_id = %v, want sub_test", job.StripeSubscriptionID)
+	}
+	if job.StripePaymentIntentID == nil || *job.StripePaymentIntentID != "pi_test" {
+		t.Errorf("stripe_payment_intent_id = %v, want pi_test", job.StripePaymentIntentID)
+	}
+	if job.SubscriptionCancelledAt == nil {
+		t.Error("subscription_cancelled_at should be set after successful cancel")
+	}
+	if job.PaymentRefundedAt == nil {
+		t.Error("payment_refunded_at should be set after successful refund")
+	}
+	if job.LastError != nil {
+		t.Errorf("last_error = %v, want nil after success", *job.LastError)
+	}
+}
+
+func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelFails_PersistsJobAndReturns200(t *testing.T) {
+	db := newOrgTestDB(t)
+	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
+	db.Create(&org)
+
+	var refundCalled bool
+	mock := &mockStripeGateway{
+		cancelFn: func(_ context.Context, _ string) error { return fmt.Errorf("stripe down") },
+		refundFn: func(_ context.Context, _ string) error { refundCalled = true; return nil },
+	}
+	cfg := &config.Config{AppEnv: config.AppEnvLocal, StripeWebhookSecret: "whsec_test",
+		StripeSecretKey: "sk_test_xxx", StripePriceIDPro: "price_test"}
+	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), cfg, mock)
+
+	body := stripeEventBody("checkout.session.completed", map[string]any{
+		"metadata":       map[string]string{"org_id": fmt.Sprintf("%d", org.ID)},
+		"customer":       "cus_test",
+		"subscription":   "sub_test",
+		"payment_intent": "pi_test",
+	})
+	c, rec := newWebhookContext(t, body)
+	if err := h.HandleWebhook(c); err != nil {
+		t.Fatalf("expected 200 (durable cleanup row persisted), got %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !refundCalled {
+		t.Error("RefundPayment should still be attempted even after cancel fails (independent ops)")
+	}
+	var unchanged model.Organization
+	db.First(&unchanged, org.ID)
+	if unchanged.Plan != model.PlanEnterprise {
+		t.Errorf("plan = %q, want enterprise (must not be downgraded)", unchanged.Plan)
+	}
+	var job model.BillingCleanupJob
+	if err := db.Where("org_id = ?", org.ID).First(&job).Error; err != nil {
+		t.Fatalf("expected cleanup job persisted, got %v", err)
+	}
+	if job.SubscriptionCancelledAt != nil {
+		t.Error("subscription_cancelled_at should be nil when cancel failed")
+	}
+	if job.PaymentRefundedAt == nil {
+		t.Error("payment_refunded_at should be set when refund succeeded")
+	}
+	if job.LastError == nil || *job.LastError == "" {
+		t.Error("last_error should record the cancel failure")
+	}
+}
+
+func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_RefundFails_PersistsJobAndReturns200(t *testing.T) {
+	db := newOrgTestDB(t)
+	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
+	db.Create(&org)
+
+	mock := &mockStripeGateway{
+		cancelFn: func(_ context.Context, _ string) error { return nil },
+		refundFn: func(_ context.Context, _ string) error { return fmt.Errorf("stripe down") },
+	}
+	cfg := &config.Config{AppEnv: config.AppEnvLocal, StripeWebhookSecret: "whsec_test",
+		StripeSecretKey: "sk_test_xxx", StripePriceIDPro: "price_test"}
+	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), cfg, mock)
+
+	body := stripeEventBody("checkout.session.completed", map[string]any{
+		"metadata":       map[string]string{"org_id": fmt.Sprintf("%d", org.ID)},
+		"customer":       "cus_test",
+		"subscription":   "sub_test",
+		"payment_intent": "pi_test",
+	})
+	c, rec := newWebhookContext(t, body)
+	if err := h.HandleWebhook(c); err != nil {
+		t.Fatalf("expected 200 (durable cleanup row persisted), got %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var unchanged model.Organization
+	db.First(&unchanged, org.ID)
+	if unchanged.Plan != model.PlanEnterprise {
+		t.Errorf("plan = %q, want enterprise (must not be downgraded)", unchanged.Plan)
+	}
+	var job model.BillingCleanupJob
+	if err := db.Where("org_id = ?", org.ID).First(&job).Error; err != nil {
+		t.Fatalf("expected cleanup job persisted, got %v", err)
+	}
+	if job.SubscriptionCancelledAt == nil {
+		t.Error("subscription_cancelled_at should be set when cancel succeeded")
+	}
+	if job.PaymentRefundedAt != nil {
+		t.Error("payment_refunded_at should be nil when refund failed")
+	}
+	if job.LastError == nil || *job.LastError == "" {
+		t.Error("last_error should record the refund failure")
+	}
+}
+
+func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_PersistFails_Returns500(t *testing.T) {
+	db := newOrgTestDB(t)
+	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
+	db.Create(&org)
+
+	// Drop the cleanup-job table so the durable insert fails — Stripe must
+	// retry the webhook because we never recorded the cleanup intent.
+	if err := db.Migrator().DropTable(&model.BillingCleanupJob{}); err != nil {
+		t.Fatalf("drop table: %v", err)
+	}
+
+	var stripeCalled bool
+	mock := &mockStripeGateway{
+		cancelFn: func(_ context.Context, _ string) error { stripeCalled = true; return nil },
+		refundFn: func(_ context.Context, _ string) error { stripeCalled = true; return nil },
+	}
+	cfg := &config.Config{AppEnv: config.AppEnvLocal, StripeWebhookSecret: "whsec_test",
+		StripeSecretKey: "sk_test_xxx", StripePriceIDPro: "price_test"}
+	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), cfg, mock)
+
+	body := stripeEventBody("checkout.session.completed", map[string]any{
+		"metadata":       map[string]string{"org_id": fmt.Sprintf("%d", org.ID)},
+		"customer":       "cus_test",
+		"subscription":   "sub_test",
+		"payment_intent": "pi_test",
+	})
+	c, _ := newWebhookContext(t, body)
+	err := h.HandleWebhook(c)
+	he, ok := err.(*echo.HTTPError)
+	if !ok || he.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 HTTPError when cleanup-job persistence fails, got %v", err)
+	}
+	if stripeCalled {
+		t.Error("Stripe ops must not run when the cleanup row could not be persisted")
+	}
+	var unchanged model.Organization
+	db.First(&unchanged, org.ID)
+	if unchanged.Plan != model.PlanEnterprise {
+		t.Errorf("plan = %q, want enterprise (must not be downgraded)", unchanged.Plan)
+	}
 }
 
 func TestHandleWebhook_SubscriptionDeleted_DowngradesToFree(t *testing.T) {

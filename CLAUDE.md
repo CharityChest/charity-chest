@@ -34,6 +34,7 @@ charity-chest/
 │   │   ├── model/user.go           # GORM User model (supports password + Google OAuth + Role)
 │   │   ├── model/organization.go   # Organization + OrgMember GORM models (includes Plan, Stripe fields)
 │   │   ├── model/plan.go           # Plan type (free/pro/enterprise), PlanLimits, LimitsFor()
+│   │   ├── model/billing_cleanup_job.go # BillingCleanupJob: durable record of pending Stripe cancel/refund work after a webhook
 │   │   ├── model/role.go           # Role constants + CanAssignOrgRole + ValidOrgRole
 │   │   └── routes/
 │   │       └── v1/                 # Route registration for the v1 API (one file per group)
@@ -58,7 +59,9 @@ charity-chest/
 │   │   ├── 000005_add_mfa_to_users.up.sql
 │   │   ├── 000005_add_mfa_to_users.down.sql
 │   │   ├── 000006_add_plan_to_organizations.up.sql
-│   │   └── 000006_add_plan_to_organizations.down.sql
+│   │   ├── 000006_add_plan_to_organizations.down.sql
+│   │   ├── 000007_create_billing_cleanup_jobs.up.sql
+│   │   └── 000007_create_billing_cleanup_jobs.down.sql
 │   └── .docker-dev/                # Docker Compose demo environment
 │       ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
 │       ├── docker-compose.yml      # Postgres + Valkey + server; server waits for both health checks
@@ -271,7 +274,7 @@ Organisations have one of three subscription plans stored in `organizations.plan
 - Plan type, constants, and `LimitsFor()` live in `model/plan.go`.
 - Stripe integration is optional: set `STRIPE_SECRET_KEY` to enable. Billing endpoints return 503 when unset.
 - `HandleWebhook` returns 503 immediately when `STRIPE_WEBHOOK_SECRET` is unset, in **any** environment — unsigned events are never processed. When the secret is set and `APP_ENV != production`, signature verification is skipped so local dev and automated tests can send raw payloads. In production the `Stripe-Signature` header is always validated.
-- In the `checkout.session.completed` webhook case, if the org is already on the enterprise plan, the newly created Stripe subscription is cancelled and the payment is refunded (both best-effort — errors are logged); the handler returns 409 and the org's plan is never altered.
+- In the `checkout.session.completed` webhook case, if the org is already on the enterprise plan, the handler persists a `BillingCleanupJob` row (with the duplicate subscription ID and payment intent ID) **before** acknowledging the webhook. Only DB persistence errors return 500 so Stripe retries the webhook; once the row is durable the webhook is acknowledged with 200 and the cancel + refund Stripe calls are attempted in-line, recording success timestamps or `last_error` on the job row. The org's plan is never altered. Cancel and refund are independent — a failure of one does not skip the other. Pending rows (`subscription_cancelled_at`/`payment_refunded_at` still NULL) are the source of truth for an out-of-band retry worker.
 - `AssignEnterprisePlan` cancels an existing Stripe subscription before promoting the org. If the cancellation fails the handler returns 500 and aborts — the org is not promoted and `stripe_subscription_id` is preserved so the subscription can be reconciled later.
 - The `StripeGateway` interface in `handler/billing.go` is exported so tests can inject a mock via `NewBillingHandlerWithGateway`. It exposes three methods: `CreateCheckoutSession`, `CancelSubscription`, and `RefundPayment`. The real gateway (`stripeGoGateway`) is constructed once with a per-client `*stripeclient.API` — the global `stripe.Key` is never mutated.
 

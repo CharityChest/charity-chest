@@ -24,7 +24,7 @@ func newOrgTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrgMember{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrgMember{}, &model.BillingCleanupJob{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db
