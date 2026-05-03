@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -213,7 +214,7 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 					}
 				}
 			}
-			return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyEnterpriseCheckoutConflict))
+			return c.NoContent(http.StatusOK)
 		}
 
 		updates := map[string]any{
@@ -223,7 +224,7 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 		}
 		if err := h.db.Model(&model.Organization{}).Where("id = ?", orgID).Updates(updates).Error; err != nil {
 			log.Printf("webhook: upgrade org %d to pro: %v", orgID, err)
-			return echo.NewHTTPError(http.StatusInternalServerError)
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 		}
 		if err := h.cache.Del(ctx, cache.KeyOrg(orgID), cache.KeyOrgsList); err != nil {
 			log.Printf("webhook: cache invalidate org %d: %v", orgID, err)
@@ -239,7 +240,11 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 		}
 		var org model.Organization
 		if err := h.db.Where("stripe_subscription_id = ?", sub.ID).First(&org).Error; err != nil {
-			break // org not found — ignore
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				break
+			}
+			log.Printf("webhook: lookup org by subscription %s: %v", sub.ID, err)
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 		}
 		updates := map[string]any{
 			"plan":                   model.PlanFree,
@@ -247,7 +252,7 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 		}
 		if err := h.db.Model(&org).Updates(updates).Error; err != nil {
 			log.Printf("webhook: downgrade org %d to free: %v", org.ID, err)
-			return echo.NewHTTPError(http.StatusInternalServerError)
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 		}
 		if err := h.cache.Del(ctx, cache.KeyOrg(org.ID), cache.KeyOrgsList); err != nil {
 			log.Printf("webhook: cache invalidate org %d: %v", org.ID, err)

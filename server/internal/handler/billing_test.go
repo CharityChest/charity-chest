@@ -260,7 +260,7 @@ func TestHandleWebhook_CheckoutCompleted_UpgradesToPro(t *testing.T) {
 	}
 }
 
-func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelsAndRefundsReturns409(t *testing.T) {
+func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelsAndRefundsReturns200(t *testing.T) {
 	db := newOrgTestDB(t)
 	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
 	db.Create(&org)
@@ -282,9 +282,8 @@ func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelsAndRefundsReturns4
 	})
 	c, _ := newWebhookContext(t, body)
 	err := h.HandleWebhook(c)
-	he, ok := err.(*echo.HTTPError)
-	if !ok || he.Code != http.StatusConflict {
-		t.Errorf("expected 409 HTTPError, got %v", err)
+	if err != nil {
+		t.Errorf("expected 200 (no error), got %v", err)
 	}
 	if cancelledSub != "sub_test" {
 		t.Errorf("CancelSubscription called with %q, want sub_test", cancelledSub)
