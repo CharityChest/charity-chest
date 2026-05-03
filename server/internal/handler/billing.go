@@ -103,7 +103,10 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 	}
 	var org model.Organization
 	if err := h.db.First(&org, orgID).Error; err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 	if org.Plan == model.PlanPro || org.Plan == model.PlanEnterprise {
 		return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyPlanAlreadyActive))
@@ -276,7 +279,10 @@ func (h *BillingHandler) CancelSubscription(c echo.Context) error {
 	}
 	var org model.Organization
 	if err := h.db.First(&org, orgID).Error; err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 	if org.Plan != model.PlanPro || org.StripeSubscriptionID == nil {
 		return echo.NewHTTPError(http.StatusUnprocessableEntity, i18n.T(loc, i18n.KeySubscriptionNotFound))
@@ -300,7 +306,10 @@ func (h *BillingHandler) AssignEnterprisePlan(c echo.Context) error {
 	}
 	var org model.Organization
 	if err := h.db.First(&org, orgID).Error; err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 	if org.Plan == model.PlanEnterprise {
 		return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyPlanAlreadyActive))
