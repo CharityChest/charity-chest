@@ -44,7 +44,10 @@ const (
 	KeyMFAGenerateSecret      Key = "mfa_generate_secret"
 	KeyMFAInvalidPendingToken Key = "mfa_invalid_pending_token"
 
-	KeyDatabaseError           Key = "database_error"
+	KeyDatabaseError              Key = "database_error"
+	KeyReadBodyFailed             Key = "read_body_failed"
+	KeyInvalidEventPayload        Key = "invalid_event_payload"
+	KeyCancelSubscriptionFailed   Key = "cancel_subscription_failed"
 
 	KeyRoleNotAllowedOnPlan    Key = "role_not_allowed_on_plan"
 	KeyPlanMemberLimitReached  Key = "plan_member_limit_reached"
@@ -97,7 +100,10 @@ var messages = map[string]map[Key]string{
 		KeyMFAGenerateSecret:      "failed to generate mfa secret",
 		KeyMFAInvalidPendingToken: "invalid or expired mfa session",
 
-		KeyDatabaseError:           "a database error occurred",
+		KeyDatabaseError:              "a database error occurred",
+		KeyReadBodyFailed:             "failed to read request body",
+		KeyInvalidEventPayload:        "invalid event payload",
+		KeyCancelSubscriptionFailed:   "failed to cancel subscription",
 
 		KeyRoleNotAllowedOnPlan:    "this role is not available on your current plan",
 		KeyPlanMemberLimitReached:  "member limit for this role has been reached on your current plan",
@@ -146,7 +152,10 @@ var messages = map[string]map[Key]string{
 		KeyMFAGenerateSecret:      "errore nella generazione del segreto mfa",
 		KeyMFAInvalidPendingToken: "sessione mfa non valida o scaduta",
 
-		KeyDatabaseError:           "si è verificato un errore nel database",
+		KeyDatabaseError:              "si è verificato un errore nel database",
+		KeyReadBodyFailed:             "errore nella lettura del corpo della richiesta",
+		KeyInvalidEventPayload:        "payload dell'evento non valido",
+		KeyCancelSubscriptionFailed:   "errore nella cancellazione dell'abbonamento",
 
 		KeyRoleNotAllowedOnPlan:    "questo ruolo non è disponibile nel piano attuale",
 		KeyPlanMemberLimitReached:  "il limite di membri per questo ruolo è stato raggiunto nel piano attuale",

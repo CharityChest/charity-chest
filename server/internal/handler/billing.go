@@ -134,9 +134,10 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 // Processes Stripe subscription lifecycle events to update org plans.
 // Signature verification is skipped when StripeWebhookSecret is empty (dev/test mode).
 func (h *BillingHandler) HandleWebhook(c echo.Context) error {
+	loc := locale(c)
 	payload, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "failed to read body")
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyReadBodyFailed))
 	}
 
 	var event stripe.Event
@@ -144,11 +145,11 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 		sig := c.Request().Header.Get("Stripe-Signature")
 		event, err = stripewebhook.ConstructEvent(payload, sig, h.cfg.StripeWebhookSecret)
 		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyInvalidWebhookSignature))
+			return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidWebhookSignature))
 		}
 	} else {
 		if err := json.Unmarshal(payload, &event); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "invalid event payload")
+			return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidEventPayload))
 		}
 	}
 
@@ -233,7 +234,7 @@ func (h *BillingHandler) CancelSubscription(c echo.Context) error {
 	}
 	if err := h.stripe.CancelSubscription(*org.StripeSubscriptionID); err != nil {
 		log.Printf("billing: cancel subscription for org %d: %v", orgID, err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to cancel subscription")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyCancelSubscriptionFailed))
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -266,7 +267,7 @@ func (h *BillingHandler) AssignEnterprisePlan(c echo.Context) error {
 		"stripe_subscription_id": nil,
 	}
 	if err := h.db.Model(&org).Updates(updates).Error; err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update plan")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 
 	ctx := c.Request().Context()
@@ -276,7 +277,7 @@ func (h *BillingHandler) AssignEnterprisePlan(c echo.Context) error {
 
 	// Reload to return the updated org.
 	if err := h.db.First(&org, orgID).Error; err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to reload org")
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 	return dataJSON(c, http.StatusOK, &org)
 }
