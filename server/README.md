@@ -54,13 +54,13 @@ cp .env.example .env
 | `GOOGLE_REDIRECT_URL` | no | Server-side OAuth callback URI registered in Google Cloud Console (default `http://localhost:8080/v1/auth/google/callback`) |
 | `FRONTEND_URL` | no | Base URL of the webapp — used to redirect the browser back after Google login (default `http://localhost:3000`) |
 | `PORT` | no | HTTP listen port (default `8080`) |
-| `APP_ENV` | no | Set to `production` to signal a production environment. The `seed-root` command refuses to run when this is set to `production`. |
+| `APP_ENV` | **yes** | Deployment environment. Must be one of: `local`, `testing`, `staging`, `production`. The server refuses to start if this is absent or set to an unrecognised value. |
 | `CACHE_ENABLED` | no | Set to `true` to enable Valkey caching (default `false`) |
 | `CACHE_URL` | no | Valkey/Redis connection URL (default `redis://localhost:6379`) |
 | `CACHE_TTL` | no | TTL for all cache entries, e.g. `30s`, `2m`, `10m` (default `5m`) |
-| `STRIPE_SECRET_KEY` | no | Stripe secret key. Billing endpoints return 503 when unset. |
-| `STRIPE_WEBHOOK_SECRET` | no | Stripe webhook signing secret — required to verify webhook payloads in production |
-| `STRIPE_PRO_PRICE_ID` | no | Stripe Price ID for the Pro plan (e.g. `price_xxx`) |
+| `STRIPE_SECRET_KEY` | no | Stripe secret key. When unset, all billing endpoints return 503. |
+| `STRIPE_WEBHOOK_SECRET` | if Stripe enabled | Stripe webhook signing secret. **Required** when `STRIPE_SECRET_KEY` is set — the server refuses to start without it. Also required at runtime: in production a missing secret causes `POST /stripe/webhook` to return 503 immediately. |
+| `STRIPE_PRO_PRICE_ID` | if Stripe enabled | Stripe Price ID for the Pro plan (e.g. `price_xxx`). **Required** when `STRIPE_SECRET_KEY` is set. |
 
 ---
 
@@ -290,7 +290,9 @@ curl -X DELETE http://localhost:8080/v1/api/orgs/1/billing/subscription \
   -H "Authorization: Bearer <token>"
 ```
 
-Stripe webhooks are received at `POST /stripe/webhook`. To test locally:
+Stripe webhooks are received at `POST /stripe/webhook`. Signature verification is enforced when `APP_ENV=production`; outside production, raw unsigned payloads are accepted so local dev and automated tests can POST events without a real Stripe account.
+
+To test locally with the Stripe CLI:
 
 ```bash
 stripe listen --forward-to localhost:8080/stripe/webhook
@@ -373,7 +375,7 @@ docker compose -f .docker-dev/docker-compose.yml exec server \
   env SEED_ROOT_EMAIL=admin@example.com SEED_ROOT_PASSWORD=secret ./seed-root
 ```
 
-> **Production guard**: when `APP_ENV=production` is set the command is allowed only while no root user exists (bootstrap path). Once a root user is present it exits with an error, preventing accidental creation of additional root users on a live deployment.
+> **Production guard**: when `APP_ENV=production` the command is allowed only during the initial bootstrap (no root user exists yet). Once a root user is present it exits with an error, preventing accidental creation of additional root users on a live deployment.
 
 After the root user exists, `GET /v1/system/status` returns `{"configured":true}` and the webapp allows normal access.
 
@@ -449,7 +451,7 @@ Every organisation belongs to one of three tiers:
 | `pro` | 1 | up to 3 | up to 15 | Stripe Checkout |
 | `enterprise` | unlimited | unlimited | unlimited | manual (root/system API) |
 
-Member-limit enforcement happens in `AddMember` and `UpdateMember`. Existing members that exceed a plan's limits after a downgrade are not automatically removed; only new additions are blocked.
+Member-limit enforcement happens in `AddMember` and `UpdateMember`. The org row is locked inside a DB transaction (`SELECT … FOR UPDATE`) so the count check and the insert/update are atomic — concurrent requests cannot race past the cap. Existing members that exceed a plan's limits after a downgrade are not removed; only new additions are blocked.
 
 ---
 
@@ -461,3 +463,16 @@ make build-release
 ```
 
 Set environment variables directly on the host (do not ship a `.env` file). The server reads them from the process environment automatically.
+
+`APP_ENV=production` is **required** and must be set before starting. The server will refuse to start without it. Required variables in a production deployment:
+
+| Variable | Notes |
+|---|---|
+| `APP_ENV` | Must be `production` |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `JWT_SECRET` | Long random secret — `openssl rand -hex 32` |
+| `GOOGLE_CLIENT_ID` | Google OAuth credentials |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth credentials |
+| `STRIPE_SECRET_KEY` | Required if billing is enabled |
+| `STRIPE_WEBHOOK_SECRET` | Required when `STRIPE_SECRET_KEY` is set |
+| `STRIPE_PRO_PRICE_ID` | Required when `STRIPE_SECRET_KEY` is set |

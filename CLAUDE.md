@@ -15,7 +15,7 @@ charity-chest/
 │   ├── .env.example                # Template for local secrets (never commit .env)
 │   ├── .gitignore
 │   ├── cmd/
-│   │   └── seed-root/main.go       # CLI to create the first root user (accepts -email/-password flags or SEED_ROOT_EMAIL/SEED_ROOT_PASSWORD env vars; blocked by APP_ENV=production only after a root user already exists)
+│   │   └── seed-root/main.go       # CLI to create the first root user (accepts -email/-password flags or SEED_ROOT_EMAIL/SEED_ROOT_PASSWORD env vars; blocked when APP_ENV=production and a root user already exists)
 │   ├── internal/
 │   │   ├── cache/cache.go          # Valkey cache client: New/Disabled/Get/Set/Del/DelPattern
 │   │   ├── cache/keys.go           # Cache key constants and builder functions
@@ -159,10 +159,11 @@ Protected routes live under `/v1/api/` and require a valid `Authorization: Beare
 - `server/.env` is git-ignored. Copy `server/.env.example` to create it locally.
 - `server/.docker-dev/.env` is also git-ignored. Copy `server/.docker-dev/.env.example`.
 - `config.Load()` (`internal/config/config.go`) calls `godotenv.Load()` silently (ignored in production) then validates all required vars, returning an error that names every missing variable.
-- Required vars: `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
-- Optional vars with defaults: `GOOGLE_REDIRECT_URL` (default `http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (default `http://localhost:3000`), `PORT` (default `8080`), `APP_ENV` (set to `production` on live deployments — currently used only to block `seed-root`).
+- Required vars: `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APP_ENV`.
+- `APP_ENV` is **required** and must be one of `local`, `testing`, `staging`, `production`. An absent or unrecognised value causes `Load()` to fail with a clear error. Use the typed constants `config.AppEnvLocal`, `config.AppEnvTesting`, `config.AppEnvStaging`, `config.AppEnvProduction` — never compare against bare string literals.
+- Optional vars with defaults: `GOOGLE_REDIRECT_URL` (default `http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (default `http://localhost:3000`), `PORT` (default `8080`).
 - Cache vars (all optional): `CACHE_ENABLED` (default `false`), `CACHE_URL` (default `redis://localhost:6379`), `CACHE_TTL` (default `5m` — any `time.ParseDuration` string).
-- Stripe vars (all optional — billing endpoints return 503 when `STRIPE_SECRET_KEY` is unset): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`.
+- Stripe vars (all optional — billing endpoints return 503 when `STRIPE_SECRET_KEY` is unset): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`. When `STRIPE_SECRET_KEY` is set, **both** `STRIPE_WEBHOOK_SECRET` and `STRIPE_PRO_PRICE_ID` must also be set; `Load()` treats them as a group and names every missing companion var in the error.
 - `FRONTEND_URL` is used by `GoogleCallback` to redirect the browser back to the webapp after the OAuth exchange.
 
 ---
@@ -214,7 +215,7 @@ make clean
 - **Error handling**: handlers return `echo.NewHTTPError(statusCode, message)`. Errors are never swallowed silently.
 - **No user enumeration**: login returns a generic 401 for both "user not found" and "wrong password".
 - **i18n**: all error messages are translated via `internal/i18n`. The `Locale` middleware (global) reads `Accept-Language`, resolves it to `middleware.LocaleEN` or `middleware.LocaleIT` (default `LocaleEN`), and stores it under `middleware.LocaleContextKey` in the Echo context. Handlers call `i18n.T(locale(c), i18n.KeyXxx)`. When adding a new error message, add its key constant to `internal/i18n/messages.go` and provide both EN and IT translations.
-- **Named constants over magic strings**: use `middleware.UserIDContextKey` / `middleware.EmailContextKey` / `middleware.RoleContextKey` when reading JWT context values; `middleware.LocaleContextKey` / `middleware.LocaleEN` / `middleware.LocaleIT` for locale keys; `handler.CookieOAuthState` / `handler.CookieOAuthLocale` for OAuth cookie names; `model.RoleRoot` / `model.RoleSystem` / `model.OrgRoleOwner` etc. for role strings. Never repeat bare string literals for these values.
+- **Named constants over magic strings**: use `middleware.UserIDContextKey` / `middleware.EmailContextKey` / `middleware.RoleContextKey` when reading JWT context values; `middleware.LocaleContextKey` / `middleware.LocaleEN` / `middleware.LocaleIT` for locale keys; `handler.CookieOAuthState` / `handler.CookieOAuthLocale` for OAuth cookie names; `model.RoleRoot` / `model.RoleSystem` / `model.OrgRoleOwner` etc. for role strings; `config.AppEnvLocal` / `config.AppEnvTesting` / `config.AppEnvStaging` / `config.AppEnvProduction` for environment comparisons. Never repeat bare string literals for these values.
 - **Sensitive fields**: `PasswordHash` and `GoogleID` are tagged `json:"-"` — they must never appear in API responses.
 - **Nullable columns**: `PasswordHash`, `GoogleID`, and `Role` are `*string`; nil means that field is not set for that user.
 - **Unit tests**: one `_test.go` file per source file, in `package foo_test` (black-box). Each test gets a fresh in-memory SQLite DB via `newTestDB(t)`. No external services, no global state.
@@ -265,12 +266,12 @@ Organisations have one of three subscription plans stored in `organizations.plan
 | `pro` | 1 | 3 | 15 | Stripe Checkout (webhook flips plan) |
 | `enterprise` | unlimited | unlimited | unlimited | `POST /v1/api/orgs/:orgID/plan/enterprise` by root/system |
 
-- Plan limits are enforced in `AddMember` and `UpdateMember` via `checkMemberLimit` in `handler/organization.go`.
+- Plan limits are enforced in `AddMember` and `UpdateMember` by the `checkPlanLimit` helper (`handler/organization.go`). The org row is locked with `SELECT … FOR UPDATE` inside a transaction so the count check and the write are atomic — concurrent requests cannot race past the cap.
 - Downgrades do **not** remove existing over-limit members ("grandfathering") — only new additions are blocked.
 - Plan type, constants, and `LimitsFor()` live in `model/plan.go`.
 - Stripe integration is optional: set `STRIPE_SECRET_KEY` to enable. Billing endpoints return 503 when unset.
-- `HandleWebhook` skips signature verification when `STRIPE_WEBHOOK_SECRET` is empty (dev/test mode).
-- The `StripeGateway` interface in `handler/billing.go` is exported so tests can inject a mock via `NewBillingHandlerWithGateway`.
+- `HandleWebhook` skips signature verification only outside production (`APP_ENV != production`), enabling local dev and automated tests to send raw payloads. In production with `STRIPE_WEBHOOK_SECRET` unset the endpoint returns 503 immediately — unsigned events are never processed.
+- The `StripeGateway` interface in `handler/billing.go` is exported so tests can inject a mock via `NewBillingHandlerWithGateway`. The real gateway (`stripeGoGateway`) is constructed once with a per-client `*stripeclient.API` — the global `stripe.Key` is never mutated.
 
 ---
 
