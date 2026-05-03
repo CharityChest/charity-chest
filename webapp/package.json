@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "fmt": "eslint . --fix",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest"
