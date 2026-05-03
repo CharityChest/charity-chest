@@ -159,6 +159,6 @@
     "successBody": "Your subscription is being processed. The plan will update shortly.",
     "cancelTitle": "Checkout cancelled",
     "cancelBody": "No payment was made. You can upgrade at any time.",
-    "backToOrg": "Back to organisation"
+    "backToOrg": "Back to organization"
   }
 }
