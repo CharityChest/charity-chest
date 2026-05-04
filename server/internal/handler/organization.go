@@ -230,7 +230,7 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 		if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
 			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 		}
-		if err := checkPlanLimit(tx, loc, org, req.Role, 0); err != nil {
+		if err := checkPlanLimit(tx, loc, org, req.Role); err != nil {
 			return err
 		}
 		member = model.OrgMember{OrgID: orgID, UserID: req.UserID, Role: req.Role}
@@ -298,7 +298,7 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 		if member.Role == req.Role {
 			return nil
 		}
-		if err := checkPlanLimit(tx, loc, org, req.Role, targetUserID); err != nil {
+		if err := checkPlanLimit(tx, loc, org, req.Role); err != nil {
 			return err
 		}
 		member.Role = req.Role
@@ -404,9 +404,7 @@ func (h *OrgHandler) loadOrg(c echo.Context) (*model.Organization, error) {
 // checkPlanLimit verifies that org's plan allows another member with targetRole.
 // Must be called with a transaction (tx) that already holds a lock on the org row
 // so the count cannot change between read and the subsequent write.
-// excludeUserID (non-zero) is excluded from the count — used by UpdateMember so
-// the member being updated does not count against their new role slot.
-func checkPlanLimit(tx *gorm.DB, loc string, org model.Organization, targetRole model.MemberRole, excludeUserID uint) error {
+func checkPlanLimit(tx *gorm.DB, loc string, org model.Organization, targetRole model.MemberRole) error {
 	limit := model.LimitsFor(org.Plan).ForRole(targetRole)
 	if limit == -1 {
 		return nil // unlimited
@@ -414,12 +412,8 @@ func checkPlanLimit(tx *gorm.DB, loc string, org model.Organization, targetRole 
 	if limit == 0 {
 		return echo.NewHTTPError(http.StatusUnprocessableEntity, i18n.T(loc, i18n.KeyRoleNotAllowedOnPlan))
 	}
-	query := tx.Model(&model.OrgMember{}).Where("org_id = ? AND role = ?", org.ID, targetRole)
-	if excludeUserID != 0 {
-		query = query.Where("user_id != ?", excludeUserID)
-	}
 	var count int64
-	if err := query.Count(&count).Error; err != nil {
+	if err := tx.Model(&model.OrgMember{}).Where("org_id = ? AND role = ?", org.ID, targetRole).Count(&count).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 	if int(count) >= limit {

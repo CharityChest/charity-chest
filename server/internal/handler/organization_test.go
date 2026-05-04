@@ -1203,26 +1203,3 @@ func TestUpdateMember_ProLimitReached_Returns422(t *testing.T) {
 		t.Errorf("expected 422 HTTPError, got %v", err)
 	}
 }
-
-func TestUpdateMember_ExcludesUpdatedUser_Success(t *testing.T) {
-	db := newOrgTestDB(t)
-	h := handler.NewOrgHandler(db, cache.Disabled())
-	org := model.Organization{Name: "Org", Plan: model.PlanPro}
-	db.Create(&org)
-	// The org has exactly 1 admin (the user we're updating).
-	admin := model.User{Email: "admin@example.com", Name: "Admin"}
-	db.Create(&admin)
-	db.Create(&model.OrgMember{OrgID: org.ID, UserID: admin.ID, Role: model.OrgRoleAdmin})
-
-	// Updating admin → operational: admin slot is freed, so limit check should pass.
-	sys := model.RoleSystem
-	c, rec := newOrgContextWithUserID(t, http.MethodPut,
-		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, admin.ID),
-		`{"role":"operational"}`, org.ID, admin.ID, 1, &sys, "")
-	if err := h.UpdateMember(c); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", rec.Code)
-	}
-}
