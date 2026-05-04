@@ -14,6 +14,7 @@ var allRequired = map[string]string{
 	"JWT_SECRET":           "supersecret",
 	"GOOGLE_CLIENT_ID":     "client-id",
 	"GOOGLE_CLIENT_SECRET": "client-secret",
+	"APP_ENV":              "local",
 }
 
 func setEnv(t *testing.T, env map[string]string) {
@@ -192,5 +193,145 @@ func TestLoad_CacheURL_Default(t *testing.T) {
 	}
 	if cfg.CacheURL != "redis://localhost:6379" {
 		t.Errorf("CacheURL = %q, want redis://localhost:6379", cfg.CacheURL)
+	}
+}
+
+// --- Stripe validation ---
+
+func TestLoad_StripeDisabled_NoValidation(t *testing.T) {
+	// When STRIPE_SECRET_KEY is absent, no Stripe vars are required.
+	setEnv(t, allRequired)
+	t.Setenv("STRIPE_SECRET_KEY", "")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "")
+	t.Setenv("STRIPE_PRO_PRICE_ID", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error with Stripe disabled: %v", err)
+	}
+	if cfg.StripeSecretKey != "" {
+		t.Error("expected empty StripeSecretKey")
+	}
+}
+
+func TestLoad_StripeFullyConfigured_Success(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_xxx")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_xxx")
+	t.Setenv("STRIPE_PRO_PRICE_ID", "price_xxx")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.StripeSecretKey != "sk_test_xxx" {
+		t.Errorf("StripeSecretKey = %q", cfg.StripeSecretKey)
+	}
+	if cfg.StripeWebhookSecret != "whsec_xxx" {
+		t.Errorf("StripeWebhookSecret = %q", cfg.StripeWebhookSecret)
+	}
+	if cfg.StripePriceIDPro != "price_xxx" {
+		t.Errorf("StripePriceIDPro = %q", cfg.StripePriceIDPro)
+	}
+}
+
+func TestLoad_StripeMissingWebhookSecret_ReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_xxx")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "")
+	t.Setenv("STRIPE_PRO_PRICE_ID", "price_xxx")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when STRIPE_WEBHOOK_SECRET is missing")
+	}
+	if !strings.Contains(err.Error(), "STRIPE_WEBHOOK_SECRET") {
+		t.Errorf("error %q does not mention STRIPE_WEBHOOK_SECRET", err.Error())
+	}
+}
+
+func TestLoad_StripeMissingPriceID_ReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_xxx")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_xxx")
+	t.Setenv("STRIPE_PRO_PRICE_ID", "")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when STRIPE_PRO_PRICE_ID is missing")
+	}
+	if !strings.Contains(err.Error(), "STRIPE_PRO_PRICE_ID") {
+		t.Errorf("error %q does not mention STRIPE_PRO_PRICE_ID", err.Error())
+	}
+}
+
+func TestLoad_StripeMissingBothCompanions_ErrorMentionsBoth(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_xxx")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "")
+	t.Setenv("STRIPE_PRO_PRICE_ID", "")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when both companion Stripe vars are missing")
+	}
+	if !strings.Contains(err.Error(), "STRIPE_WEBHOOK_SECRET") {
+		t.Errorf("error %q does not mention STRIPE_WEBHOOK_SECRET", err.Error())
+	}
+	if !strings.Contains(err.Error(), "STRIPE_PRO_PRICE_ID") {
+		t.Errorf("error %q does not mention STRIPE_PRO_PRICE_ID", err.Error())
+	}
+}
+
+// --- AppEnv ---
+
+func TestLoad_AppEnv_EachValidValue(t *testing.T) {
+	cases := []config.AppEnv{
+		config.AppEnvLocal,
+		config.AppEnvTesting,
+		config.AppEnvStaging,
+		config.AppEnvProduction,
+	}
+	for _, want := range cases {
+		t.Run(string(want), func(t *testing.T) {
+			setEnv(t, allRequired)
+			t.Setenv("APP_ENV", string(want))
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("unexpected error for APP_ENV=%q: %v", want, err)
+			}
+			if cfg.AppEnv != want {
+				t.Errorf("AppEnv = %q, want %q", cfg.AppEnv, want)
+			}
+		})
+	}
+}
+
+func TestLoad_AppEnv_UnsetReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("APP_ENV", "")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when APP_ENV is empty, got nil")
+	}
+	if !strings.Contains(err.Error(), "APP_ENV") {
+		t.Errorf("error %q does not mention APP_ENV", err.Error())
+	}
+}
+
+func TestLoad_AppEnv_InvalidValueReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("APP_ENV", "dev")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for invalid APP_ENV, got nil")
+	}
+	if !strings.Contains(err.Error(), "APP_ENV") {
+		t.Errorf("error %q does not mention APP_ENV", err.Error())
+	}
+	if !strings.Contains(err.Error(), "dev") {
+		t.Errorf("error %q does not mention the invalid value", err.Error())
 	}
 }

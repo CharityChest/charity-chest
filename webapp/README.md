@@ -13,6 +13,10 @@ All routes are prefixed with the active locale. Bare `/` redirects to `/en/` by 
 | `/:locale/register` | — | Account creation |
 | `/:locale/dashboard` | JWT | Current user profile (calls `GET /v1/api/me`) |
 | `/:locale/profile` | JWT | User profile + MFA enable/disable |
+| `/:locale/orgs` | JWT (system/root) | List + create organisations |
+| `/:locale/orgs/:id` | JWT (any member, system, root) | Org detail, member management, plan management (upgrade/enterprise/cancel) |
+| `/:locale/billing/success` | — | Stripe post-checkout success page — reads `?org_id` from query string |
+| `/:locale/billing/cancel` | — | Stripe post-checkout cancel page — reads `?org_id` from query string |
 | `/:locale/setup` | — | "System not configured" waiting page — shown when no root user exists |
 
 > **System configuration gate**: `SystemGuard` (mounted in the locale layout) calls `GET /v1/system/status` on every page mount. If the server reports `configured: false`, all pages are redirected to `/setup` until a root user is created directly in the database.
@@ -47,6 +51,10 @@ webapp/
 │   │       ├── login/page.tsx
 │   │       ├── register/page.tsx
 │   │       ├── dashboard/page.tsx  # Protected — redirects to /login if no token
+│   │       ├── orgs/page.tsx           # Protected (system/root) — list + create orgs
+│   │       ├── orgs/[orgID]/page.tsx   # Protected — org detail, members, plan management
+│   │       ├── billing/success/page.tsx  # Post-Stripe-checkout success page
+│   │       ├── billing/cancel/page.tsx   # Post-Stripe-checkout cancel page
 │   │       └── setup/page.tsx      # Shown when system is unconfigured; "Check Again" button
 │   ├── components/
 │   │   ├── ErrorBanner.tsx         # Styled API error box — border-l-4, icon, role=alert
@@ -67,7 +75,7 @@ webapp/
 │       └── api.ts              # TypeScript types mirroring the server's JSON
 ├── .env.example                # Template — copy to .env.local
 └── .docker-dev/
-    ├── Dockerfile              # node:20-alpine, hot reload via next dev
+    ├── Dockerfile              # node:24-alpine, hot reload via next dev
     ├── docker-compose.yml      # Mounts source; named volumes for node_modules/.next
     └── .env.example
 ```
@@ -117,6 +125,9 @@ npm run test:watch   # watch mode for development
 | `src/lib/api.test.ts` | `ApiError` shape; `getLocale` for all URL prefixes; `Accept-Language` header sent correctly; error body parsed into `ApiError` |
 | `src/components/ErrorBanner.test.tsx` | Renders null on empty message; message text; `role="alert"`; warning icon; border classes |
 | `src/components/SystemGuard.test.tsx` | Redirects to `/setup` when unconfigured; redirects away from `/setup` when configured; no redirect on network error |
+| `src/app/[locale]/orgs/[orgID]/page.test.tsx` | Org detail access control, org display, member management, plan badge, billing actions |
+| `src/app/[locale]/billing/success/page.test.tsx` | Success page rendering, back-to-org link, missing org_id handling |
+| `src/app/[locale]/billing/cancel/page.test.tsx` | Cancel page rendering, back-to-org link |
 
 Test files live alongside their source (`*.test.ts` / `*.test.tsx`). The Vitest config is `vitest.config.ts` at the repo root; global test setup is `src/test/setup.ts`.
 

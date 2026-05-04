@@ -2,7 +2,11 @@ BINARY  := server
 DEBUG   := dist/debug/$(BINARY)
 RELEASE := dist/release/$(BINARY)
 
-.PHONY: all build build-debug build-release test clean tidy seed-root
+# golang-migrate is already in go.mod — no separate install needed.
+MIGRATE      := go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate
+GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
+
+.PHONY: all build build-debug build-release test lint fmt clean tidy seed-root migrate migrate-down migrate-version
 
 # ── Default ───────────────────────────────────────────────────────────────────
 
@@ -39,6 +43,13 @@ build-release:
 test:
 	go test -race ./internal/...
 
+lint:
+	$(GOLANGCI_LINT) run ./...
+
+fmt:
+	gofmt -w .
+	$(GOLANGCI_LINT) run --fix ./...
+
 tidy:
 	go mod tidy
 
@@ -54,3 +65,23 @@ seed-root:
 	@test -n "$(PASSWORD)" || (echo "ERROR: PASSWORD is required"; exit 1)
 	SEED_ROOT_EMAIL=$(EMAIL) SEED_ROOT_PASSWORD=$(PASSWORD) \
 	  go run ./cmd/seed-root/main.go -migrations migrations
+
+# ── Migrations ────────────────────────────────────────────────────────────────
+# DATABASE_URL must be set in the environment or .env.
+
+# Apply all pending migrations.
+migrate:
+	@test -n "$(DATABASE_URL)" || (echo "ERROR: DATABASE_URL is required"; exit 1)
+	$(MIGRATE) -path migrations -database "$(DATABASE_URL)" up
+
+# Roll back N migration steps.
+# Usage: make migrate-down N=1
+migrate-down:
+	@test -n "$(DATABASE_URL)" || (echo "ERROR: DATABASE_URL is required"; exit 1)
+	@test -n "$(N)" || (echo "ERROR: N is required (e.g. make migrate-down N=1)"; exit 1)
+	$(MIGRATE) -path migrations -database "$(DATABASE_URL)" down $(N)
+
+# Print the current migration version.
+migrate-version:
+	@test -n "$(DATABASE_URL)" || (echo "ERROR: DATABASE_URL is required"; exit 1)
+	$(MIGRATE) -path migrations -database "$(DATABASE_URL)" version

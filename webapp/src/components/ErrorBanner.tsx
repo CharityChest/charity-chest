@@ -16,6 +16,7 @@ export default function ErrorBanner({ message }: { message: string }) {
   );
 }
 
+/** Triangle warning icon rendered inside ErrorBanner; hidden from assistive technology. */
 function WarningIcon() {
   return (
     <svg

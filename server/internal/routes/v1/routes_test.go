@@ -1,6 +1,7 @@
 package v1_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
+	stripe "github.com/stripe/stripe-go/v82"
 	"gorm.io/gorm"
 )
 
@@ -31,7 +33,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrgMember{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrgMember{}, &model.BillingCleanupJob{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db
@@ -39,17 +41,32 @@ func newTestDB(t *testing.T) *gorm.DB {
 
 func testCfg() *config.Config {
 	return &config.Config{
-		JWTSecret:          "e2e-test-jwt-secret",
-		GoogleClientID:     "test-google-client-id",
-		GoogleClientSecret: "test-google-client-secret",
-		GoogleRedirectURL:  "http://localhost:8080/v1/auth/google/callback",
-		Port:               "8080",
+		AppEnv:              config.AppEnvTesting,
+		JWTSecret:           "e2e-test-jwt-secret",
+		GoogleClientID:      "test-google-client-id",
+		GoogleClientSecret:  "test-google-client-secret",
+		GoogleRedirectURL:   "http://localhost:8080/v1/auth/google/callback",
+		Port:                "8080",
+		StripeWebhookSecret: "whsec_test",
 	}
 }
 
-// newServer wires the full Echo instance — all routes plus middleware — mirroring
-// main.go so that locale detection and JWT enforcement behave identically in tests.
-func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
+// mockStripeGateway is a no-op StripeGateway used in e2e tests to exercise
+// billing happy paths without real Stripe network calls.
+type mockStripeGateway struct{}
+
+func (m *mockStripeGateway) CreateCheckoutSession(_ context.Context, _ *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error) {
+	return &stripe.CheckoutSession{URL: "https://checkout.stripe.com/pay/mock-session"}, nil
+}
+
+func (m *mockStripeGateway) CancelSubscription(_ context.Context, _ string) error { return nil }
+
+func (m *mockStripeGateway) RefundPayment(_ context.Context, _ string) error { return nil }
+
+// newServerWithStripe wires the full Echo instance with an injectable Stripe
+// gateway. Pass nil to get the default behaviour (real gateway from cfg, which
+// returns nil when StripeSecretKey is unset).
+func newServerWithStripe(t *testing.T, gw handler.StripeGateway) (*echo.Echo, *gorm.DB) {
 	t.Helper()
 	db := newTestDB(t)
 	cfg := testCfg()
@@ -69,8 +86,15 @@ func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
 	routesv1.RegisterOrgs(v1, db, noCache, cfg.JWTSecret)
 	routesv1.RegisterProfile(v1, db, cfg, noCache, cfg.JWTSecret)
 	routesv1.RegisterAdmin(v1, db, noCache, cfg.JWTSecret)
+	routesv1.RegisterBilling(e, v1, db, noCache, cfg, cfg.JWTSecret, gw)
 
 	return e, db
+}
+
+// newServer wires the full Echo instance — all routes plus middleware — mirroring
+// main.go so that locale detection and JWT enforcement behave identically in tests.
+func newServer(t *testing.T) (*echo.Echo, *gorm.DB) {
+	return newServerWithStripe(t, nil)
 }
 
 // makeUserWithRole creates a user in the DB with the given system-level role and
@@ -109,12 +133,24 @@ func makeOrgMember(t *testing.T, db *gorm.DB, orgID, userID uint, role model.Mem
 	return m
 }
 
-// makeOrg creates an organisation and returns it.
+// makeOrg creates an enterprise organisation and returns it.
+// Enterprise plan avoids member-limit interference in tests that focus on
+// role hierarchy or other non-plan-related behaviour.
 func makeOrg(t *testing.T, db *gorm.DB, name string) model.Organization {
 	t.Helper()
-	org := model.Organization{Name: name}
+	org := model.Organization{Name: name, Plan: model.PlanEnterprise}
 	if err := db.Create(&org).Error; err != nil {
 		t.Fatalf("makeOrg: %v", err)
+	}
+	return org
+}
+
+// makeFreeOrg creates a free-plan organisation for plan-limit tests.
+func makeFreeOrg(t *testing.T, db *gorm.DB, name string) model.Organization {
+	t.Helper()
+	org := model.Organization{Name: name, Plan: model.PlanFree}
+	if err := db.Create(&org).Error; err != nil {
+		t.Fatalf("makeFreeOrg: %v", err)
 	}
 	return org
 }
@@ -154,17 +190,6 @@ func decodeDataBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any
 	data, ok := outer["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("response missing 'data' key or not an object; body: %s", rec.Body.String())
-	}
-	return data
-}
-
-// decodeDataArray unwraps the {"data": [...]} envelope for array responses.
-func decodeDataArray(t *testing.T, rec *httptest.ResponseRecorder) []any {
-	t.Helper()
-	outer := decodeBody(t, rec)
-	data, ok := outer["data"].([]any)
-	if !ok {
-		t.Fatalf("response missing 'data' key or not an array; body: %s", rec.Body.String())
 	}
 	return data
 }
@@ -860,7 +885,7 @@ func TestGetOrg_OrgMemberCanAccess(t *testing.T) {
 	orgID := uint(orgBody["id"].(float64))
 
 	// Create an owner user and add as member directly in DB.
-	ownerToken, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
+	_, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
 	// Clear the empty role so user has no system role.
 	db.Model(ownerUser).Update("role", nil)
 	// Re-sign token without role for this user.
@@ -873,7 +898,7 @@ func TestGetOrg_OrgMemberCanAccess(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	ownerToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	ownerToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	makeOrgMember(t, db, orgID, ownerUser.ID, model.OrgRoleOwner)
 
@@ -917,7 +942,7 @@ func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Hierarchy Org")
 
-	ownerToken, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
+	_, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
 	db.Model(ownerUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
 
@@ -931,7 +956,7 @@ func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	ownerToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	ownerToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	adminToken := registerUser(t, e, "admin@example.com", "password123", "Admin")
 	_ = adminToken
@@ -949,7 +974,7 @@ func TestAddMember_AdminCanAddOperational(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Hierarchy Org")
 
-	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	_, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
 	db.Model(adminUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
 
@@ -962,7 +987,7 @@ func TestAddMember_AdminCanAddOperational(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	adminToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	registerUser(t, e, "op@example.com", "password123", "Operational")
 	var opUser model.User
@@ -979,7 +1004,7 @@ func TestAddMember_AdminCannotAddOwner(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Hierarchy Org")
 
-	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	_, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
 	db.Model(adminUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
 
@@ -992,7 +1017,7 @@ func TestAddMember_AdminCannotAddOwner(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	adminToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	registerUser(t, e, "newowner@example.com", "password123", "NewOwner")
 	var newOwner model.User
@@ -1009,7 +1034,7 @@ func TestAddMember_AdminCannotAddAdmin(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Hierarchy Org")
 
-	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	_, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
 	db.Model(adminUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
 
@@ -1022,7 +1047,7 @@ func TestAddMember_AdminCannotAddAdmin(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	adminToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	registerUser(t, e, "another@example.com", "password123", "Another")
 	var another model.User
@@ -1039,7 +1064,7 @@ func TestAddMember_OperationalCannotAddAnyone(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Hierarchy Org")
 
-	opToken, opUser := makeUserWithRole(t, db, "op@example.com", "Op", "")
+	_, opUser := makeUserWithRole(t, db, "op@example.com", "Op", "")
 	db.Model(opUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, opUser.ID, model.OrgRoleOperational)
 
@@ -1052,7 +1077,7 @@ func TestAddMember_OperationalCannotAddAnyone(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	opToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	opToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	registerUser(t, e, "another@example.com", "password123", "Another")
 	var another model.User
@@ -1093,7 +1118,7 @@ func TestAddMember_InvalidRole(t *testing.T) {
 	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
 	org := makeOrg(t, db, "Org")
 
-	body := fmt.Sprintf(`{"user_id":99,"role":"superadmin"}`)
+	body := `{"user_id":99,"role":"superadmin"}`
 	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, sysToken, "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
@@ -1104,7 +1129,7 @@ func TestRemoveMember_OwnerCanRemoveAdmin(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Org")
 
-	ownerToken, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
+	_, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
 	db.Model(ownerUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
 
@@ -1117,7 +1142,7 @@ func TestRemoveMember_OwnerCanRemoveAdmin(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	ownerToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	ownerToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	registerUser(t, e, "admin@example.com", "password123", "Admin")
 	var adminUser model.User
@@ -1135,7 +1160,7 @@ func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Org")
 
-	adminToken, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
+	_, adminUser := makeUserWithRole(t, db, "admin@example.com", "Admin", "")
 	db.Model(adminUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
 
@@ -1148,7 +1173,7 @@ func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	adminToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	adminToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	_, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
 	db.Model(ownerUser).Update("role", nil)
@@ -1165,7 +1190,7 @@ func TestListMembers_OrgMemberCanList(t *testing.T) {
 	e, db := newServer(t)
 	org := makeOrg(t, db, "Org")
 
-	opToken, opUser := makeUserWithRole(t, db, "op@example.com", "Op", "")
+	_, opUser := makeUserWithRole(t, db, "op@example.com", "Op", "")
 	db.Model(opUser).Update("role", nil)
 	makeOrgMember(t, db, org.ID, opUser.ID, model.OrgRoleOperational)
 
@@ -1178,7 +1203,7 @@ func TestListMembers_OrgMemberCanList(t *testing.T) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	opToken, _ = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
+	opToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
 	rec := do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", opToken, "")
 	if rec.Code != http.StatusOK {
@@ -1480,5 +1505,218 @@ func TestSearchUsers_PaginationE2E(t *testing.T) {
 	// root user + 5 registered = 6 total; size=2 → 3 pages
 	if meta["total_pages"].(float64) != 3 {
 		t.Errorf("total_pages = %v, want 3", meta["total_pages"])
+	}
+}
+
+// --- Billing & plan management ---
+
+func TestBillingCheckout_Unauthenticated_Returns401(t *testing.T) {
+	e, db := newServer(t)
+	org := makeFreeOrg(t, db, "Org")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestBillingCheckout_StripeNotConfigured_Returns503(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	org := makeFreeOrg(t, db, "Org")
+	makeOrgMember(t, db, org.ID, 1, model.OrgRoleOwner)
+
+	// cfg has no StripeSecretKey → 503
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", rootToken, "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestAssignEnterprisePlan_ByRoot_Returns200(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	org := makeFreeOrg(t, db, "Org")
+
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", rootToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	data := decodeDataBody(t, rec)
+	if data["plan"] != string(model.PlanEnterprise) {
+		t.Errorf("plan = %v, want enterprise", data["plan"])
+	}
+}
+
+func TestAssignEnterprisePlan_BySystem_Returns200(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+	org := makeFreeOrg(t, db, "Org")
+
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", sysToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAssignEnterprisePlan_ByNonSystem_Returns403(t *testing.T) {
+	e, db := newServer(t)
+	// Regular user with no system role.
+	userToken := registerUser(t, e, "plain@example.com", "password123", "Plain")
+	org := makeFreeOrg(t, db, "Org")
+
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", userToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestWebhook_CheckoutCompleted_FlipsToPro(t *testing.T) {
+	e, db := newServer(t)
+	org := makeFreeOrg(t, db, "Org")
+
+	body := fmt.Sprintf(`{"type":"checkout.session.completed","data":{"object":{"metadata":{"org_id":"%d"},"customer":"cus_test","subscription":"sub_test"}}}`, org.ID)
+	rec := do(e, http.MethodPost, "/stripe/webhook", body, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("webhook status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var updated model.Organization
+	db.First(&updated, org.ID)
+	if updated.Plan != model.PlanPro {
+		t.Errorf("plan = %q, want pro", updated.Plan)
+	}
+}
+
+func TestWebhook_SubscriptionDeleted_FlipsToFree(t *testing.T) {
+	e, db := newServer(t)
+	subID := "sub_e2e_delete"
+	org := model.Organization{Name: "Org", Plan: model.PlanPro, StripeSubscriptionID: &subID}
+	db.Create(&org)
+
+	body := fmt.Sprintf(`{"type":"customer.subscription.deleted","data":{"object":{"id":%q}}}`, subID)
+	rec := do(e, http.MethodPost, "/stripe/webhook", body, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("webhook status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var updated model.Organization
+	db.First(&updated, org.ID)
+	if updated.Plan != model.PlanFree {
+		t.Errorf("plan = %q, want free", updated.Plan)
+	}
+}
+
+func TestAddMember_PlanLimitReached_E2e(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, rootUser := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+	org := makeFreeOrg(t, db, "Free Org")
+	makeOrgMember(t, db, org.ID, rootUser.ID, model.OrgRoleOwner)
+
+	// Fill the 5-operational limit.
+	for i := range 5 {
+		registerUser(t, e, fmt.Sprintf("op%d@e2e.com", i), "password123", fmt.Sprintf("Op%d", i))
+		var u model.User
+		db.Where("email = ?", fmt.Sprintf("op%d@e2e.com", i)).First(&u)
+		makeOrgMember(t, db, org.ID, u.ID, model.OrgRoleOperational)
+	}
+
+	// Adding a 6th operational must fail.
+	registerUser(t, e, "sixth@e2e.com", "password123", "Sixth")
+	var sixth model.User
+	db.Where("email = ?", "sixth@e2e.com").First(&sixth)
+
+	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, sixth.ID)
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, rootToken, "")
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", rec.Code)
+	}
+}
+
+func TestAssignEnterprisePlan_Unauthenticated_Returns401(t *testing.T) {
+	e, db := newServer(t)
+	org := makeFreeOrg(t, db, "Org")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestBillingCheckout_ByNonOwner_Returns403(t *testing.T) {
+	e, db := newServer(t)
+	userToken := registerUser(t, e, "plain@example.com", "password123", "Plain")
+	org := makeFreeOrg(t, db, "Org")
+	// plain user is not an org member → RequireOrgRole returns 403
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", userToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestCancelSubscription_Unauthenticated_Returns401(t *testing.T) {
+	e, db := newServer(t)
+	org := makeFreeOrg(t, db, "Org")
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestCancelSubscription_ByNonOwner_Returns403(t *testing.T) {
+	e, db := newServer(t)
+	userToken := registerUser(t, e, "plain@example.com", "password123", "Plain")
+	org := makeFreeOrg(t, db, "Org")
+	// plain user is not an org member → RequireOrgRole returns 403
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", userToken, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestCancelSubscription_ByOwner_StripeNotConfigured_Returns503(t *testing.T) {
+	e, db := newServer(t)
+	ownerToken := registerUser(t, e, "owner@example.com", "password123", "Owner")
+	var ownerUser model.User
+	db.Where("email = ?", "owner@example.com").First(&ownerUser)
+	org := makeFreeOrg(t, db, "Org")
+	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
+	// Owner passes JWT and role checks; cfg has no StripeSecretKey → 503.
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", ownerToken, "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestBillingCheckout_ByOwner_Returns200(t *testing.T) {
+	e, db := newServerWithStripe(t, &mockStripeGateway{})
+	ownerToken := registerUser(t, e, "owner@example.com", "password123", "Owner")
+	var ownerUser model.User
+	db.Where("email = ?", "owner@example.com").First(&ownerUser)
+	org := makeFreeOrg(t, db, "Org")
+	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
+
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", ownerToken, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	data := decodeDataBody(t, rec)
+	url, ok := data["url"].(string)
+	if !ok || url == "" {
+		t.Errorf("url field missing or empty in response: %v", data)
+	}
+}
+
+func TestCancelSubscription_ByOwner_Returns204(t *testing.T) {
+	e, db := newServerWithStripe(t, &mockStripeGateway{})
+	ownerToken := registerUser(t, e, "owner@example.com", "password123", "Owner")
+	var ownerUser model.User
+	db.Where("email = ?", "owner@example.com").First(&ownerUser)
+	subID := "sub_mock_test_123"
+	org := model.Organization{Name: "Org", Plan: model.PlanPro, StripeSubscriptionID: &subID}
+	db.Create(&org)
+	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
+
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", ownerToken, "")
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204; body: %s", rec.Code, rec.Body.String())
 	}
 }

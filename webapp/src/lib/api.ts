@@ -11,6 +11,7 @@ import type {
   OrganizationMember,
   PaginatedResult,
   UserWithOrgs,
+  BillingCheckoutResponse,
 } from '@/types/api';
 
 /**
@@ -225,6 +226,33 @@ export const api = {
     params.set('page', String(page));
     params.set('size', String(size));
     return requestPaginated(`/v1/api/admin/users?${params}`, { headers: bearerHeader() });
+  },
+
+  // --- Billing & plans ---
+
+  /** POST /v1/api/orgs/:orgID/billing/checkout — returns a Stripe Checkout URL */
+  createCheckoutSession(orgId: number, locale: string): Promise<BillingCheckoutResponse> {
+    const qs = new URLSearchParams({ locale }).toString();
+    return request(`/v1/api/orgs/${orgId}/billing/checkout?${qs}`, {
+      method: 'POST',
+      headers: bearerHeader(),
+    });
+  },
+
+  /** DELETE /v1/api/orgs/:orgID/billing/subscription — cancel the Pro subscription */
+  cancelSubscription(orgId: number): Promise<void> {
+    return request(`/v1/api/orgs/${orgId}/billing/subscription`, {
+      method: 'DELETE',
+      headers: bearerHeader(),
+    });
+  },
+
+  /** POST /v1/api/orgs/:orgID/plan/enterprise — root/system only */
+  assignEnterprisePlan(orgId: number): Promise<Organization> {
+    return request(`/v1/api/orgs/${orgId}/plan/enterprise`, {
+      method: 'POST',
+      headers: bearerHeader(),
+    });
   },
 
   // --- MFA / Profile ---

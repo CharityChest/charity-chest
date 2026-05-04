@@ -27,13 +27,13 @@ const (
 	KeyInvalidToken       Key = "invalid_token"
 	KeyInvalidClaims      Key = "invalid_claims"
 
-	KeyForbidden           Key = "forbidden"
-	KeyOrgNotFound         Key = "org_not_found"
-	KeyMemberExists        Key = "member_exists"
-	KeyMemberNotFound      Key = "member_not_found"
-	KeyInvalidRole         Key = "invalid_role"
-	KeyCannotManageRole    Key = "cannot_manage_role"
-	KeySystemNotConfigured      Key = "system_not_configured"
+	KeyForbidden               Key = "forbidden"
+	KeyOrgNotFound             Key = "org_not_found"
+	KeyMemberExists            Key = "member_exists"
+	KeyMemberNotFound          Key = "member_not_found"
+	KeyInvalidRole             Key = "invalid_role"
+	KeyCannotManageRole        Key = "cannot_manage_role"
+	KeySystemNotConfigured     Key = "system_not_configured"
 	KeySystemStatusQueryFailed Key = "system_status_query_failed"
 
 	KeyMFACodeRequired        Key = "mfa_code_required"
@@ -43,6 +43,20 @@ const (
 	KeyMFASetupRequired       Key = "mfa_setup_required"
 	KeyMFAGenerateSecret      Key = "mfa_generate_secret"
 	KeyMFAInvalidPendingToken Key = "mfa_invalid_pending_token"
+
+	KeyDatabaseError            Key = "database_error"
+	KeyReadBodyFailed           Key = "read_body_failed"
+	KeyInvalidEventPayload      Key = "invalid_event_payload"
+	KeyCancelSubscriptionFailed Key = "cancel_subscription_failed"
+
+	KeyRoleNotAllowedOnPlan       Key = "role_not_allowed_on_plan"
+	KeyPlanMemberLimitReached     Key = "plan_member_limit_reached"
+	KeyPlanAlreadyActive          Key = "plan_already_active"
+	KeyStripeNotConfigured        Key = "stripe_not_configured"
+	KeyBillingCheckoutFailed      Key = "billing_checkout_failed"
+	KeyInvalidWebhookSignature    Key = "invalid_webhook_signature"
+	KeySubscriptionNotFound       Key = "subscription_not_found"
+	KeyEnterpriseCheckoutConflict Key = "enterprise_checkout_conflict"
 )
 
 // messages maps locale → Key → translated string.
@@ -70,13 +84,13 @@ var messages = map[string]map[Key]string{
 		KeyInvalidToken:       "invalid or expired token",
 		KeyInvalidClaims:      "invalid token claims",
 
-		KeyForbidden:           "forbidden",
-		KeyOrgNotFound:         "organization not found",
-		KeyMemberExists:        "user is already a member",
-		KeyMemberNotFound:      "member not found",
-		KeyInvalidRole:         "invalid role",
-		KeyCannotManageRole:    "you do not have permission to assign this role",
-		KeySystemNotConfigured:      "system not yet configured",
+		KeyForbidden:               "forbidden",
+		KeyOrgNotFound:             "organization not found",
+		KeyMemberExists:            "user is already a member",
+		KeyMemberNotFound:          "member not found",
+		KeyInvalidRole:             "invalid role",
+		KeyCannotManageRole:        "you do not have permission to assign this role",
+		KeySystemNotConfigured:     "system not yet configured",
 		KeySystemStatusQueryFailed: "failed to query system status",
 
 		KeyMFACodeRequired:        "mfa code is required",
@@ -86,6 +100,20 @@ var messages = map[string]map[Key]string{
 		KeyMFASetupRequired:       "complete mfa setup first",
 		KeyMFAGenerateSecret:      "failed to generate mfa secret",
 		KeyMFAInvalidPendingToken: "invalid or expired mfa session",
+
+		KeyDatabaseError:            "a database error occurred",
+		KeyReadBodyFailed:           "failed to read request body",
+		KeyInvalidEventPayload:      "invalid event payload",
+		KeyCancelSubscriptionFailed: "failed to cancel subscription",
+
+		KeyRoleNotAllowedOnPlan:       "this role is not available on your current plan",
+		KeyPlanMemberLimitReached:     "member limit for this role has been reached on your current plan",
+		KeyPlanAlreadyActive:          "this plan is already active",
+		KeyStripeNotConfigured:        "payment processing is not configured",
+		KeyBillingCheckoutFailed:      "failed to create checkout session",
+		KeyInvalidWebhookSignature:    "invalid webhook signature",
+		KeySubscriptionNotFound:       "no active subscription found",
+		KeyEnterpriseCheckoutConflict: "checkout rejected: organization is already on the enterprise plan",
 	},
 	"it": {
 		KeyInvalidBody:        "corpo della richiesta non valido",
@@ -109,13 +137,13 @@ var messages = map[string]map[Key]string{
 		KeyInvalidToken:       "token non valido o scaduto",
 		KeyInvalidClaims:      "claim del token non validi",
 
-		KeyForbidden:           "accesso negato",
-		KeyOrgNotFound:         "organizzazione non trovata",
-		KeyMemberExists:        "l'utente è già membro",
-		KeyMemberNotFound:      "membro non trovato",
-		KeyInvalidRole:         "ruolo non valido",
-		KeyCannotManageRole:    "non hai i permessi per assegnare questo ruolo",
-		KeySystemNotConfigured:      "sistema non ancora configurato",
+		KeyForbidden:               "accesso negato",
+		KeyOrgNotFound:             "organizzazione non trovata",
+		KeyMemberExists:            "l'utente è già membro",
+		KeyMemberNotFound:          "membro non trovato",
+		KeyInvalidRole:             "ruolo non valido",
+		KeyCannotManageRole:        "non hai i permessi per assegnare questo ruolo",
+		KeySystemNotConfigured:     "sistema non ancora configurato",
 		KeySystemStatusQueryFailed: "errore nella verifica dello stato del sistema",
 
 		KeyMFACodeRequired:        "il codice mfa è obbligatorio",
@@ -125,6 +153,20 @@ var messages = map[string]map[Key]string{
 		KeyMFASetupRequired:       "completa prima la configurazione mfa",
 		KeyMFAGenerateSecret:      "errore nella generazione del segreto mfa",
 		KeyMFAInvalidPendingToken: "sessione mfa non valida o scaduta",
+
+		KeyDatabaseError:            "si è verificato un errore nel database",
+		KeyReadBodyFailed:           "errore nella lettura del corpo della richiesta",
+		KeyInvalidEventPayload:      "payload dell'evento non valido",
+		KeyCancelSubscriptionFailed: "errore nella cancellazione dell'abbonamento",
+
+		KeyRoleNotAllowedOnPlan:       "questo ruolo non è disponibile nel piano attuale",
+		KeyPlanMemberLimitReached:     "il limite di membri per questo ruolo è stato raggiunto nel piano attuale",
+		KeyPlanAlreadyActive:          "questo piano è già attivo",
+		KeyStripeNotConfigured:        "il sistema di pagamento non è configurato",
+		KeyBillingCheckoutFailed:      "errore nella creazione della sessione di pagamento",
+		KeyInvalidWebhookSignature:    "firma del webhook non valida",
+		KeySubscriptionNotFound:       "nessun abbonamento attivo trovato",
+		KeyEnterpriseCheckoutConflict: "checkout rifiutato: l'organizzazione ha già il piano Enterprise",
 	},
 }
 

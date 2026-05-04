@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"charity-chest/internal/handler"
 	"charity-chest/internal/cache"
+	"charity-chest/internal/handler"
 	"charity-chest/internal/model"
 
 	"github.com/glebarez/sqlite"

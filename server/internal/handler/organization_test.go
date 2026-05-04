@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"charity-chest/internal/handler"
 	"charity-chest/internal/cache"
+	"charity-chest/internal/handler"
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 
@@ -24,7 +24,7 @@ func newOrgTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrgMember{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrgMember{}, &model.BillingCleanupJob{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db
@@ -362,7 +362,7 @@ func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
 	db.Create(&ownerUser)
 	targetUser := model.User{Email: "admin@example.com", Name: "Admin"}
 	db.Create(&targetUser)
-	org := model.Organization{Name: "Org"}
+	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
 	db.Create(&org)
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: ownerUser.ID, Role: model.OrgRoleOwner})
 
@@ -439,7 +439,7 @@ func TestUpdateMember_Success(t *testing.T) {
 	h := handler.NewOrgHandler(db, cache.Disabled())
 	user := model.User{Email: "op@example.com", Name: "Op"}
 	db.Create(&user)
-	org := model.Organization{Name: "Org"}
+	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
 	db.Create(&org)
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOperational})
 
@@ -464,7 +464,7 @@ func TestUpdateMember_Success(t *testing.T) {
 func TestUpdateMember_NotFound_Returns404(t *testing.T) {
 	db := newOrgTestDB(t)
 	h := handler.NewOrgHandler(db, cache.Disabled())
-	org := model.Organization{Name: "Org"}
+	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
 	db.Create(&org)
 
 	sys := model.RoleSystem
@@ -550,7 +550,7 @@ func TestAddMember_FallbackDBQuery_MemberFound_Allowed(t *testing.T) {
 	db.Create(&ownerUser)
 	targetUser := model.User{Email: "target@example.com", Name: "Target"}
 	db.Create(&targetUser)
-	org := model.Organization{Name: "Org"}
+	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
 	db.Create(&org)
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: ownerUser.ID, Role: model.OrgRoleOwner})
 
@@ -942,7 +942,7 @@ func TestUpdateMember_BrokenCacheInvalidation(t *testing.T) {
 	mr, c := newMiniRedisCache(t)
 	h := handler.NewOrgHandler(db, c)
 
-	org := model.Organization{Name: "Org"}
+	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
 	db.Create(&org)
 	user := model.User{Email: "u@example.com", Name: "U"}
 	db.Create(&user)
@@ -1047,5 +1047,159 @@ func TestListMembers_CacheInvalidatedOnAdd(t *testing.T) {
 	// Next list call must see 2 members.
 	if got := callList(); len(got) != 2 {
 		t.Errorf("len after add = %d, want 2", len(got))
+	}
+}
+
+// --- Plan limit enforcement ---
+
+func TestAddMember_FreeOwnerLimit_Returns422(t *testing.T) {
+	db := newOrgTestDB(t)
+	h := handler.NewOrgHandler(db, cache.Disabled())
+	existing := model.User{Email: "owner@example.com", Name: "Owner"}
+	db.Create(&existing)
+	newUser := model.User{Email: "new@example.com", Name: "New"}
+	db.Create(&newUser)
+	org := model.Organization{Name: "Org", Plan: model.PlanFree}
+	db.Create(&org)
+	db.Create(&model.OrgMember{OrgID: org.ID, UserID: existing.ID, Role: model.OrgRoleOwner})
+
+	sys := model.RoleSystem
+	body := fmt.Sprintf(`{"user_id":%d,"role":"owner"}`, newUser.ID)
+	c, _ := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &sys, "")
+	err := h.AddMember(c)
+	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 HTTPError, got %v", err)
+	}
+}
+
+func TestAddMember_FreeAdminNotAllowed_Returns422(t *testing.T) {
+	db := newOrgTestDB(t)
+	h := handler.NewOrgHandler(db, cache.Disabled())
+	newUser := model.User{Email: "new@example.com", Name: "New"}
+	db.Create(&newUser)
+	org := model.Organization{Name: "Org", Plan: model.PlanFree}
+	db.Create(&org)
+
+	sys := model.RoleSystem
+	body := fmt.Sprintf(`{"user_id":%d,"role":"admin"}`, newUser.ID)
+	c, _ := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &sys, "")
+	err := h.AddMember(c)
+	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 HTTPError, got %v", err)
+	}
+}
+
+func TestAddMember_FreeOperationalLimit_Returns422(t *testing.T) {
+	db := newOrgTestDB(t)
+	h := handler.NewOrgHandler(db, cache.Disabled())
+	org := model.Organization{Name: "Org", Plan: model.PlanFree}
+	db.Create(&org)
+	newUser := model.User{Email: "sixth@example.com", Name: "Sixth"}
+	db.Create(&newUser)
+	// Fill up to the 5-operational limit.
+	for i := range 5 {
+		u := model.User{Email: fmt.Sprintf("op%d@example.com", i), Name: fmt.Sprintf("Op%d", i)}
+		db.Create(&u)
+		db.Create(&model.OrgMember{OrgID: org.ID, UserID: u.ID, Role: model.OrgRoleOperational})
+	}
+
+	sys := model.RoleSystem
+	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, newUser.ID)
+	c, _ := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &sys, "")
+	err := h.AddMember(c)
+	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 HTTPError, got %v", err)
+	}
+}
+
+func TestAddMember_ProAdminLimit_Returns422(t *testing.T) {
+	db := newOrgTestDB(t)
+	h := handler.NewOrgHandler(db, cache.Disabled())
+	org := model.Organization{Name: "Org", Plan: model.PlanPro}
+	db.Create(&org)
+	newUser := model.User{Email: "fourth@example.com", Name: "Fourth"}
+	db.Create(&newUser)
+	// Fill up to the 3-admin limit.
+	for i := range 3 {
+		u := model.User{Email: fmt.Sprintf("admin%d@example.com", i), Name: fmt.Sprintf("Admin%d", i)}
+		db.Create(&u)
+		db.Create(&model.OrgMember{OrgID: org.ID, UserID: u.ID, Role: model.OrgRoleAdmin})
+	}
+
+	sys := model.RoleSystem
+	body := fmt.Sprintf(`{"user_id":%d,"role":"admin"}`, newUser.ID)
+	c, _ := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &sys, "")
+	err := h.AddMember(c)
+	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 HTTPError, got %v", err)
+	}
+}
+
+func TestAddMember_EnterpriseUnlimited_Success(t *testing.T) {
+	db := newOrgTestDB(t)
+	h := handler.NewOrgHandler(db, cache.Disabled())
+	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
+	db.Create(&org)
+	// Add 20 operationals — well beyond any free/pro limit.
+	for i := range 20 {
+		u := model.User{Email: fmt.Sprintf("op%d@example.com", i), Name: fmt.Sprintf("Op%d", i)}
+		db.Create(&u)
+		db.Create(&model.OrgMember{OrgID: org.ID, UserID: u.ID, Role: model.OrgRoleOperational})
+	}
+	extra := model.User{Email: "extra@example.com", Name: "Extra"}
+	db.Create(&extra)
+
+	sys := model.RoleSystem
+	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, extra.ID)
+	c, rec := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &sys, "")
+	if err := h.AddMember(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201", rec.Code)
+	}
+}
+
+func TestUpdateMember_FreeAdminNotAllowed_Returns422(t *testing.T) {
+	db := newOrgTestDB(t)
+	h := handler.NewOrgHandler(db, cache.Disabled())
+	user := model.User{Email: "op@example.com", Name: "Op"}
+	db.Create(&user)
+	org := model.Organization{Name: "Org", Plan: model.PlanFree}
+	db.Create(&org)
+	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOperational})
+
+	sys := model.RoleSystem
+	c, _ := newOrgContextWithUserID(t, http.MethodPut,
+		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, user.ID),
+		`{"role":"admin"}`, org.ID, user.ID, 1, &sys, "")
+	err := h.UpdateMember(c)
+	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 HTTPError, got %v", err)
+	}
+}
+
+func TestUpdateMember_ProLimitReached_Returns422(t *testing.T) {
+	db := newOrgTestDB(t)
+	h := handler.NewOrgHandler(db, cache.Disabled())
+	org := model.Organization{Name: "Org", Plan: model.PlanPro}
+	db.Create(&org)
+	// Fill 3-admin limit.
+	for i := range 3 {
+		u := model.User{Email: fmt.Sprintf("admin%d@example.com", i), Name: fmt.Sprintf("Admin%d", i)}
+		db.Create(&u)
+		db.Create(&model.OrgMember{OrgID: org.ID, UserID: u.ID, Role: model.OrgRoleAdmin})
+	}
+	op := model.User{Email: "op@example.com", Name: "Op"}
+	db.Create(&op)
+	db.Create(&model.OrgMember{OrgID: org.ID, UserID: op.ID, Role: model.OrgRoleOperational})
+
+	sys := model.RoleSystem
+	c, _ := newOrgContextWithUserID(t, http.MethodPut,
+		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, op.ID),
+		`{"role":"admin"}`, org.ID, op.ID, 1, &sys, "")
+	err := h.UpdateMember(c)
+	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 HTTPError, got %v", err)
 	}
 }

@@ -22,10 +22,10 @@ const (
 // MFAPending, when true, marks a short-lived token issued mid-login for MFA verification;
 // the JWT middleware rejects these so they cannot be used as full auth tokens.
 type Claims struct {
-	UserID     uint    `json:"user_id"`
-	Email      string  `json:"email"`
+	UserID     uint                      `json:"user_id"`
+	Email      string                    `json:"email"`
 	Role       *model.AdministrativeRole `json:"role,omitempty"`
-	MFAPending *bool   `json:"mfa_pending,omitempty"`
+	MFAPending *bool                     `json:"mfa_pending,omitempty"`
 	jwt.RegisteredClaims
 }
 

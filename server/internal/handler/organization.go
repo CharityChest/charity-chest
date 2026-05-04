@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // OrgHandler handles organization CRUD and member management endpoints.
@@ -28,19 +29,23 @@ func NewOrgHandler(db *gorm.DB, c *cache.Cache) *OrgHandler {
 
 // --- Request types ---
 
+// createOrgRequest is the JSON body for POST /v1/api/orgs.
 type createOrgRequest struct {
 	Name string `json:"name"`
 }
 
+// updateOrgRequest is the JSON body for PUT /v1/api/orgs/:orgID.
 type updateOrgRequest struct {
 	Name string `json:"name"`
 }
 
+// addMemberRequest is the JSON body for POST /v1/api/orgs/:orgID/members.
 type addMemberRequest struct {
 	UserID uint             `json:"user_id"`
 	Role   model.MemberRole `json:"role"`
 }
 
+// updateMemberRequest is the JSON body for PUT /v1/api/orgs/:orgID/members/:userID.
 type updateMemberRequest struct {
 	Role model.MemberRole `json:"role"`
 }
@@ -79,7 +84,7 @@ func (h *OrgHandler) CreateOrg(c echo.Context) error {
 	if req.Name == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyFieldsRequired))
 	}
-	org := model.Organization{Name: req.Name}
+	org := model.Organization{Name: req.Name, Plan: model.PlanFree}
 	if err := h.db.Create(&org).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create organization")
 	}
@@ -205,19 +210,42 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 		return err
 	}
 
-	var existing model.OrgMember
-	lookupErr := h.db.Where("org_id = ? AND user_id = ?", orgID, req.UserID).First(&existing).Error
-	if lookupErr == nil {
-		return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyMemberExists))
-	}
-	if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
-		return echo.NewHTTPError(http.StatusInternalServerError, "database error")
+	// Lock the org row, re-check the plan limit, verify no duplicate, and insert —
+	// all inside one transaction so concurrent requests cannot race past the cap.
+	var member model.OrgMember
+	txErr := h.db.WithContext(c.Request().Context()).Transaction(func(tx *gorm.DB) error {
+		var org model.Organization
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("id", "plan").First(&org, orgID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+			}
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
+		var existing model.OrgMember
+		lookupErr := tx.Where("org_id = ? AND user_id = ?", orgID, req.UserID).First(&existing).Error
+		if lookupErr == nil {
+			return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyMemberExists))
+		}
+		if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
+		if err := checkPlanLimit(tx, loc, org, req.Role); err != nil {
+			return err
+		}
+		member = model.OrgMember{OrgID: orgID, UserID: req.UserID, Role: req.Role}
+		if err := tx.Create(&member).Error; err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
+		return nil
+	})
+	if txErr != nil {
+		if he, ok := txErr.(*echo.HTTPError); ok {
+			return he
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 
-	member := model.OrgMember{OrgID: orgID, UserID: req.UserID, Role: req.Role}
-	if err := h.db.Create(&member).Error; err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to add member")
-	}
 	ctx := c.Request().Context()
 	if err := h.cache.Del(ctx, cache.KeyOrgMembers(orgID)); err != nil {
 		log.Printf("cache: invalidate after add member to org %d: %v", orgID, err)
@@ -250,14 +278,42 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 		return err
 	}
 
+	// Lock the org row, re-check the plan limit, and save — all in one transaction.
 	var member model.OrgMember
-	if err := h.db.Where("org_id = ? AND user_id = ?", orgID, targetUserID).First(&member).Error; err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
+	txErr := h.db.WithContext(c.Request().Context()).Transaction(func(tx *gorm.DB) error {
+		var org model.Organization
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("id", "plan").First(&org, orgID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+			}
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
+		if err := tx.Where("org_id = ? AND user_id = ?", orgID, targetUserID).First(&member).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
+			}
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
+		if member.Role == req.Role {
+			return nil
+		}
+		if err := checkPlanLimit(tx, loc, org, req.Role); err != nil {
+			return err
+		}
+		member.Role = req.Role
+		if err := tx.Save(&member).Error; err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
+		return nil
+	})
+	if txErr != nil {
+		if he, ok := txErr.(*echo.HTTPError); ok {
+			return he
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
-	member.Role = req.Role
-	if err := h.db.Save(&member).Error; err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update member")
-	}
+
 	ctx := c.Request().Context()
 	if err := h.cache.Del(ctx, cache.KeyOrgMembers(orgID)); err != nil {
 		log.Printf("cache: invalidate after update member in org %d: %v", orgID, err)
@@ -332,6 +388,7 @@ func (h *OrgHandler) enforceCanAssign(c echo.Context, orgID uint, targetRole mod
 	return nil
 }
 
+// loadOrg parses :orgID from the route and fetches the organization from the database.
 func (h *OrgHandler) loadOrg(c echo.Context) (*model.Organization, error) {
 	orgID, err := parseOrgID(c)
 	if err != nil {
@@ -344,11 +401,34 @@ func (h *OrgHandler) loadOrg(c echo.Context) (*model.Organization, error) {
 	return &org, nil
 }
 
+// checkPlanLimit verifies that org's plan allows another member with targetRole.
+// Must be called with a transaction (tx) that already holds a lock on the org row
+// so the count cannot change between read and the subsequent write.
+func checkPlanLimit(tx *gorm.DB, loc string, org model.Organization, targetRole model.MemberRole) error {
+	limit := model.LimitsFor(org.Plan).ForRole(targetRole)
+	if limit == -1 {
+		return nil // unlimited
+	}
+	if limit == 0 {
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, i18n.T(loc, i18n.KeyRoleNotAllowedOnPlan))
+	}
+	var count int64
+	if err := tx.Model(&model.OrgMember{}).Where("org_id = ? AND role = ?", org.ID, targetRole).Count(&count).Error; err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+	}
+	if int(count) >= limit {
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, i18n.T(loc, i18n.KeyPlanMemberLimitReached))
+	}
+	return nil
+}
+
+// parseOrgID parses the :orgID path parameter as a uint.
 func parseOrgID(c echo.Context) (uint, error) {
 	id, err := strconv.ParseUint(c.Param("orgID"), 10, 64)
 	return uint(id), err
 }
 
+// parseUserIDParam parses the :userID path parameter as a uint.
 func parseUserIDParam(c echo.Context) (uint, error) {
 	id, err := strconv.ParseUint(c.Param("userID"), 10, 64)
 	return uint(id), err

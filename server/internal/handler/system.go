@@ -23,6 +23,7 @@ func NewSystemHandler(db *gorm.DB, c *cache.Cache) *SystemHandler {
 	return &SystemHandler{db: db, cache: c}
 }
 
+// systemStatusResponse is the JSON body returned by GET /v1/system/status.
 type systemStatusResponse struct {
 	Configured bool `json:"configured"`
 }
@@ -58,8 +59,9 @@ func (h *SystemHandler) SystemStatus(c echo.Context) error {
 	return dataJSON(c, http.StatusOK, resp)
 }
 
+// assignSystemRoleRequest is the JSON body for POST /v1/api/system/assign-role.
 type assignSystemRoleRequest struct {
-	UserID uint                `json:"user_id"`
+	UserID uint                     `json:"user_id"`
 	Role   model.AdministrativeRole `json:"role"`
 }
 

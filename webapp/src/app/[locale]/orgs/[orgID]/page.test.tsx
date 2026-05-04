@@ -16,6 +16,7 @@ vi.mock('@/i18n/navigation', () => ({
 
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => 'en',
 }));
 
 vi.mock('@/lib/auth', () => ({
@@ -43,6 +44,9 @@ vi.mock('@/lib/api', () => {
       updateMember: vi.fn(),
       removeMember: vi.fn(),
       updateOrg: vi.fn(),
+      createCheckoutSession: vi.fn(),
+      cancelSubscription: vi.fn(),
+      assignEnterprisePlan: vi.fn(),
     },
   };
 });
@@ -50,7 +54,7 @@ vi.mock('@/lib/api', () => {
 import { isAuthenticated, getRole } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
 
-const ORG = { id: 1, name: 'Test Org', created_at: '', updated_at: '' };
+const ORG = { id: 1, name: 'Test Org', plan: 'free' as const, created_at: '', updated_at: '' };
 const ME = { id: 10, email: 'me@test.com', name: 'Me', created_at: '', updated_at: '' };
 
 function makeParams(orgID = '1') {
@@ -391,5 +395,151 @@ describe('OrgDetailPage — load error state', () => {
       expect(screen.getByRole('alert')).toBeTruthy();
       expect(screen.getByText('load failed')).toBeTruthy();
     });
+  });
+});
+
+describe('OrgDetailPage — plan badge', () => {
+  beforeEach(() => {
+    vi.mocked(isAuthenticated).mockReturnValue(true);
+    vi.mocked(getRole).mockReturnValue('root');
+    vi.mocked(api.listMembers).mockResolvedValue([]);
+    vi.mocked(api.me).mockResolvedValue(ME);
+  });
+
+  it('shows billing.planFree badge for free org', async () => {
+    vi.mocked(api.getOrg).mockResolvedValue({ ...ORG, plan: 'free' });
+    render(<OrgDetailPage params={makeParams()} />);
+    await waitFor(() => {
+      expect(screen.getByText('billing.planFree')).toBeTruthy();
+    });
+  });
+
+  it('shows billing.planPro badge for pro org', async () => {
+    vi.mocked(api.getOrg).mockResolvedValue({ ...ORG, plan: 'pro' });
+    render(<OrgDetailPage params={makeParams()} />);
+    await waitFor(() => {
+      expect(screen.getByText('billing.planPro')).toBeTruthy();
+    });
+  });
+
+  it('shows billing.planEnterprise badge for enterprise org', async () => {
+    vi.mocked(api.getOrg).mockResolvedValue({ ...ORG, plan: 'enterprise' });
+    render(<OrgDetailPage params={makeParams()} />);
+    await waitFor(() => {
+      expect(screen.getByText('billing.planEnterprise')).toBeTruthy();
+    });
+  });
+});
+
+describe('OrgDetailPage — billing actions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(isAuthenticated).mockReturnValue(true);
+    vi.mocked(api.getOrg).mockResolvedValue({ ...ORG, plan: 'free' });
+    vi.mocked(api.listMembers).mockResolvedValue([]);
+    vi.mocked(api.me).mockResolvedValue(ME);
+  });
+
+  it('shows Upgrade to Pro for root on free org', async () => {
+    vi.mocked(getRole).mockReturnValue('root');
+    render(<OrgDetailPage params={makeParams()} />);
+    await waitFor(() => {
+      expect(screen.getByText('billing.upgradeToPro')).toBeTruthy();
+    });
+  });
+
+  it('shows Upgrade to Pro for org owner (no system role)', async () => {
+    vi.mocked(getRole).mockReturnValue(null);
+    vi.mocked(api.listMembers).mockResolvedValue([
+      { id: 1, org_id: 1, user_id: 10, role: 'owner', created_at: '', updated_at: '',
+        user: { id: 10, email: 'me@test.com', name: 'Me', created_at: '', updated_at: '' } },
+    ]);
+    render(<OrgDetailPage params={makeParams()} />);
+    await waitFor(() => {
+      expect(screen.getByText('billing.upgradeToPro')).toBeTruthy();
+    });
+  });
+
+  it('hides Upgrade to Pro for operational member', async () => {
+    vi.mocked(getRole).mockReturnValue(null);
+    vi.mocked(api.listMembers).mockResolvedValue([
+      { id: 1, org_id: 1, user_id: 10, role: 'operational', created_at: '', updated_at: '',
+        user: { id: 10, email: 'me@test.com', name: 'Me', created_at: '', updated_at: '' } },
+    ]);
+    render(<OrgDetailPage params={makeParams()} />);
+    await waitFor(() => {
+      expect(screen.queryByText('billing.upgradeToPro')).toBeNull();
+    });
+  });
+
+  it('shows Activate Enterprise for root only', async () => {
+    vi.mocked(getRole).mockReturnValue('root');
+    render(<OrgDetailPage params={makeParams()} />);
+    await waitFor(() => {
+      expect(screen.getByText('billing.activateEnterprise')).toBeTruthy();
+    });
+  });
+
+  it('hides Activate Enterprise for non-system user', async () => {
+    vi.mocked(getRole).mockReturnValue(null);
+    render(<OrgDetailPage params={makeParams()} />);
+    await waitFor(() => {
+      expect(screen.queryByText('billing.activateEnterprise')).toBeNull();
+    });
+  });
+
+  it('calls assignEnterprisePlan and updates plan badge', async () => {
+    vi.mocked(getRole).mockReturnValue('root');
+    vi.mocked(api.assignEnterprisePlan).mockResolvedValue({ ...ORG, plan: 'enterprise' });
+    render(<OrgDetailPage params={makeParams()} />);
+
+    await waitFor(() => screen.getByText('billing.activateEnterprise'));
+    fireEvent.click(screen.getByText('billing.activateEnterprise'));
+
+    await waitFor(() => {
+      expect(api.assignEnterprisePlan).toHaveBeenCalledWith(1);
+      expect(screen.getByText('billing.planEnterprise')).toBeTruthy();
+    });
+  });
+
+  it('shows Cancel subscription for root on pro org', async () => {
+    vi.mocked(getRole).mockReturnValue('root');
+    vi.mocked(api.getOrg).mockResolvedValue({ ...ORG, plan: 'pro' });
+    render(<OrgDetailPage params={makeParams()} />);
+    await waitFor(() => {
+      expect(screen.getByText('billing.cancelSubscription')).toBeTruthy();
+    });
+  });
+
+  it('calls cancelSubscription when Cancel is confirmed', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    vi.mocked(getRole).mockReturnValue('root');
+    vi.mocked(api.getOrg).mockResolvedValue({ ...ORG, plan: 'pro' });
+    vi.mocked(api.cancelSubscription).mockResolvedValue(undefined);
+    render(<OrgDetailPage params={makeParams()} />);
+
+    await waitFor(() => screen.getByText('billing.cancelSubscription'));
+    fireEvent.click(screen.getByText('billing.cancelSubscription'));
+
+    await waitFor(() => {
+      expect(api.cancelSubscription).toHaveBeenCalledWith(1);
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('calls createCheckoutSession and redirects on Upgrade click', async () => {
+    vi.stubGlobal('location', { href: '' });
+    vi.mocked(getRole).mockReturnValue('root');
+    vi.mocked(api.createCheckoutSession).mockResolvedValue({ url: 'https://checkout.stripe.com/test' });
+    render(<OrgDetailPage params={makeParams()} />);
+
+    await waitFor(() => screen.getByText('billing.upgradeToPro'));
+    fireEvent.click(screen.getByText('billing.upgradeToPro'));
+
+    await waitFor(() => {
+      expect(api.createCheckoutSession).toHaveBeenCalledWith(1, 'en');
+      expect(window.location.href).toBe('https://checkout.stripe.com/test');
+    });
+    vi.unstubAllGlobals();
   });
 });

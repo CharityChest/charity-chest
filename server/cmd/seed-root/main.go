@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"charity-chest/internal/config"
 	"charity-chest/internal/model"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -55,7 +56,7 @@ func main() {
 	var existing model.User
 	rootExists := db.Where("role = ?", model.RoleRoot).First(&existing).Error == nil
 	if rootExists {
-		if os.Getenv("APP_ENV") == "production" {
+		if config.AppEnv(os.Getenv("APP_ENV")) == config.AppEnvProduction {
 			log.Fatal("seed-root is blocked in production when a root user already exists")
 		}
 		log.Printf("root user already exists (id=%d, email=%s) — nothing to do", existing.ID, existing.Email)

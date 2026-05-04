@@ -15,7 +15,7 @@ charity-chest/
 │   ├── .env.example                # Template for local secrets (never commit .env)
 │   ├── .gitignore
 │   ├── cmd/
-│   │   └── seed-root/main.go       # CLI to create the first root user (accepts -email/-password flags or SEED_ROOT_EMAIL/SEED_ROOT_PASSWORD env vars; blocked by APP_ENV=production only after a root user already exists)
+│   │   └── seed-root/main.go       # CLI to create the first root user (accepts -email/-password flags or SEED_ROOT_EMAIL/SEED_ROOT_PASSWORD env vars; blocked when APP_ENV=production and a root user already exists)
 │   ├── internal/
 │   │   ├── cache/cache.go          # Valkey cache client: New/Disabled/Get/Set/Del/DelPattern
 │   │   ├── cache/keys.go           # Cache key constants and builder functions
@@ -24,14 +24,17 @@ charity-chest/
 │   │   ├── handler/profile.go      # SetupMFA, EnableMFA, DisableMFA
 │   │   ├── handler/system.go       # SystemStatus (public), AssignSystemRole (root only)
 │   │   ├── handler/admin.go         # SearchUsers (root only) — paginated user search with org memberships
-│   │   ├── handler/organization.go # Org CRUD + member management (role hierarchy enforced)
+│   │   ├── handler/organization.go # Org CRUD + member management (role hierarchy + plan limits enforced)
+│   │   ├── handler/billing.go      # BillingHandler: Stripe Checkout, webhook, cancel subscription, enterprise activation
 │   │   ├── handler/response.go     # dataJSON + dataWithMetaJSON helpers — wrap success responses in {"data": ...} or {"data": ..., "metadata": ...}
 │   │   ├── i18n/messages.go        # Message keys + EN/IT translations; T(locale, key) lookup
 │   │   ├── middleware/jwt.go       # Bearer token validation; injects UserIDContextKey + EmailContextKey + RoleContextKey
 │   │   ├── middleware/locale.go    # Accept-Language parser; stores resolved locale in context; defines LocaleEN/LocaleIT
 │   │   ├── middleware/acl.go       # RequireSystemRole(...) and RequireOrgRole(db, ...) middleware factories
 │   │   ├── model/user.go           # GORM User model (supports password + Google OAuth + Role)
-│   │   ├── model/organization.go   # Organization + OrgMember GORM models
+│   │   ├── model/organization.go   # Organization + OrgMember GORM models (includes Plan, Stripe fields)
+│   │   ├── model/plan.go           # Plan type (free/pro/enterprise), PlanLimits, LimitsFor()
+│   │   ├── model/billing_cleanup_job.go # BillingCleanupJob: durable record of pending Stripe cancel/refund work after a webhook
 │   │   ├── model/role.go           # Role constants + CanAssignOrgRole + ValidOrgRole
 │   │   └── routes/
 │   │       └── v1/                 # Route registration for the v1 API (one file per group)
@@ -42,6 +45,7 @@ charity-chest/
 │   │           ├── organization.go # RegisterOrgs(v1, db, cache, jwtSecret) — org CRUD + member management
 │   │           ├── profile.go      # RegisterProfile(v1, db, cfg, cache, jwtSecret) — MFA management
 │   │           ├── admin.go        # RegisterAdmin(v1, db, cache, jwtSecret) — root-only admin endpoints
+│   │           ├── billing.go      # RegisterBilling(e, v1, db, cache, cfg, jwtSecret) — billing + plan routes
 │   │           └── routes_test.go  # E2e tests for every endpoint (full stack, in-memory SQLite)
 │   ├── migrations/                 # Raw SQL migrations (golang-migrate, file source)
 │   │   ├── 000001_create_users_table.up.sql
@@ -53,7 +57,11 @@ charity-chest/
 │   │   ├── 000004_create_org_members.up.sql
 │   │   ├── 000004_create_org_members.down.sql
 │   │   ├── 000005_add_mfa_to_users.up.sql
-│   │   └── 000005_add_mfa_to_users.down.sql
+│   │   ├── 000005_add_mfa_to_users.down.sql
+│   │   ├── 000006_add_plan_to_organizations.up.sql
+│   │   ├── 000006_add_plan_to_organizations.down.sql
+│   │   ├── 000007_create_billing_cleanup_jobs.up.sql
+│   │   └── 000007_create_billing_cleanup_jobs.down.sql
 │   └── .docker-dev/                # Docker Compose demo environment
 │       ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
 │       ├── docker-compose.yml      # Postgres + Valkey + server; server waits for both health checks
@@ -83,7 +91,7 @@ charity-chest/
     │   └── types/api.ts            # TypeScript types mirroring server JSON responses
     ├── .env.example                # Template: NEXT_PUBLIC_API_URL
     └── .docker-dev/                # Docker Compose dev environment for the webapp
-        ├── Dockerfile              # node:20-alpine, hot reload via next dev
+        ├── Dockerfile              # node:24-alpine, hot reload via next dev
         ├── docker-compose.yml      # Source mount + named volumes for node_modules/.next
         └── .env.example
 ```
@@ -139,6 +147,10 @@ When a breaking change is needed, introduce a `/v2/` group in `main.go` alongsid
 | PUT | `/v1/api/orgs/:orgID/members/:userID` | Bearer JWT | hierarchy enforced | Update a member's role |
 | DELETE | `/v1/api/orgs/:orgID/members/:userID` | Bearer JWT | hierarchy enforced | Remove a member |
 | GET | `/v1/api/admin/users?email=&page=&size=` | Bearer JWT | root | Search users by email with pagination |
+| POST | `/v1/api/orgs/:orgID/billing/checkout` | Bearer JWT | org owner, system, root | Create Stripe Checkout Session → `{url}` |
+| DELETE | `/v1/api/orgs/:orgID/billing/subscription` | Bearer JWT | org owner, system, root | Cancel Stripe subscription (plan reverts to free via webhook) |
+| POST | `/v1/api/orgs/:orgID/plan/enterprise` | Bearer JWT | system, root | Manually activate enterprise plan |
+| POST | `/stripe/webhook` | Stripe-Signature | — | Stripe lifecycle events (checkout completed → pro; subscription deleted → free) |
 
 Protected routes live under `/v1/api/` and require a valid `Authorization: Bearer <token>` header. The JWT middleware (`internal/middleware/jwt.go`) validates the token and injects `middleware.UserIDContextKey` (uint), `middleware.EmailContextKey` (string), and `middleware.RoleContextKey` (*string, nil for roleless users) into the Echo context.
 
@@ -150,9 +162,11 @@ Protected routes live under `/v1/api/` and require a valid `Authorization: Beare
 - `server/.env` is git-ignored. Copy `server/.env.example` to create it locally.
 - `server/.docker-dev/.env` is also git-ignored. Copy `server/.docker-dev/.env.example`.
 - `config.Load()` (`internal/config/config.go`) calls `godotenv.Load()` silently (ignored in production) then validates all required vars, returning an error that names every missing variable.
-- Required vars: `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
-- Optional vars with defaults: `GOOGLE_REDIRECT_URL` (default `http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (default `http://localhost:3000`), `PORT` (default `8080`), `APP_ENV` (set to `production` on live deployments — currently used only to block `seed-root`).
+- Required vars: `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APP_ENV`.
+- `APP_ENV` is **required** and must be one of `local`, `testing`, `staging`, `production`. An absent or unrecognised value causes `Load()` to fail with a clear error. Use the typed constants `config.AppEnvLocal`, `config.AppEnvTesting`, `config.AppEnvStaging`, `config.AppEnvProduction` — never compare against bare string literals.
+- Optional vars with defaults: `GOOGLE_REDIRECT_URL` (default `http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (default `http://localhost:3000`), `PORT` (default `8080`).
 - Cache vars (all optional): `CACHE_ENABLED` (default `false`), `CACHE_URL` (default `redis://localhost:6379`), `CACHE_TTL` (default `5m` — any `time.ParseDuration` string).
+- Stripe vars (all optional — billing endpoints return 503 when `STRIPE_SECRET_KEY` is unset): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`. When `STRIPE_SECRET_KEY` is set, **both** `STRIPE_WEBHOOK_SECRET` and `STRIPE_PRO_PRICE_ID` must also be set; `Load()` treats them as a group and names every missing companion var in the error.
 - `FRONTEND_URL` is used by `GoogleCallback` to redirect the browser back to the webapp after the OAuth exchange.
 
 ---
@@ -204,7 +218,7 @@ make clean
 - **Error handling**: handlers return `echo.NewHTTPError(statusCode, message)`. Errors are never swallowed silently.
 - **No user enumeration**: login returns a generic 401 for both "user not found" and "wrong password".
 - **i18n**: all error messages are translated via `internal/i18n`. The `Locale` middleware (global) reads `Accept-Language`, resolves it to `middleware.LocaleEN` or `middleware.LocaleIT` (default `LocaleEN`), and stores it under `middleware.LocaleContextKey` in the Echo context. Handlers call `i18n.T(locale(c), i18n.KeyXxx)`. When adding a new error message, add its key constant to `internal/i18n/messages.go` and provide both EN and IT translations.
-- **Named constants over magic strings**: use `middleware.UserIDContextKey` / `middleware.EmailContextKey` / `middleware.RoleContextKey` when reading JWT context values; `middleware.LocaleContextKey` / `middleware.LocaleEN` / `middleware.LocaleIT` for locale keys; `handler.CookieOAuthState` / `handler.CookieOAuthLocale` for OAuth cookie names; `model.RoleRoot` / `model.RoleSystem` / `model.OrgRoleOwner` etc. for role strings. Never repeat bare string literals for these values.
+- **Named constants over magic strings**: use `middleware.UserIDContextKey` / `middleware.EmailContextKey` / `middleware.RoleContextKey` when reading JWT context values; `middleware.LocaleContextKey` / `middleware.LocaleEN` / `middleware.LocaleIT` for locale keys; `handler.CookieOAuthState` / `handler.CookieOAuthLocale` for OAuth cookie names; `model.RoleRoot` / `model.RoleSystem` / `model.OrgRoleOwner` etc. for role strings; `config.AppEnvLocal` / `config.AppEnvTesting` / `config.AppEnvStaging` / `config.AppEnvProduction` for environment comparisons. Never repeat bare string literals for these values.
 - **Sensitive fields**: `PasswordHash` and `GoogleID` are tagged `json:"-"` — they must never appear in API responses.
 - **Nullable columns**: `PasswordHash`, `GoogleID`, and `Role` are `*string`; nil means that field is not set for that user.
 - **Unit tests**: one `_test.go` file per source file, in `package foo_test` (black-box). Each test gets a fresh in-memory SQLite DB via `newTestDB(t)`. No external services, no global state.
@@ -242,6 +256,27 @@ Use `cache.KeyUser(id)`, `cache.KeyOrg(id)`, etc. from `internal/cache/keys.go` 
 2. Call `h.cache.Set(ctx, key, value)` after a successful DB query.
 3. On any write that affects this key, call `h.cache.Del(ctx, key)` (or `DelPattern` for wildcard keys).
 4. Use a key builder from `internal/cache/keys.go` or add one there.
+
+---
+
+## Billing & plans
+
+Organisations have one of three subscription plans stored in `organizations.plan`:
+
+| Plan | Owners | Admins | Operationals | Activation |
+|---|---|---|---|---|
+| `free` | 1 | 0 (not allowed) | 5 | default |
+| `pro` | 1 | 3 | 15 | Stripe Checkout (webhook flips plan) |
+| `enterprise` | unlimited | unlimited | unlimited | `POST /v1/api/orgs/:orgID/plan/enterprise` by root/system |
+
+- Plan limits are enforced in `AddMember` and `UpdateMember` by the `checkPlanLimit` helper (`handler/organization.go`). The org row is locked with `SELECT … FOR UPDATE` inside a transaction so the count check and the write are atomic — concurrent requests cannot race past the cap.
+- Downgrades do **not** remove existing over-limit members ("grandfathering") — only new additions are blocked.
+- Plan type, constants, and `LimitsFor()` live in `model/plan.go`.
+- Stripe integration is optional: set `STRIPE_SECRET_KEY` to enable. Billing endpoints return 503 when unset.
+- `HandleWebhook` returns 503 immediately when `STRIPE_WEBHOOK_SECRET` is unset, in **any** environment — unsigned events are never processed. When the secret is set and `APP_ENV != production`, signature verification is skipped so local dev and automated tests can send raw payloads. In production the `Stripe-Signature` header is always validated.
+- In the `checkout.session.completed` webhook case, if the org is already on the enterprise plan, the handler persists a `BillingCleanupJob` row (with the duplicate subscription ID and payment intent ID) **before** acknowledging the webhook. Only DB persistence errors return 500 so Stripe retries the webhook; once the row is durable the webhook is acknowledged with 200 and the cancel + refund Stripe calls are attempted in-line, recording success timestamps or `last_error` on the job row. The org's plan is never altered. Cancel and refund are independent — a failure of one does not skip the other. Pending rows (`subscription_cancelled_at`/`payment_refunded_at` still NULL) are the source of truth for an out-of-band retry worker.
+- `AssignEnterprisePlan` cancels an existing Stripe subscription before promoting the org. If the cancellation fails the handler returns 500 and aborts — the org is not promoted and `stripe_subscription_id` is preserved so the subscription can be reconciled later.
+- The `StripeGateway` interface in `handler/billing.go` is exported so tests can inject a mock via `NewBillingHandlerWithGateway`. It exposes three methods: `CreateCheckoutSession`, `CancelSubscription`, and `RefundPayment`. The real gateway (`stripeGoGateway`) is constructed once with a per-client `*stripeclient.API` — the global `stripe.Key` is never mutated.
 
 ---
 

@@ -54,10 +54,13 @@ cp .env.example .env
 | `GOOGLE_REDIRECT_URL` | no | Server-side OAuth callback URI registered in Google Cloud Console (default `http://localhost:8080/v1/auth/google/callback`) |
 | `FRONTEND_URL` | no | Base URL of the webapp — used to redirect the browser back after Google login (default `http://localhost:3000`) |
 | `PORT` | no | HTTP listen port (default `8080`) |
-| `APP_ENV` | no | Set to `production` to signal a production environment. The `seed-root` command refuses to run when this is set to `production`. |
+| `APP_ENV` | **yes** | Deployment environment. Must be one of: `local`, `testing`, `staging`, `production`. The server refuses to start if this is absent or set to an unrecognised value. |
 | `CACHE_ENABLED` | no | Set to `true` to enable Valkey caching (default `false`) |
 | `CACHE_URL` | no | Valkey/Redis connection URL (default `redis://localhost:6379`) |
 | `CACHE_TTL` | no | TTL for all cache entries, e.g. `30s`, `2m`, `10m` (default `5m`) |
+| `STRIPE_SECRET_KEY` | no | Stripe secret key. When unset, all billing endpoints return 503. |
+| `STRIPE_WEBHOOK_SECRET` | if Stripe enabled | Stripe webhook signing secret. **Required** when `STRIPE_SECRET_KEY` is set — the server refuses to start without it. Also enforced at runtime: `POST /stripe/webhook` returns 503 immediately whenever this is unset, in any environment, so unsigned events can never alter plan state. |
+| `STRIPE_PRO_PRICE_ID` | if Stripe enabled | Stripe Price ID for the Pro plan (e.g. `price_xxx`). **Required** when `STRIPE_SECRET_KEY` is set. |
 
 ---
 
@@ -109,7 +112,81 @@ Migrations run automatically on startup. The server listens on `http://localhost
 
 ---
 
-## 5. API reference
+## 5. Database migrations
+
+SQL migration files live in `migrations/`, named `NNNNNN_<description>.{up,down}.sql`. The server applies all pending up migrations automatically at startup. The Makefile targets let you drive migrations manually when needed.
+
+`golang-migrate` is already in `go.mod` — no separate CLI install is required. `DATABASE_URL` must be set in your shell (or in `.env`). All three migration targets validate this at startup and exit immediately with a clear error message if it is missing:
+
+```bash
+export DATABASE_URL="postgres://user:password@localhost:5432/charitychest?sslmode=disable"
+```
+
+### Quick reference
+
+| Command | What it does |
+|---|---|
+| `make migrate` | Apply all pending up migrations |
+| `make migrate-down N=1` | Roll back the last N migrations |
+| `make migrate-version` | Print the current schema version |
+
+### Apply pending migrations
+
+```bash
+make migrate
+```
+
+This runs every `.up.sql` file that has not yet been applied, in order. The server does the same automatically on startup, so this target is mainly useful when you want to migrate without starting the server.
+
+### Roll back N steps
+
+```bash
+# Roll back the last migration
+make migrate-down N=1
+
+# Roll back the last two migrations
+make migrate-down N=2
+```
+
+> **Never** pass `N` equal to the total number of migrations — that wipes the entire schema.
+
+### Check the current schema version
+
+```bash
+make migrate-version
+```
+
+### Go to a specific version
+
+```bash
+go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate \
+  -path migrations -database "$DATABASE_URL" goto 5
+```
+
+Runs up or down steps as needed to reach exactly version 5.
+
+### Recover from a failed migration
+
+A mid-flight failure leaves the schema in a "dirty" state. Fix the SQL, force the version back to the last clean migration, then re-run:
+
+```bash
+# Force version to 5 (last fully applied migration)
+go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate \
+  -path migrations -database "$DATABASE_URL" force 5
+
+# Re-apply
+make migrate
+```
+
+### Adding a new migration
+
+1. Create `migrations/NNNNNN_<description>.up.sql` and `migrations/NNNNNN_<description>.down.sql`.
+2. The `.down.sql` must exactly undo everything the `.up.sql` does.
+3. Never edit a migration that has already been applied to any environment — add a new one instead.
+
+---
+
+## 6. API reference
 
 All application endpoints are versioned under `/v1/`. The health probe is unversioned.
 
@@ -268,6 +345,40 @@ Response:
 
 Query parameters: `email` (optional, partial match), `page` (default 1), `size` (default 20, max 100).
 
+### Plans & billing
+
+```bash
+# Activate enterprise plan (root/system only)
+curl -X POST http://localhost:8080/v1/api/orgs/1/plan/enterprise \
+  -H "Authorization: Bearer <root-token>"
+
+# Create Stripe Checkout session (org owner, root, or system)
+# Redirect the user to the returned URL to complete payment.
+curl -X POST "http://localhost:8080/v1/api/orgs/1/billing/checkout?locale=en" \
+  -H "Authorization: Bearer <token>"
+# Returns: {"data":{"url":"https://checkout.stripe.com/..."}}
+
+# Cancel Pro subscription (org owner, root, or system)
+# Plan reverts to free when the webhook fires.
+curl -X DELETE http://localhost:8080/v1/api/orgs/1/billing/subscription \
+  -H "Authorization: Bearer <token>"
+```
+
+Stripe webhooks are received at `POST /stripe/webhook`. Signature verification is enforced when `APP_ENV=production`; outside production, raw unsigned payloads are accepted so local dev and automated tests can POST events without a real Stripe account.
+
+**Webhook behaviour notes:**
+- `checkout.session.completed` — if the org is already on the enterprise plan, the handler persists a `BillingCleanupJob` row (with the duplicate subscription ID and payment intent ID) **before** acknowledging the webhook, then attempts to cancel the new Stripe subscription and refund the initial payment in-line. The webhook is acknowledged with 200 once the cleanup job is durable; only DB persistence errors return 500 (so Stripe retries). Stripe call failures are recorded in `last_error` on the job row for an out-of-band retry worker. The org's plan is never changed.
+- `customer.subscription.deleted` — downgrades the org to `free` and clears `stripe_subscription_id`.
+
+**`POST /v1/api/orgs/:orgID/plan/enterprise` behaviour note:** if the org has an active Stripe subscription, it is cancelled before the plan is promoted. If cancellation fails the request returns 500 and the org is not promoted — `stripe_subscription_id` is preserved for manual reconciliation.
+
+To test locally with the Stripe CLI:
+
+```bash
+stripe listen --forward-to localhost:8080/stripe/webhook
+stripe trigger checkout.session.completed
+```
+
 ### Organisation management (system/root)
 
 ```bash
@@ -292,7 +403,7 @@ Role hierarchy for member assignment: `owner` → can assign `admin`, `operation
 
 ---
 
-## 6. Roles and initial setup
+## 7. Roles and initial setup
 
 The system uses two tiers of roles:
 
@@ -344,13 +455,13 @@ docker compose -f .docker-dev/docker-compose.yml exec server \
   env SEED_ROOT_EMAIL=admin@example.com SEED_ROOT_PASSWORD=secret ./seed-root
 ```
 
-> **Production guard**: when `APP_ENV=production` is set the command is allowed only while no root user exists (bootstrap path). Once a root user is present it exits with an error, preventing accidental creation of additional root users on a live deployment.
+> **Production guard**: when `APP_ENV=production` the command is allowed only during the initial bootstrap (no root user exists yet). Once a root user is present it exits with an error, preventing accidental creation of additional root users on a live deployment.
 
 After the root user exists, `GET /v1/system/status` returns `{"configured":true}` and the webapp allows normal access.
 
 ---
 
-## 7. Test Google login
+## 8. Test Google login
 
 Google OAuth requires a real browser redirect flow. The full end-to-end flow is:
 
@@ -375,7 +486,7 @@ Then open `http://localhost:8080/v1/auth/google?locale=en` (or `?locale=it`) in 
 
 ---
 
-## 8. Cache (Valkey)
+## 9. Cache (Valkey)
 
 The server supports an optional Valkey (Redis-compatible) cache layer to reduce database load on read-heavy endpoints. It is **disabled by default** — enable it with `CACHE_ENABLED=true`.
 
@@ -410,7 +521,21 @@ If Valkey is unreachable or a cache operation fails, the server logs the error a
 
 ---
 
-## 9. Deploy to production
+## 10. Plans
+
+Every organisation belongs to one of three tiers:
+
+| Plan | Owners | Admins | Operationals | Activation |
+|---|---|---|---|---|
+| `free` | 1 | not allowed | up to 5 | default |
+| `pro` | 1 | up to 3 | up to 15 | Stripe Checkout |
+| `enterprise` | unlimited | unlimited | unlimited | manual (root/system API) |
+
+Member-limit enforcement happens in `AddMember` and `UpdateMember`. The org row is locked inside a DB transaction (`SELECT … FOR UPDATE`) so the count check and the insert/update are atomic — concurrent requests cannot race past the cap. Existing members that exceed a plan's limits after a downgrade are not removed; only new additions are blocked.
+
+---
+
+## 11. Deploy to production
 
 ```bash
 make build-release
@@ -418,3 +543,16 @@ make build-release
 ```
 
 Set environment variables directly on the host (do not ship a `.env` file). The server reads them from the process environment automatically.
+
+`APP_ENV=production` is **required** and must be set before starting. The server will refuse to start without it. Required variables in a production deployment:
+
+| Variable | Notes |
+|---|---|
+| `APP_ENV` | Must be `production` |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `JWT_SECRET` | Long random secret — `openssl rand -hex 32` |
+| `GOOGLE_CLIENT_ID` | Google OAuth credentials |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth credentials |
+| `STRIPE_SECRET_KEY` | Required if billing is enabled |
+| `STRIPE_WEBHOOK_SECRET` | Required when `STRIPE_SECRET_KEY` is set |
+| `STRIPE_PRO_PRICE_ID` | Required when `STRIPE_SECRET_KEY` is set |

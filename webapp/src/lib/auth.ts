@@ -1,3 +1,4 @@
+/** localStorage key used to persist the JWT across page loads. */
 const TOKEN_KEY = 'cc_token';
 
 /** Returns the stored JWT, or null if none exists or running on the server. */
