@@ -74,10 +74,12 @@ webapp/
 │   └── types/
 │       └── api.ts              # TypeScript types mirroring the server's JSON
 ├── .env.example                # Template — copy to .env.local
-└── .docker-dev/
-    ├── Dockerfile              # node:24-alpine, hot reload via next dev
-    ├── docker-compose.yml      # Mounts source; named volumes for node_modules/.next
-    └── .env.example
+├── .docker-dev/
+│   ├── Dockerfile              # node:24-alpine, hot reload via next dev
+│   ├── docker-compose.yml      # Mounts source; named volumes for node_modules/.next
+│   └── .env.example
+└── .docker-staging/
+    └── Dockerfile              # Multi-stage production build for the staging environment
 ```
 
 ## Internationalisation
@@ -158,6 +160,47 @@ docker compose up --build   # http://localhost:3000
 The compose file mounts the source directory for hot reload. Named volumes (`node_modules`, `next_cache`) prevent the host filesystem from overwriting the container's installed packages.
 
 The API server is **not** included in this compose file. Start it separately via `docker compose -f server/.docker-dev/docker-compose.yml up --build` or `go run .` from the `server/` directory.
+
+## Building the staging Docker image
+
+The staging image (`webapp/.docker-staging/Dockerfile`) is a multi-stage production build: `npm ci` in a `deps` stage, `next build` in a `builder` stage, and a lean `runner` stage that runs `next start` as the non-root `node` user.
+
+> **`NEXT_PUBLIC_API_URL` must be passed at build time, not run time.** Next.js inlines `NEXT_PUBLIC_*` values into the browser bundle during `next build`, so a `-e` flag at `docker run` has no effect on what reaches the browser.
+
+### Build
+
+```bash
+# From the repository root.
+# Build context is webapp/ (the trailing argument), not the repo root.
+docker build \
+  -f webapp/.docker-staging/Dockerfile \
+  --build-arg NEXT_PUBLIC_API_URL=https://api.staging.example.com \
+  -t charity-chest-webapp:staging \
+  webapp/
+```
+
+### Run
+
+```bash
+# Foreground — Ctrl-C to stop. Container is removed automatically on exit.
+docker run --rm -p 3000:3000 --name charity-chest-webapp charity-chest-webapp:staging
+# → http://localhost:3000
+
+# Detached — runs in the background.
+docker run -d -p 3000:3000 --name charity-chest-webapp charity-chest-webapp:staging
+docker logs -f charity-chest-webapp     # follow logs
+docker stop charity-chest-webapp        # stop
+docker rm charity-chest-webapp          # remove the stopped container
+```
+
+The image listens on port `3000` inside the container. To expose it on a different host port, change the left side of `-p`, e.g. `-p 8080:3000`. To make Next.js itself listen on another port, override `PORT` at run time (`-e PORT=4000 -p 4000:4000`) — `PORT` is a runtime variable and is safe to set with `-e`, unlike `NEXT_PUBLIC_*`.
+
+### Push to a registry
+
+```bash
+docker tag charity-chest-webapp:staging <registry>/charity-chest-webapp:staging
+docker push <registry>/charity-chest-webapp:staging
+```
 
 ## Google OAuth note
 

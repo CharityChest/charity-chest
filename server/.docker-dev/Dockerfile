@@ -26,7 +26,10 @@ WORKDIR /app
 COPY --from=builder /bin/server      ./server
 COPY --from=builder /bin/seed-root   ./seed-root
 COPY --from=builder /app/migrations  ./migrations
+COPY ./aws/postgres/global-bundle.pem ./
+COPY ./.docker-dev/entry-point.sh ./entry-point.sh
+RUN chmod +x ./entry-point.sh
 
 EXPOSE 8080
 
-ENTRYPOINT ["./server"]
+ENTRYPOINT ["./entry-point.sh"]

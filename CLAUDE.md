@@ -62,10 +62,14 @@ charity-chest/
 │   │   ├── 000006_add_plan_to_organizations.down.sql
 │   │   ├── 000007_create_billing_cleanup_jobs.up.sql
 │   │   └── 000007_create_billing_cleanup_jobs.down.sql
-│   └── .docker-dev/                # Docker Compose demo environment
-│       ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
-│       ├── docker-compose.yml      # Postgres + Valkey + server; server waits for both health checks
-│       └── .env.example            # Template for Google OAuth secrets used by compose
+│   ├── .docker-dev/                # Docker Compose demo environment
+│   │   ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
+│   │   ├── docker-compose.yml      # Postgres + Valkey + server; server waits for both health checks
+│   │   ├── entry-point.sh          # Seeds root user via env vars then starts the server
+│   │   └── .env.example            # Template for Google OAuth + root seed secrets used by compose
+│   └── .docker-staging/            # Standalone staging image (no compose — deployed to ECS/k8s/Fly.io)
+│       ├── Dockerfile              # Two-stage build, runs as unprivileged user, files owned by root
+│       └── entry-point.sh          # Best-effort seed of root user (ROOT_USER/ROOT_PASSWORD), then exec ./server
 └── webapp/                         # Next.js 15 frontend (EN + IT)
     ├── messages/                   # i18n string files
     │   ├── en.json
@@ -168,6 +172,7 @@ Protected routes live under `/v1/api/` and require a valid `Authorization: Beare
 - Cache vars (all optional): `CACHE_ENABLED` (default `false`), `CACHE_URL` (default `redis://localhost:6379`), `CACHE_TTL` (default `5m` — any `time.ParseDuration` string).
 - Stripe vars (all optional — billing endpoints return 503 when `STRIPE_SECRET_KEY` is unset): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`. When `STRIPE_SECRET_KEY` is set, **both** `STRIPE_WEBHOOK_SECRET` and `STRIPE_PRO_PRICE_ID` must also be set; `Load()` treats them as a group and names every missing companion var in the error.
 - `FRONTEND_URL` is used by `GoogleCallback` to redirect the browser back to the webapp after the OAuth exchange.
+- `ROOT_USER` / `ROOT_PASSWORD` are **container-level** vars consumed by the Docker entry-point scripts (`.docker-dev/entry-point.sh`, `.docker-staging/entry-point.sh`) — not by `config.Load()`. The script invokes `seed-root -email "$ROOT_USER" -password "$ROOT_PASSWORD"` on container startup. The dev image makes both required (compose enforces it). The staging image treats them as optional: when both are set the entry-point seeds best-effort and continues to start the server even if seeding fails (e.g. user already exists); when either is unset, seeding is skipped.
 
 ---
 
