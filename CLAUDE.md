@@ -99,7 +99,7 @@ charity-chest/
     │   ├── docker-compose.yml      # Source mount + named volumes for node_modules/.next
     │   └── .env.example
     └── .docker-staging/            # Standalone staging image (no compose — deployed to ECS/k8s/Fly.io)
-        └── Dockerfile              # Three-stage build (deps → builder → runner) on node:24-alpine3.23, runs as unprivileged `node` user
+        └── Dockerfile              # Three-stage build (deps → builder → runner) on node:24-alpine3.23; runs as `node` user, files owned by root + 0555/0444 (read-only); `.next/cache` is symlinked to /tmp/next-cache (node-owned, ephemeral) so Next.js can write its runtime cache without compromising the read-only bundle; curl-based HEALTHCHECK probes /en on port 3000
 ```
 
 ---

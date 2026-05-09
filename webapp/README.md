@@ -165,6 +165,10 @@ The API server is **not** included in this compose file. Start it separately via
 
 The staging image (`webapp/.docker-staging/Dockerfile`) is a multi-stage production build: `npm ci` in a `deps` stage, `next build` in a `builder` stage, and a lean `runner` stage that runs `next start` as the non-root `node` user.
 
+The runner stage hardens the filesystem: `/app` is owned by `root:root` with `0555`/`0444` permissions, so the `node` runtime user has read-and-execute only and cannot tamper with the bundle. The build cache is wiped after `next build`, and `.next/cache` is replaced with a symlink to `/tmp/next-cache` (owned by `node`, mode `0700`), so Next.js's runtime cache (fetch cache, image optimization) lands on the container's ephemeral filesystem instead of the read-only bundle — nothing about the cache survives a restart.
+
+A Docker `HEALTHCHECK` (curl-based, probing `/en` on `127.0.0.1:3000`, `--interval=30s --timeout=5s --start-period=30s --retries=3`) lets ECS / Kubernetes / Fly.io detect an unhealthy container; `curl -f` exits non-zero on any 4xx/5xx so the orchestrator marks the task accordingly. The probe targets `/en` directly to skip the next-intl redirect from `/` and exercise a real rendered page.
+
 > **`NEXT_PUBLIC_API_URL` must be passed at build time, not run time.** Next.js inlines `NEXT_PUBLIC_*` values into the browser bundle during `next build`, so a `-e` flag at `docker run` has no effect on what reaches the browser.
 
 ### Build
