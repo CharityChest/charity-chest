@@ -1,0 +1,71 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: server
+            context: server
+            dockerfile: server/.docker-staging/Dockerfile
+            ecr_repo_var: ECR_REPOSITORY_SERVER
+            ecs_service_var: ECS_SERVICE_SERVER
+            build_args: ""
+          - component: webapp
+            context: webapp
+            dockerfile: webapp/.docker-staging/Dockerfile
+            ecr_repo_var: ECR_REPOSITORY_WEBAPP
+            ecs_service_var: ECS_SERVICE_WEBAPP
+            build_args: |
+              NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@fa648b43de3d4d023bcb3f89ed6940096949c419 # v2.1.5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build and push image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ vars[matrix.ecr_repo_var] }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ vars[matrix.ecr_repo_var] }}:latest
+          build-args: ${{ matrix.build_args }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+      - name: Force ECS redeploy
+        run: |
+          aws ecs update-service \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --service "${{ vars[matrix.ecs_service_var] }}" \
+            --force-new-deployment \
+            --no-cli-pager > /dev/null
