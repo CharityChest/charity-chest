@@ -103,6 +103,28 @@ Every pull request must pass two independent checks before it can be merged:
 
 ---
 
+## Deploy
+
+`.github/workflows/deploy.yml` runs on every push to `main` (i.e. every merged PR). It builds the staging Docker images for both `server` and `webapp` in parallel, pushes them to Amazon ECR (tagged with the commit SHA and `latest`), then forces a new ECS deployment so the services pick up the new images.
+
+Configure the following in **Settings → Secrets and variables → Actions**:
+
+| Kind | Name | Purpose |
+|---|---|---|
+| Secret | `AWS_ACCESS_KEY_ID` | IAM access key for an account with `ecr:*` (push) and `ecs:UpdateService` permissions |
+| Secret | `AWS_SECRET_ACCESS_KEY` | Matching secret access key |
+| Variable | `AWS_REGION` | e.g. `eu-west-1` |
+| Variable | `ECR_REPOSITORY_SERVER` | ECR repository name for the server image |
+| Variable | `ECR_REPOSITORY_WEBAPP` | ECR repository name for the webapp image |
+| Variable | `ECS_CLUSTER` | ECS cluster name hosting both services |
+| Variable | `ECS_SERVICE_SERVER` | ECS service name for the server |
+| Variable | `ECS_SERVICE_WEBAPP` | ECS service name for the webapp |
+| Variable | `NEXT_PUBLIC_API_URL` | Public API URL inlined into the webapp bundle at build time (e.g. `https://api.staging.example.com`) |
+
+The ECR repositories and ECS services must exist before the first run — the workflow does not create them.
+
+---
+
 ## License
 
 [MIT](LICENSE)
