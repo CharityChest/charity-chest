@@ -4,7 +4,7 @@
 # Usage:
 #   docker compose -f webapp/.docker-dev/docker-compose.yml up --build
 
-FROM node:24-alpine
+FROM node:24-alpine3.23
 
 WORKDIR /app
 

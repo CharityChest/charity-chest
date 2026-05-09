@@ -63,12 +63,12 @@ charity-chest/
 │   │   ├── 000007_create_billing_cleanup_jobs.up.sql
 │   │   └── 000007_create_billing_cleanup_jobs.down.sql
 │   ├── .docker-dev/                # Docker Compose demo environment
-│   │   ├── Dockerfile              # Two-stage build (golang:alpine → alpine)
+│   │   ├── Dockerfile              # Two-stage build (golang:alpine → alpine:3.23)
 │   │   ├── docker-compose.yml      # Postgres + Valkey + server; server waits for both health checks
 │   │   ├── entry-point.sh          # Seeds root user via env vars then starts the server
 │   │   └── .env.example            # Template for Google OAuth + root seed secrets used by compose
 │   └── .docker-staging/            # Standalone staging image (no compose — deployed to ECS/k8s/Fly.io)
-│       ├── Dockerfile              # Two-stage build, runs as unprivileged user, files owned by root
+│       ├── Dockerfile              # Two-stage build (golang:alpine → alpine:3.23), runs as unprivileged user, files owned by root
 │       └── entry-point.sh          # Best-effort seed of root user (ROOT_USER/ROOT_PASSWORD), then exec ./server
 └── webapp/                         # Next.js 15 frontend (EN + IT)
     ├── messages/                   # i18n string files
@@ -94,10 +94,12 @@ charity-chest/
     │   │   └── setup.ts            # Vitest global setup — loads @testing-library/jest-dom
     │   └── types/api.ts            # TypeScript types mirroring server JSON responses
     ├── .env.example                # Template: NEXT_PUBLIC_API_URL
-    └── .docker-dev/                # Docker Compose dev environment for the webapp
-        ├── Dockerfile              # node:24-alpine, hot reload via next dev
-        ├── docker-compose.yml      # Source mount + named volumes for node_modules/.next
-        └── .env.example
+    ├── .docker-dev/                # Docker Compose dev environment for the webapp
+    │   ├── Dockerfile              # node:24-alpine3.23, hot reload via next dev
+    │   ├── docker-compose.yml      # Source mount + named volumes for node_modules/.next
+    │   └── .env.example
+    └── .docker-staging/            # Standalone staging image (no compose — deployed to ECS/k8s/Fly.io)
+        └── Dockerfile              # Three-stage build (deps → builder → runner) on node:24-alpine3.23, runs as unprivileged `node` user
 ```
 
 ---

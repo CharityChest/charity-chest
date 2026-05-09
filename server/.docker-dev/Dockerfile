@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/server . && \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/seed-root ./cmd/seed-root
 
 # ---- runtime stage ----
-FROM alpine:latest
+FROM alpine:3.23
 
 # ca-certificates: needed for HTTPS calls to Google OAuth endpoints
 # tzdata: consistent timezone handling

@@ -13,13 +13,13 @@
 #     webapp/
 
 # --- deps stage ----------------------------------------------------------
-FROM node:24-alpine AS deps
+FROM node:24-alpine3.23 AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
 # --- builder stage -------------------------------------------------------
-FROM node:24-alpine AS builder
+FROM node:24-alpine3.23 AS builder
 WORKDIR /app
 
 ARG NEXT_PUBLIC_API_URL
@@ -36,7 +36,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # --- runner stage --------------------------------------------------------
-FROM node:24-alpine AS runner
+FROM node:24-alpine3.23 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

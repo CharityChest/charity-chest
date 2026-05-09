@@ -40,7 +40,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /bin/server 
     CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /bin/seed-root ./cmd/seed-root
 
 # ---- runtime stage ------------------------------------------------------
-FROM alpine:latest
+FROM alpine:3.23
 
 # ca-certificates: HTTPS to Google OAuth and Stripe
 # tzdata: consistent timezone handling
