@@ -51,8 +51,9 @@ docker build \
 
 Differences from the dev image:
 
-- Runs as an unprivileged `app` user (not root). Files in `/app` are owned by root and read-only to the runtime user, so a compromised process cannot tamper with the binary, migrations, or the RDS CA bundle.
+- Runs as an unprivileged `app` user (not root). `/app` and everything under it is owned by root and read-only to the runtime user (the `app` user has no home directory), so a compromised process cannot tamper with the binary, migrations, or the RDS CA bundle, nor write anywhere it can later execute from.
 - Built with `-trimpath` for reproducible binaries.
+- Declares a Docker `HEALTHCHECK` that probes `GET /health` every 30s (`--start-period=30s` to cover migrations on cold start). Orchestrators that honour healthcheck status (Docker Swarm, ECS, Fly.io) will mark the container unhealthy and replace it; Kubernetes ignores `HEALTHCHECK` and instead expects a `livenessProbe`/`readinessProbe` pointing at the same endpoint.
 
 The entry-point seeds the first root user (best-effort) and then `exec`s the server. Set the following two variables in the deployment environment to enable seeding:
 

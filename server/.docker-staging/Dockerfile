@@ -44,10 +44,16 @@ FROM alpine:3.23
 
 # ca-certificates: HTTPS to Google OAuth and Stripe
 # tzdata: consistent timezone handling
-RUN apk --no-cache add ca-certificates tzdata && \
-    addgroup -S app && adduser -S -G app app
+# curl: used by the Docker HEALTHCHECK to probe /health
+# adduser -H: do not create a home directory the app user could write to
+RUN apk --no-cache add ca-certificates tzdata curl && \
+    addgroup -S app && adduser -S -H -G app app
 
 WORKDIR /app
+
+# Lock the working directory so the unprivileged user cannot create or replace
+# files alongside the binary at runtime (root:root, r-x for everyone).
+RUN chmod 0555 /app
 
 # Files are owned by root with read/execute for the unprivileged runtime user.
 # A compromised process cannot tamper with the binary, migrations, or CA bundle.
@@ -62,5 +68,11 @@ COPY              --chown=root:root --chmod=0555 ./.docker-staging/entry-point.s
 USER app
 
 EXPOSE 8080
+
+# Probe the unversioned liveness endpoint so orchestrators (ECS, Kubernetes,
+# Fly.io) can mark the container unhealthy and replace it. start-period covers
+# DB connect + migrations on cold start before failures count toward retries.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -fsS http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["./entry-point.sh"]

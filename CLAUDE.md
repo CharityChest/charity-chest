@@ -68,7 +68,7 @@ charity-chest/
 │   │   ├── entry-point.sh          # Seeds root user via env vars then starts the server
 │   │   └── .env.example            # Template for Google OAuth + root seed secrets used by compose
 │   └── .docker-staging/            # Standalone staging image (no compose — deployed to ECS/k8s/Fly.io)
-│       ├── Dockerfile              # Two-stage build (golang:alpine → alpine:3.23), runs as unprivileged user, files owned by root
+│       ├── Dockerfile              # Two-stage build; (golang:alpine → alpine:3.23), unprivileged `app` user with no home dir; /app and contents are root-owned r-x; HEALTHCHECK probes GET /health (curl -fsS, 30s interval, 30s start-period)
 │       └── entry-point.sh          # Best-effort seed of root user (ROOT_USER/ROOT_PASSWORD), then exec ./server
 └── webapp/                         # Next.js 15 frontend (EN + IT)
     ├── messages/                   # i18n string files
