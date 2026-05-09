@@ -51,6 +51,8 @@ services:
       # Google OAuth will not work without real credentials.
       GOOGLE_CLIENT_ID:     ${GOOGLE_CLIENT_ID:?Set GOOGLE_CLIENT_ID in .docker-dev/.env}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?Set GOOGLE_CLIENT_SECRET in .docker-dev/.env}
+      ROOT_PASSWORD: ${ROOT_PASSWORD:?Set ROOT_PASSWORD in .docker-dev/.env}
+      ROOT_USER: ${ROOT_USER:?Set ROOT_USER in .docker-dev/.env}
 
       # Must match the redirect URI registered in Google Cloud Console
       GOOGLE_REDIRECT_URL: http://localhost:8080/v1/auth/google/callback

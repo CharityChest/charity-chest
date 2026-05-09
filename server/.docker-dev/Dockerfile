@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/server . && \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/seed-root ./cmd/seed-root
 
 # ---- runtime stage ----
-FROM alpine:latest
+FROM alpine:3.23
 
 # ca-certificates: needed for HTTPS calls to Google OAuth endpoints
 # tzdata: consistent timezone handling
@@ -26,7 +26,10 @@ WORKDIR /app
 COPY --from=builder /bin/server      ./server
 COPY --from=builder /bin/seed-root   ./seed-root
 COPY --from=builder /app/migrations  ./migrations
+COPY ./aws/postgres/global-bundle.pem ./
+COPY ./.docker-dev/entry-point.sh ./entry-point.sh
+RUN chmod +x ./entry-point.sh
 
 EXPOSE 8080
 
-ENTRYPOINT ["./server"]
+ENTRYPOINT ["./entry-point.sh"]
