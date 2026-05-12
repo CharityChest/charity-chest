@@ -67,9 +67,11 @@ charity-chest/
 │   │   ├── docker-compose.yml      # Postgres + Valkey + server; server waits for both health checks
 │   │   ├── entry-point.sh          # Seeds root user via env vars then starts the server
 │   │   └── .env.example            # Template for Google OAuth + root seed secrets used by compose
-│   └── .docker-staging/            # Standalone staging image (no compose — deployed to ECS/k8s/Fly.io)
-│       ├── Dockerfile              # Two-stage build; (golang:alpine → alpine:3.23), unprivileged `app` user with no home dir; /app and contents are root-owned r-x; HEALTHCHECK probes GET /health (curl -fsS, 30s interval, 30s start-period)
-│       └── entry-point.sh          # Best-effort seed of root user (ROOT_USER/ROOT_PASSWORD), then exec ./server
+│   ├── .docker-staging/            # Standalone staging image (no compose — deployed to ECS/k8s/Fly.io)
+│   │   ├── Dockerfile              # Two-stage build; (golang:alpine → alpine:3.23), unprivileged `app` user with no home dir; /app and contents are root-owned r-x; HEALTHCHECK probes GET /health (curl -fsS, 30s interval, 30s start-period)
+│   │   └── entry-point.sh          # Best-effort seed of root user (ROOT_USER/ROOT_PASSWORD), then exec ./server
+│   └── .docker-dbms-staging/       # Standalone staging image for the DB web UI (CloudBeaver CE)
+│       └── Dockerfile              # Thin wrapper over `dbeaver/cloudbeaver:26.0`; installs curl for the HEALTHCHECK on port 8978; configuration lives in the persistent `/opt/cloudbeaver/workspace` volume; no required env vars (Postgres connection registered through the first-launch web wizard)
 └── webapp/                         # Next.js 15 frontend (EN + IT)
     ├── messages/                   # i18n string files
     │   ├── en.json
