@@ -105,7 +105,10 @@ Every pull request must pass two independent checks before it can be merged:
 
 ## Deploy
 
-`.github/workflows/deploy.yml` runs on every push to `main` (i.e. every merged PR). It builds the staging Docker images for both `server` and `webapp` in parallel, pushes them to Amazon ECR (tagged with the commit SHA and `latest`), then forces a new ECS deployment so the services pick up the new images.
+`.github/workflows/deploy.yml` runs on every push to `main` (i.e. every merged PR). It is a two-phase pipeline that produces a single multi-architecture image (`linux/amd64` + `linux/arm64`) per component and ships it to ECS:
+
+1. **Build** — four parallel jobs (`server`/`webapp` × `amd64`/`arm64`). Each job runs on the runner whose architecture matches the build target (`ubuntu-24.04` for amd64, `ubuntu-24.04-arm` for arm64 — both pinned to 24.04 rather than `-latest` so the runner image is stable across GitHub's `-latest` label moves), so builds are native — no QEMU, no `next build` slowdown on arm64. Each job pushes the image to ECR *by digest only* (no tag attached) and exports the digest as a workflow artifact.
+2. **Manifest** — two jobs (one per component) download the two per-arch digests, stitch them into a single multi-arch manifest under `:<commit-sha>` and `:latest` via `docker buildx imagetools create`, then force a new ECS deployment so the service pulls the fresh image.
 
 Configure the following in **Settings → Secrets and variables → Actions**:
 
@@ -122,6 +125,14 @@ Configure the following in **Settings → Secrets and variables → Actions**:
 | Variable | `NEXT_PUBLIC_API_URL` | Public API URL inlined into the webapp bundle at build time (e.g. `https://api.staging.example.com`) |
 
 The ECR repositories and ECS services must exist before the first run — the workflow does not create them.
+
+### ECS task-definition architecture
+
+ECS task definitions pin the CPU architecture via `runtimePlatform.cpuArchitecture` (`X86_64` or `ARM64`). Fargate selects the matching variant from the multi-arch manifest automatically — switching a service from amd64 to Graviton (arm64) is a task-definition change, not a workflow change. Make sure the Fargate capacity provider supports the target architecture before flipping it.
+
+### Runner cost note
+
+`ubuntu-24.04-arm` is free on public repos and billed at the standard arm64 rate on private repos (currently cheaper per minute than amd64). If the doubled job count becomes a concern on a private repo, the cheaper alternative is to drop one architecture from the matrix — emulating the missing arch with QEMU on a single runner is technically possible but the webapp's `next build` under emulation typically costs more wall-clock (and therefore more minutes) than a second native job.
 
 ---
 
