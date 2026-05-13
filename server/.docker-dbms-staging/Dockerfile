@@ -44,7 +44,7 @@ FROM dbeaver/cloudbeaver:26.0
 
 # curl is used by the Docker HEALTHCHECK; the upstream image does not ship it.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends curl=8.5.0-2ubuntu10.9 && \
     rm -rf /var/lib/apt/lists/*
 
 # CloudBeaver listens on this port by default.

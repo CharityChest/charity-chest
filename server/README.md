@@ -89,6 +89,34 @@ docker build \
   .docker-dbms-staging
 ```
 
+By default `docker build` produces an image for the host's architecture. The upstream `dbeaver/cloudbeaver:26.0` base is published for both `linux/amd64` and `linux/arm64`, so you can target either explicitly with `--platform` — useful when you build on one arch (e.g. an Apple Silicon laptop) and deploy on another (e.g. an `x86_64` staging VM, or an AWS Graviton/`arm64` host):
+
+```bash
+# Build for x86_64 / amd64 hosts
+docker build --platform linux/amd64 \
+  -f .docker-dbms-staging/Dockerfile \
+  -t charity-chest-dbms:staging-amd64 \
+  .docker-dbms-staging
+
+# Build for arm64 hosts (Graviton, Apple Silicon)
+docker build --platform linux/arm64 \
+  -f .docker-dbms-staging/Dockerfile \
+  -t charity-chest-dbms:staging-arm64 \
+  .docker-dbms-staging
+```
+
+Cross-arch builds run under QEMU emulation (slow, but functionally correct). If you need both architectures under a single tag — e.g. so one ECR/Docker Hub tag works on any host — produce a multi-arch manifest with `buildx` instead:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -f .docker-dbms-staging/Dockerfile \
+  -t <registry>/charity-chest-dbms:staging \
+  --push \
+  .docker-dbms-staging
+```
+
+`buildx` requires a registry (`--push`); the local Docker image store cannot hold a multi-arch manifest, so `--load` only works for a single platform.
+
 ### Run
 
 CloudBeaver listens on port `8978` and stores all of its state — admin user, registered connections, saved credentials — under `/opt/cloudbeaver/workspace`. **A persistent volume on that path is mandatory**: without it every container restart wipes the configuration and you have to re-run the quickstart wizard.
