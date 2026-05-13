@@ -139,11 +139,33 @@ jobs:
         run: |
           set -euo pipefail
           REGISTRY="${{ steps.ecr.outputs.registry }}/${{ vars[matrix.ecr_repo_var] }}"
-          # Build the list of per-arch source references from the downloaded digests.
-          SOURCES=""
-          for f in /tmp/digests/*; do
-            SOURCES="$SOURCES $REGISTRY@$(cat "$f")"
+
+          # Source of truth for which per-arch digests must exist before we
+          # assemble the manifest. Keep in sync with the build matrix above.
+          EXPECTED_ARCHES=(amd64 arm64)
+
+          # Fail fast if any expected digest is missing. Without this guard,
+          # `docker buildx imagetools create` would happily publish a partial
+          # single-arch manifest under :latest, silently degrading the
+          # multi-arch deployment.
+          MISSING=()
+          for arch in "${EXPECTED_ARCHES[@]}"; do
+            if [ ! -s "/tmp/digests/$arch" ]; then
+              MISSING+=("$arch")
+            fi
           done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "Missing per-arch digest(s): ${MISSING[*]}" >&2
+            echo "Refusing to publish a partial single-arch manifest." >&2
+            exit 1
+          fi
+
+          # Build the list of per-arch source references from the verified digests.
+          SOURCES=""
+          for arch in "${EXPECTED_ARCHES[@]}"; do
+            SOURCES="$SOURCES $REGISTRY@$(cat "/tmp/digests/$arch")"
+          done
+
           docker buildx imagetools create \
             --tag "$REGISTRY:${{ github.sha }}" \
             --tag "$REGISTRY:latest" \
