@@ -76,6 +76,87 @@ docker run --rm \
 
 ---
 
+## Staging DBMS image (CloudBeaver web UI)
+
+`.docker-dbms-staging/Dockerfile` builds a self-contained image that ships [CloudBeaver CE](https://github.com/dbeaver/cloudbeaver) — a web UI for browsing and querying the staging Postgres database. It is a thin wrapper around the upstream `dbeaver/cloudbeaver` image: it pins a version, installs `curl` for the Docker `HEALTHCHECK`, and exposes the default port. Like the API server image, it does not ship a `docker-compose.yml` — it is meant to be deployed standalone (ECS, Fly.io, Kubernetes, etc.) and connect to the managed Postgres through a connection the operator registers in the web UI on first launch.
+
+### Build
+
+```bash
+docker build \
+  -f .docker-dbms-staging/Dockerfile \
+  -t charity-chest-dbms:staging \
+  .docker-dbms-staging
+```
+
+By default `docker build` produces an image for the host's architecture. The upstream `dbeaver/cloudbeaver:26.0` base is published for both `linux/amd64` and `linux/arm64`, so you can target either explicitly with `--platform` — useful when you build on one arch (e.g. an Apple Silicon laptop) and deploy on another (e.g. an `x86_64` staging VM, or an AWS Graviton/`arm64` host):
+
+```bash
+# Build for x86_64 / amd64 hosts
+docker build --platform linux/amd64 \
+  -f .docker-dbms-staging/Dockerfile \
+  -t charity-chest-dbms:staging-amd64 \
+  .docker-dbms-staging
+
+# Build for arm64 hosts (Graviton, Apple Silicon)
+docker build --platform linux/arm64 \
+  -f .docker-dbms-staging/Dockerfile \
+  -t charity-chest-dbms:staging-arm64 \
+  .docker-dbms-staging
+```
+
+Cross-arch builds run under QEMU emulation (slow, but functionally correct). If you need both architectures under a single tag — e.g. so one ECR/Docker Hub tag works on any host — produce a multi-arch manifest with `buildx` instead:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -f .docker-dbms-staging/Dockerfile \
+  -t <registry>/charity-chest-dbms:staging \
+  --push \
+  .docker-dbms-staging
+```
+
+`buildx` requires a registry (`--push`); the local Docker image store cannot hold a multi-arch manifest, so `--load` only works for a single platform.
+
+### Run
+
+CloudBeaver listens on port `8978` and stores all of its state — admin user, registered connections, saved credentials — under `/opt/cloudbeaver/workspace`. **A persistent volume on that path is mandatory**: without it every container restart wipes the configuration and you have to re-run the quickstart wizard.
+
+```bash
+docker run -d --name charity-chest-dbms \
+  -p 8978:8978 \
+  -v charity-chest-dbms-workspace:/opt/cloudbeaver/workspace \
+  charity-chest-dbms:staging
+```
+
+### Initial setup
+
+The first time you open `http://<host>:8978` CloudBeaver runs a quickstart wizard:
+
+1. Create the admin user (username + password). These credentials are stored in the workspace volume.
+2. Register the staging Postgres connection — host = staging Postgres endpoint, port `5432`, database + user from the staging credentials.
+
+The wizard runs only on first launch. Subsequent boots read everything from the mounted workspace.
+
+### Environment variables
+
+CloudBeaver is configured through the web wizard and the workspace volume rather than environment variables — there are no required env vars at the image level. The full list of variables that the image honours is:
+
+| Variable | Required | Description |
+|---|---|---|
+| `CLOUDBEAVER_WORKSPACE` | no | Workspace path inside the container (default `/opt/cloudbeaver/workspace`). Only change this if you also adjust the volume mount target. |
+
+Postgres credentials are entered into the CloudBeaver UI on first setup; they are **not** passed to this container as environment variables. Treat the workspace volume as a secret store and back it up accordingly.
+
+### Security
+
+CloudBeaver has no built-in TLS. Always front it with a reverse proxy that terminates TLS (ALB, Cloud Run, Nginx, Caddy) and restrict access by VPN, IP allow-list, or SSO — the admin UI holds full DB credentials.
+
+### Updating the CloudBeaver version
+
+The Dockerfile pins a specific upstream tag. To upgrade, check [Docker Hub](https://hub.docker.com/r/dbeaver/cloudbeaver/tags) for the latest release and bump the `FROM dbeaver/cloudbeaver:<tag>` line — keep the workspace volume across rebuilds so the existing configuration survives.
+
+---
+
 ## 1. Environment setup
 
 Copy the example file and fill in your values:
