@@ -41,8 +41,10 @@ docker compose -f .docker-dev/docker-compose.yml up --build server
 
 `.docker-staging/Dockerfile` builds a self-contained, production-style image intended for deployment to a managed environment (ECS, Fly.io, Kubernetes, etc.). It does not ship a `docker-compose.yml` — staging connects to managed Postgres and Valkey through environment variables supplied at deploy time.
 
+### Build
+
 ```bash
-# Build the image (build context is the server/ directory)
+# Build for the host architecture (build context is the server/ directory)
 docker build \
   -f .docker-staging/Dockerfile \
   -t charity-chest-server:staging \
@@ -54,6 +56,82 @@ Differences from the dev image:
 - Runs as an unprivileged `app` user (not root). `/app` and everything under it is owned by root and read-only to the runtime user (the `app` user has no home directory), so a compromised process cannot tamper with the binary, migrations, or the RDS CA bundle, nor write anywhere it can later execute from.
 - Built with `-trimpath` for reproducible binaries.
 - Declares a Docker `HEALTHCHECK` that probes `GET /health` every 30s (`--start-period=30s` to cover migrations on cold start). Orchestrators that honour healthcheck status (Docker Swarm, ECS, Fly.io) will mark the container unhealthy and replace it; Kubernetes ignores `HEALTHCHECK` and instead expects a `livenessProbe`/`readinessProbe` pointing at the same endpoint.
+
+### Multi-architecture builds (amd64 / arm64)
+
+The image inherits its architecture from the `golang:alpine` and `alpine:3.23` base images, both of which are published as multi-arch manifests for `linux/amd64` and `linux/arm64`. By default `docker build` produces an image for the host's architecture; use `--platform` to target a specific one — useful when you build on an Apple Silicon / Graviton workstation and deploy on an `x86_64` host (or vice versa):
+
+```bash
+# Build for x86_64 / amd64 hosts (most cloud VMs, including default ECS Fargate)
+docker build --platform linux/amd64 \
+  -f .docker-staging/Dockerfile \
+  -t charity-chest-server:staging-amd64 \
+  .
+
+# Build for arm64 hosts (AWS Graviton, Apple Silicon, Ampere)
+docker build --platform linux/arm64 \
+  -f .docker-staging/Dockerfile \
+  -t charity-chest-server:staging-arm64 \
+  .
+```
+
+The Go compiler in the build stage cross-compiles natively (the `Dockerfile` already pins `CGO_ENABLED=0 GOOS=linux`, so `GOARCH` is inferred from `--platform` automatically) — the heavy step is the runtime stage, which executes commands inside an `alpine:3.23` rootfs for the target architecture.
+
+**Emulation requirement:** when the target architecture differs from the host, the `RUN` commands in the runtime stage (`apk add`, `addgroup`, `adduser`, `chmod`) run under emulation. Docker Desktop on macOS and Windows ships QEMU emulation by default, so cross-arch builds work out of the box. On Linux, install the `binfmt` handlers once per machine before attempting a cross-arch build:
+
+```bash
+# Register QEMU handlers for all supported architectures (one-time per host).
+# Requires root/sudo on the host kernel; runs as a privileged throwaway container.
+docker run --privileged --rm tonistiigi/binfmt --install all
+
+# Verify amd64 and arm64 are registered
+docker run --privileged --rm tonistiigi/binfmt
+```
+
+Cross-arch builds are functionally correct under QEMU but noticeably slower than native (typically 3–10× for the runtime stage). For frequent rebuilds prefer a native runner per architecture (e.g. GitHub Actions `ubuntu-latest` for amd64 + `ubuntu-24.04-arm` for arm64) and assemble a multi-arch manifest from the two native builds.
+
+To publish a single tag that resolves to the right architecture on any host (so one ECR/Docker Hub tag works on amd64 *and* arm64 deployments), build with `buildx` and push directly to a registry:
+
+```bash
+# One-time: create and select a buildx builder that supports multi-platform
+docker buildx create --name multiarch --use
+docker buildx inspect --bootstrap
+
+# Build both architectures and push a single multi-arch manifest
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -f .docker-staging/Dockerfile \
+  -t <registry>/charity-chest-server:staging \
+  --push \
+  .
+```
+
+`buildx` requires `--push` (or `--output=type=registry`) for multi-platform builds — the local Docker image store cannot hold a multi-arch manifest, so `--load` only works when a single `--platform` is specified.
+
+### Run
+
+```bash
+# Run the image matching the host architecture
+docker run --rm \
+  -e DATABASE_URL=... \
+  -e JWT_SECRET=... \
+  -e GOOGLE_CLIENT_ID=... \
+  -e GOOGLE_CLIENT_SECRET=... \
+  -e APP_ENV=staging \
+  -p 8080:8080 \
+  charity-chest-server:staging
+
+# Force-run a non-native image under QEMU (e.g. test the amd64 image on an arm64 laptop)
+docker run --rm --platform linux/amd64 \
+  -e DATABASE_URL=... \
+  -e JWT_SECRET=... \
+  -e GOOGLE_CLIENT_ID=... \
+  -e GOOGLE_CLIENT_SECRET=... \
+  -e APP_ENV=staging \
+  -p 8080:8080 \
+  charity-chest-server:staging-amd64
+```
+
+Cross-arch runtime via QEMU is fine for smoke-testing on a developer machine; never use it in production — the latency overhead dwarfs the cost of just deploying the native-arch image. Pull the correct architecture from a multi-arch tag instead, or deploy the architecture-suffixed tag that matches the host.
 
 The entry-point seeds the first root user (best-effort) and then `exec`s the server. Set the following two variables in the deployment environment to enable seeding:
 

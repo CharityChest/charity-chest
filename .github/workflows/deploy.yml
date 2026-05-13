@@ -11,25 +11,45 @@ concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
+# Two-phase pipeline:
+#   1. `build` — one job per (component, arch). Each job builds on a native
+#      runner (no QEMU) and pushes the image to ECR *by digest only* (no tag).
+#      The digest is exported as an artifact for the manifest job to consume.
+#   2. `manifest` — one job per component. Downloads the per-arch digests,
+#      assembles a single multi-arch manifest under the real tags (sha + latest),
+#      then force-redeploys the matching ECS service.
+#
+# ECS task-definition note: as of writing, the staging task definitions still
+# pin `runtimePlatform.cpuArchitecture = X86_64`, so Fargate will pull the
+# amd64 variant from the multi-arch manifest automatically. To migrate a
+# service to Graviton, change the task definition to `ARM64` (and pick an
+# arm64-compatible Fargate capacity provider) — no workflow change required.
+
 jobs:
-  deploy:
-    name: Deploy ${{ matrix.component }}
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.component }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
+        component: [server, webapp]
+        arch: [amd64, arm64]
         include:
+          # Runner per arch — native build, no QEMU emulation.
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          # Component-specific build inputs.
           - component: server
             context: server
             dockerfile: server/.docker-staging/Dockerfile
             ecr_repo_var: ECR_REPOSITORY_SERVER
-            ecs_service_var: ECS_SERVICE_SERVER
             build_args: ""
           - component: webapp
             context: webapp
             dockerfile: webapp/.docker-staging/Dockerfile
             ecr_repo_var: ECR_REPOSITORY_WEBAPP
-            ecs_service_var: ECS_SERVICE_WEBAPP
             build_args: |
               NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
     steps:
@@ -49,18 +69,85 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Build and push image
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: true
-          tags: |
-            ${{ steps.ecr.outputs.registry }}/${{ vars[matrix.ecr_repo_var] }}:${{ github.sha }}
-            ${{ steps.ecr.outputs.registry }}/${{ vars[matrix.ecr_repo_var] }}:latest
+          platforms: linux/${{ matrix.arch }}
           build-args: ${{ matrix.build_args }}
-          cache-from: type=gha,scope=${{ matrix.component }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+          # push-by-digest: pushes the image bytes and returns the digest, but
+          # does NOT attach a tag. The manifest job below stitches the per-arch
+          # digests together under the real tags.
+          outputs: type=image,name=${{ steps.ecr.outputs.registry }}/${{ vars[matrix.ecr_repo_var] }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.component }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}-${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          # Store the digest in a file named after the arch so the manifest
+          # job can merge artifacts from both arches into one directory.
+          echo -n "${{ steps.build.outputs.digest }}" > /tmp/digests/${{ matrix.arch }}
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: digest-${{ matrix.component }}-${{ matrix.arch }}
+          path: /tmp/digests/${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    name: Manifest ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: server
+            ecr_repo_var: ECR_REPOSITORY_SERVER
+            ecs_service_var: ECS_SERVICE_SERVER
+          - component: webapp
+            ecr_repo_var: ECR_REPOSITORY_WEBAPP
+            ecs_service_var: ECS_SERVICE_WEBAPP
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@fa648b43de3d4d023bcb3f89ed6940096949c419 # v2.1.5
+
+      - name: Download per-arch digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: digest-${{ matrix.component }}-*
+          merge-multiple: true
+          path: /tmp/digests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Create and push multi-arch manifest
+        run: |
+          set -euo pipefail
+          REGISTRY="${{ steps.ecr.outputs.registry }}/${{ vars[matrix.ecr_repo_var] }}"
+          # Build the list of per-arch source references from the downloaded digests.
+          SOURCES=""
+          for f in /tmp/digests/*; do
+            SOURCES="$SOURCES $REGISTRY@$(cat "$f")"
+          done
+          docker buildx imagetools create \
+            --tag "$REGISTRY:${{ github.sha }}" \
+            --tag "$REGISTRY:latest" \
+            $SOURCES
 
       - name: Force ECS redeploy
         run: |
