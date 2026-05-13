@@ -36,8 +36,10 @@ jobs:
         arch: [amd64, arm64]
         include:
           # Runner per arch — native build, no QEMU emulation.
+          # Pinned to 24.04 (not ubuntu-latest) so the runner image is stable
+          # across GitHub's `-latest` label moves.
           - arch: amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
           # Component-specific build inputs.
@@ -101,7 +103,7 @@ jobs:
 
   manifest:
     name: Manifest ${{ matrix.component }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
     strategy:
       fail-fast: false
