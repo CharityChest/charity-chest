@@ -43,6 +43,7 @@ type Config struct {
 	CacheEnabled       bool
 	CacheURL           string
 	CacheTTL           time.Duration
+	RequestLogEnabled  bool
 	// Stripe (all optional — billing endpoints return 503 when StripeSecretKey is unset)
 	StripeSecretKey     string
 	StripeWebhookSecret string
@@ -64,6 +65,7 @@ func Load() (*Config, error) {
 		Port:                envOrDefault("PORT", "8080"),
 		CacheEnabled:        os.Getenv("CACHE_ENABLED") == "true",
 		CacheURL:            envOrDefault("CACHE_URL", "redis://localhost:6379"),
+		RequestLogEnabled:   os.Getenv("REQUEST_LOG_ENABLED") != "false",
 		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
 		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		StripePriceIDPro:    os.Getenv("STRIPE_PRO_PRICE_ID"),

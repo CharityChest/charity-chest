@@ -256,6 +256,7 @@ cp .env.example .env
 | `CACHE_ENABLED` | no | Set to `true` to enable Valkey caching (default `false`) |
 | `CACHE_URL` | no | Valkey/Redis connection URL (default `redis://localhost:6379`) |
 | `CACHE_TTL` | no | TTL for all cache entries, e.g. `30s`, `2m`, `10m` (default `5m`) |
+| `REQUEST_LOG_ENABLED` | no | Set to `false` to disable Echo's per-request access log middleware (default `true`) |
 | `STRIPE_SECRET_KEY` | no | Stripe secret key. When unset, all billing endpoints return 503. |
 | `STRIPE_WEBHOOK_SECRET` | if Stripe enabled | Stripe webhook signing secret. **Required** when `STRIPE_SECRET_KEY` is set — the server refuses to start without it. Also enforced at runtime: `POST /stripe/webhook` returns 503 immediately whenever this is unset, in any environment, so unsigned events can never alter plan state. |
 | `STRIPE_PRO_PRICE_ID` | if Stripe enabled | Stripe Price ID for the Pro plan (e.g. `price_xxx`). **Required** when `STRIPE_SECRET_KEY` is set. |

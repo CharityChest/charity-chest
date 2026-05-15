@@ -53,7 +53,9 @@ func main() {
 	e := echo.New()
 	e.HideBanner = true
 
-	e.Use(echomw.RequestLogger())
+	if cfg.RequestLogEnabled {
+		e.Use(echomw.RequestLogger())
+	}
 	e.Use(echomw.Recover())
 	e.Use(middleware.Locale())
 	e.Use(echomw.CORSWithConfig(echomw.CORSConfig{

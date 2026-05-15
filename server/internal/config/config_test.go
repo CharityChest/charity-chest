@@ -196,6 +196,34 @@ func TestLoad_CacheURL_Default(t *testing.T) {
 	}
 }
 
+// --- Request log ---
+
+func TestLoad_RequestLogEnabledByDefault(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("REQUEST_LOG_ENABLED", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.RequestLogEnabled {
+		t.Error("RequestLogEnabled should default to true")
+	}
+}
+
+func TestLoad_RequestLogDisabled(t *testing.T) {
+	setEnv(t, allRequired)
+	t.Setenv("REQUEST_LOG_ENABLED", "false")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.RequestLogEnabled {
+		t.Error("RequestLogEnabled should be false when REQUEST_LOG_ENABLED=false")
+	}
+}
+
 // --- Stripe validation ---
 
 func TestLoad_StripeDisabled_NoValidation(t *testing.T) {
