@@ -265,31 +265,38 @@ func (h *AuthHandler) GoogleCallback(c echo.Context) error {
 
 	cookie, err := c.Cookie(CookieOAuthState)
 	if err != nil || cookie.Value != c.QueryParam("state") {
+		log.Printf("invalid OAuth state: cookie=%v, query=%v, err=%v", cookie, c.QueryParam("state"), err)
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
 	code := c.QueryParam("code")
 	if code == "" {
+		log.Printf("invalid OAuth code: query=%v, err=%v", c.QueryParam("code"), err)
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
 	oauthToken, err := h.oauthConfig.Exchange(context.Background(), code)
 	if err != nil {
+		log.Printf("invalid OAuth code (Exchange): query=%v, err=%v", c.QueryParam("code"), err)
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
 	gUser, err := fetchGoogleUserInfo(oauthToken.AccessToken)
 	if err != nil {
+		log.Printf("invalid OAuth code (Fetch): query=%v, err=%v", c.QueryParam("code"), err)
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
+
 	}
 
 	user, err := h.findOrCreateGoogleUser(gUser)
 	if err != nil {
+		log.Printf("invalid OAuth code (Find Or Create): query=%v, err=%v", c.QueryParam("code"), err)
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
 	jwtToken, err := h.generateJWT(user)
 	if err != nil {
+		log.Printf("invalid OAuth code (Generate JWT): query=%v, err=%v", c.QueryParam("code"), err)
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
