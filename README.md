@@ -100,7 +100,7 @@ Every pull request must pass two independent checks before it can be merged:
 
 | Check | What it runs | Coverage gate |
 |---|---|---|
-| **Server tests (Go)** | `go test -race ./internal/...` | ≥ 80% total |
+| **Server tests (Go)** | `go test -race -coverprofile=coverage.out ./internal/...` (locally: `make test-coverage`) | ≥ 80% total across `./internal/...` (main.go and `cmd/*` are skipped because they're thin entry points; templ-generated `*_templ.go` is included in the average but exercised through its package tests) |
 | **Webapp tests (Node)** | `vitest run --coverage` | ≥ 80% lines / functions / branches / statements |
 
 ---

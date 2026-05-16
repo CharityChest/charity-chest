@@ -312,8 +312,11 @@ A `Makefile` is provided with the following targets:
 | Target | Output | Description |
 |---|---|---|
 | `make build` | both | Builds debug and release |
-| `make build-debug` | `dist/debug/server` | Race detector on, optimisations off — debugger-friendly |
-| `make build-release` | `dist/release/server` | Static binary, debug info stripped, optimised for deployment |
+| `make build-debug` | `dist/debug/server` | Race detector on, optimisations off — debugger-friendly. Runs `templ generate` first. |
+| `make build-release` | `dist/release/server` | Static binary, debug info stripped, optimised for deployment. Runs `templ generate` first. |
+| `make test` | — | Runs the unit + integration test suite under `-race` |
+| `make test-coverage` | `coverage.out`, `coverage.business.out` | Reports total coverage and "business" coverage (excludes `main.go`, `cmd/*`, and generated `*_templ.go`) |
+| `make templ` | `*_templ.go` | Regenerates Go from every `.templ` source under `internal/templates/` |
 | `make seed-root EMAIL=… PASSWORD=…` | — | Creates the first root user in the database |
 | `make tidy` | — | Runs `go mod tidy` |
 | `make clean` | — | Removes the `dist/` directory |
