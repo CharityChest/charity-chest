@@ -285,6 +285,39 @@ func TestForgotPassword_MailerDisabled_StillReturns204(t *testing.T) {
 	}
 }
 
+// TestNewAuthHandlerWithMailer_NilMailer_DoesNotPanic guards the constructor's
+// nil-mailer substitution. Without it, h.mailer.Send (invoked from the
+// background goroutine in ForgotPassword) would dereference a nil interface
+// and crash the entire test binary. A panic in that goroutine takes down the
+// process, so the assertion is implicit: if this test completes, the guard
+// worked.
+func TestNewAuthHandlerWithMailer_NilMailer_DoesNotPanic(t *testing.T) {
+	db := newTestDB(t)
+	cfg := testCfg()
+	cfg.FrontendURL = "https://app.example.test"
+
+	h := handler.NewAuthHandlerWithMailer(db, cfg, cache.Disabled(), nil)
+	if h == nil {
+		t.Fatal("NewAuthHandlerWithMailer returned nil")
+	}
+
+	e := echo.New()
+	e.Group("/v1").Group("/auth").POST("/password/forgot", h.ForgotPassword)
+
+	db.Create(&model.User{Email: "nilmailer@example.com", Name: "Nil"})
+
+	rec := postJSON(e, "/v1/auth/password/forgot", `{"email":"nilmailer@example.com"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+
+	// Give the background dispatch goroutine time to run so any nil-deref
+	// panic would surface before the test returns. The substituted
+	// disabledMailer returns ErrMailerDisabled immediately, so this wait is
+	// generous.
+	time.Sleep(50 * time.Millisecond)
+}
+
 // --- ResetPassword ---
 
 func TestResetPassword_HappyPath_LoginsWithNewPassword(t *testing.T) {

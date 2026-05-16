@@ -65,8 +65,12 @@ func NewAuthHandler(db *gorm.DB, cfg *config.Config, c *cache.Cache) *AuthHandle
 
 // NewAuthHandlerWithMailer creates an AuthHandler with a caller-supplied
 // MailerGateway. Tests pass a fakeMailer through this constructor to assert
-// recovery email contents without doing network IO.
+// recovery email contents without doing network IO. A nil mailer is replaced
+// with the disabled mailer so h.mailer.Send is always safe to call.
 func NewAuthHandlerWithMailer(db *gorm.DB, cfg *config.Config, c *cache.Cache, mailer MailerGateway) *AuthHandler {
+	if mailer == nil {
+		mailer = disabledMailer{}
+	}
 	return &AuthHandler{
 		db:     db,
 		cfg:    cfg,
