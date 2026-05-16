@@ -57,6 +57,14 @@ describe('ResetPasswordPage', () => {
     expect(screen.getByText('submit')).toBeTruthy();
   });
 
+  it('strips the token from window.location after reading it', async () => {
+    setLocationSearch('?token=secret-token&keep=me');
+    render(<ResetPasswordPage />);
+    await waitFor(() => {
+      expect(window.location.search).toBe('?keep=me');
+    });
+  });
+
   it('shows missingToken banner when ?token= is absent', async () => {
     setLocationSearch(''); // no token
     render(<ResetPasswordPage />);

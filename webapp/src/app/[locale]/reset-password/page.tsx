@@ -33,10 +33,14 @@ export default function ResetPasswordPage() {
   // server (where window is undefined) and on the client. A missing token
   // surfaces as an inline error rather than blocking the entire view.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const t = params.get('token');
+    const url = new URL(window.location.href);
+    const t = url.searchParams.get('token');
     if (t && t.length > 0) {
       setToken(t);
+      // Strip the token from the address bar so it cannot leak via browser
+      // history, the Referer header on any outbound link, or screen-sharing.
+      url.searchParams.delete('token');
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
     } else {
       setToken('');
     }
