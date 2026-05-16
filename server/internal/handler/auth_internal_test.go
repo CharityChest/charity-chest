@@ -148,7 +148,9 @@ func TestFindOrCreateGoogleUser_ExistingByGoogleID_Found(t *testing.T) {
 
 	gid := "g-existing"
 	pre := &model.User{Email: "pre@example.com", Name: "Pre", GoogleID: &gid}
-	db.Create(pre)
+	if err := db.Create(pre).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
 
 	got, err := h.findOrCreateGoogleUser(&googleUserInfo{
 		ID:    "g-existing",
@@ -169,7 +171,9 @@ func TestFindOrCreateGoogleUser_ExistingByEmail_LinksGoogleID(t *testing.T) {
 
 	// User registered via email/password earlier — no Google ID yet.
 	pre := &model.User{Email: "link@example.com", Name: "Link"}
-	db.Create(pre)
+	if err := db.Create(pre).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
 
 	got, err := h.findOrCreateGoogleUser(&googleUserInfo{
 		ID:    "g-link",
@@ -188,7 +192,9 @@ func TestFindOrCreateGoogleUser_ExistingByEmail_LinksGoogleID(t *testing.T) {
 
 	// Reload to confirm the link was persisted.
 	var reloaded model.User
-	db.First(&reloaded, pre.ID)
+	if err := db.First(&reloaded, pre.ID).Error; err != nil {
+		t.Fatalf("reload user: %v", err)
+	}
 	if reloaded.GoogleID == nil || *reloaded.GoogleID != "g-link" {
 		t.Errorf("persisted GoogleID = %v", reloaded.GoogleID)
 	}
