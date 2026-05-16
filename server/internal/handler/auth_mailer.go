@@ -5,12 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"html/template"
-	texttemplate "text/template"
+	"strings"
 	"time"
 
 	"charity-chest/internal/config"
 	"charity-chest/internal/i18n"
+	"charity-chest/internal/templates/email"
 
 	gomail "github.com/wneessen/go-mail"
 )
@@ -111,89 +111,46 @@ func (disabledMailer) Send(context.Context, string, string, string, string) erro
 	return ErrMailerDisabled
 }
 
-// --- Email templates ---
-
-// passwordResetTemplateData is the data passed to the HTML and text templates.
-// Every user-controllable value (name) is rendered through the template engine,
-// never concatenated with the localized strings, so a malicious display name
-// cannot escape into HTML markup.
-type passwordResetTemplateData struct {
-	Greeting string
-	Name     string
-	Intro    string
-	CTA      string
-	URL      string
-	Expiry   string
-	Ignore   string
-	Footer   string
-}
-
-// passwordResetHTMLTemplate renders the HTML alternative of the recovery email.
-// Width is constrained for readability in narrow email clients; styling is
-// intentionally inline because Gmail and friends strip <style> blocks.
-const passwordResetHTMLTemplate = `<!DOCTYPE html>
-<html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1f2937;">
-  <p style="font-size: 16px;">{{.Greeting}}{{if .Name}} {{.Name}}{{end}},</p>
-  <p style="font-size: 16px; line-height: 1.5;">{{.Intro}}</p>
-  <p style="margin: 32px 0;">
-    <a href="{{.URL}}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">{{.CTA}}</a>
-  </p>
-  <p style="font-size: 14px; color: #6b7280;">{{.Expiry}}</p>
-  <p style="font-size: 14px; color: #6b7280; line-height: 1.5;">{{.Ignore}}</p>
-  <hr style="margin: 32px 0; border: none; border-top: 1px solid #e5e7eb;">
-  <p style="font-size: 14px; color: #6b7280;">{{.Footer}}</p>
-</body>
-</html>`
-
-// passwordResetTextTemplate renders the plaintext alternative for clients that
-// do not display HTML.
-const passwordResetTextTemplate = `{{.Greeting}}{{if .Name}} {{.Name}}{{end}},
-
-{{.Intro}}
-
-{{.CTA}}: {{.URL}}
-
-{{.Expiry}}
-
-{{.Ignore}}
-
-—
-{{.Footer}}
-`
+// --- Email rendering ---
 
 // renderPasswordResetEmail produces the localized HTML and plaintext bodies
-// for a password reset email. The locale is resolved via i18n.T; user-supplied
-// values flow through html/template so they cannot inject markup.
+// for a password reset email. The HTML body is rendered by the templ component
+// in `internal/templates/email/password_reset.templ`, which auto-escapes every
+// interpolation so a malicious display name cannot inject markup. The plaintext
+// body is assembled with a simple string builder because HTML-escaping is the
+// wrong policy for plaintext (it would turn `<` into `&lt;` in the user's
+// inbox).
 func renderPasswordResetEmail(locale, name, resetURL string) (htmlBody, textBody string, err error) {
-	data := passwordResetTemplateData{
-		Greeting: i18n.T(locale, i18n.KeyPasswordResetEmailGreeting),
-		Name:     name,
-		Intro:    i18n.T(locale, i18n.KeyPasswordResetEmailIntro),
-		CTA:      i18n.T(locale, i18n.KeyPasswordResetEmailCTA),
-		URL:      resetURL,
-		Expiry:   i18n.T(locale, i18n.KeyPasswordResetEmailExpiry),
-		Ignore:   i18n.T(locale, i18n.KeyPasswordResetEmailIgnore),
-		Footer:   i18n.T(locale, i18n.KeyPasswordResetEmailFooter),
+	greeting := i18n.T(locale, i18n.KeyPasswordResetEmailGreeting)
+	greetingLine := greeting + ","
+	if name != "" {
+		greetingLine = greeting + " " + name + ","
 	}
 
-	htmlTpl, err := template.New("reset-html").Parse(passwordResetHTMLTemplate)
-	if err != nil {
-		return "", "", fmt.Errorf("mailer: parse html template: %w", err)
+	data := email.PasswordResetData{
+		GreetingLine: greetingLine,
+		Intro:        i18n.T(locale, i18n.KeyPasswordResetEmailIntro),
+		CTA:          i18n.T(locale, i18n.KeyPasswordResetEmailCTA),
+		URL:          resetURL,
+		Expiry:       i18n.T(locale, i18n.KeyPasswordResetEmailExpiry),
+		Ignore:       i18n.T(locale, i18n.KeyPasswordResetEmailIgnore),
+		Footer:       i18n.T(locale, i18n.KeyPasswordResetEmailFooter),
 	}
+
 	var htmlBuf bytes.Buffer
-	if err := htmlTpl.Execute(&htmlBuf, data); err != nil {
-		return "", "", fmt.Errorf("mailer: execute html template: %w", err)
+	if err := email.PasswordReset(data).Render(context.Background(), &htmlBuf); err != nil {
+		return "", "", fmt.Errorf("mailer: render html template: %w", err)
 	}
 
-	textTpl, err := texttemplate.New("reset-text").Parse(passwordResetTextTemplate)
-	if err != nil {
-		return "", "", fmt.Errorf("mailer: parse text template: %w", err)
-	}
-	var textBuf bytes.Buffer
-	if err := textTpl.Execute(&textBuf, data); err != nil {
-		return "", "", fmt.Errorf("mailer: execute text template: %w", err)
-	}
+	var textBuf strings.Builder
+	fmt.Fprintf(&textBuf, "%s\n\n%s\n\n%s: %s\n\n%s\n\n%s\n\n—\n%s\n",
+		data.GreetingLine,
+		data.Intro,
+		data.CTA, data.URL,
+		data.Expiry,
+		data.Ignore,
+		data.Footer,
+	)
 
 	return htmlBuf.String(), textBuf.String(), nil
 }

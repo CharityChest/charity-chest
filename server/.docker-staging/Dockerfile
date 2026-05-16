@@ -33,7 +33,16 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Install the templ CLI as its own cached layer. The version must match the
+# templ entry in go.mod (and the TEMPL_VERSION variable in the Makefile) so
+# the generator and the linked runtime cannot drift.
+RUN go install github.com/a-h/templ/cmd/templ@v0.3.1020
+
 COPY . .
+
+# Regenerate *_templ.go from .templ sources before compiling, so the image
+# cannot inherit a stale generated file from a developer's working tree.
+RUN templ generate
 
 # -trimpath strips local filesystem paths from the binary for reproducibility.
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /bin/server . && \
