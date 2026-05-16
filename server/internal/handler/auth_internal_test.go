@@ -6,6 +6,7 @@ package handler
 // package handler_test.
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -270,7 +271,7 @@ func TestNewGoMailMailer_AuthEnabledWhenCredsPresent(t *testing.T) {
 // --- disabledMailer.Send ---
 
 func TestDisabledMailer_Send_ReturnsErrMailerDisabled(t *testing.T) {
-	err := disabledMailer{}.Send(nil, "to", "subj", "html", "text")
+	err := disabledMailer{}.Send(context.TODO(), "to", "subj", "html", "text")
 	if !errors.Is(err, ErrMailerDisabled) {
 		t.Errorf("expected ErrMailerDisabled, got %v", err)
 	}
