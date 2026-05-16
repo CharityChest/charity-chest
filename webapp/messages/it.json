@@ -42,6 +42,7 @@
     "title": "Reimposta la password",
     "subtitle": "Inserisci l'email associata al tuo account e ti invieremo un link per reimpostare la password.",
     "email": "Email",
+    "emailPlaceholder": "tu@esempio.com",
     "send": "Invia link di reimpostazione",
     "sending": "Invio in corso…",
     "successTitle": "Controlla la tua casella di posta",

@@ -42,6 +42,7 @@
     "title": "Reset your password",
     "subtitle": "Enter the email associated with your account and we will send you a reset link.",
     "email": "Email",
+    "emailPlaceholder": "you@example.com",
     "send": "Send reset link",
     "sending": "Sending…",
     "successTitle": "Check your inbox",
