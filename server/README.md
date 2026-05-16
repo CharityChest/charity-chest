@@ -488,7 +488,7 @@ curl http://localhost:8080/v1/api/me \
 
 ### Password recovery (forgot / reset)
 
-The flow is enumeration-safe: both endpoints return `204 No Content` regardless of whether the email maps to an account or whether a token is valid (`/reset` collapses every failure mode into a single 400 with one i18n key).
+The flow is enumeration-safe. `POST /v1/auth/password/forgot` always returns `204 No Content` regardless of whether the email maps to an account. `POST /v1/auth/password/reset` returns `204 No Content` on success and collapses every failure mode (missing, malformed, expired, or already-used token) into a single `400 Bad Request` carrying the `password_reset_token_invalid` i18n key, so an attacker cannot distinguish which tokens ever existed.
 
 ```bash
 # Step 1 — request a reset link.
