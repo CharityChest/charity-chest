@@ -45,6 +45,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers: {
       'Content-Type': 'application/json',
       'X-Locale': getLocale(),
+      'Accept-Language': getLocale(),
       ...(options.headers as Record<string, string>),
     },
   });
@@ -68,6 +69,7 @@ async function requestPaginated<T>(path: string, options: RequestInit = {}): Pro
     headers: {
       'Content-Type': 'application/json',
       'X-Locale': getLocale(),
+      'Accept-Language': getLocale(),
       ...(options.headers as Record<string, string>),
     },
   });
