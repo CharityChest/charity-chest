@@ -14,6 +14,21 @@ services:
       timeout: 5s
       retries: 10
 
+  # ── MailHog (SMTP capture for password-recovery emails in dev) ───────────────
+  # The server points its SMTP_* config at this container so recovery emails
+  # never leave the developer's machine. Open http://localhost:8025 to inspect
+  # the captured inbox.
+  #
+  # No healthcheck: mailhog/mailhog:v1.0.1 is a minimal image without curl,
+  # wget, or nc. The server's mailer retries on its own, so service_started is
+  # enough.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP — the server connects here
+      - "8025:8025"   # Web UI — browse captured emails
+
   # ── PostgreSQL ────────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
@@ -64,11 +79,20 @@ services:
       CACHE_URL: redis://valkey:6379
       CACHE_TTL: 5m
       APP_ENV: local
+
+      # SMTP (MailHog) — unauthenticated; SMTP_USERNAME / SMTP_PASSWORD are
+      # intentionally omitted so the mailer skips the AUTH step.
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SMTP_FROM: no-reply@charitychest.local
+      SMTP_FROM_NAME: Charity Chest
     depends_on:
       postgres:
         condition: service_healthy   # wait until postgres is ready before starting
       valkey:
         condition: service_healthy   # wait until valkey is ready before starting
+      mailhog:
+        condition: service_started   # mailhog has no healthcheck; just wait for the process
 
 volumes:
   postgres_data:

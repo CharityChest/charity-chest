@@ -21,6 +21,8 @@ charity-chest/
 │   │   ├── cache/keys.go           # Cache key constants and builder functions
 │   │   ├── config/config.go        # Loads env vars via godotenv; fails fast on missing required vars
 │   │   ├── handler/auth.go         # Register, Login, VerifyMFA, GoogleLogin, GoogleCallback, Me
+│   │   ├── handler/auth_mailer.go  # MailerGateway interface + goMailMailer/disabledMailer + email templates for password recovery
+│   │   ├── handler/auth_password_reset.go # ForgotPassword, ResetPassword (enumeration-safe; SHA-256 tokens; 1h TTL)
 │   │   ├── handler/profile.go      # SetupMFA, EnableMFA, DisableMFA
 │   │   ├── handler/system.go       # SystemStatus (public), AssignSystemRole (root only)
 │   │   ├── handler/admin.go         # SearchUsers (root only) — paginated user search with org memberships
@@ -35,6 +37,7 @@ charity-chest/
 │   │   ├── model/organization.go   # Organization + OrgMember GORM models (includes Plan, Stripe fields)
 │   │   ├── model/plan.go           # Plan type (free/pro/enterprise), PlanLimits, LimitsFor()
 │   │   ├── model/billing_cleanup_job.go # BillingCleanupJob: durable record of pending Stripe cancel/refund work after a webhook
+│   │   ├── model/password_reset_token.go # PasswordResetToken: SHA-256-hashed single-use recovery token (user_id, expires_at, used_at)
 │   │   ├── model/role.go           # Role constants + CanAssignOrgRole + ValidOrgRole
 │   │   └── routes/
 │   │       └── v1/                 # Route registration for the v1 API (one file per group)
@@ -61,10 +64,12 @@ charity-chest/
 │   │   ├── 000006_add_plan_to_organizations.up.sql
 │   │   ├── 000006_add_plan_to_organizations.down.sql
 │   │   ├── 000007_create_billing_cleanup_jobs.up.sql
-│   │   └── 000007_create_billing_cleanup_jobs.down.sql
+│   │   ├── 000007_create_billing_cleanup_jobs.down.sql
+│   │   ├── 000008_create_password_reset_tokens.up.sql
+│   │   └── 000008_create_password_reset_tokens.down.sql
 │   ├── .docker-dev/                # Docker Compose demo environment
 │   │   ├── Dockerfile              # Two-stage build (golang:alpine → alpine:3.23)
-│   │   ├── docker-compose.yml      # Postgres + Valkey + server; server waits for both health checks
+│   │   ├── docker-compose.yml      # Postgres + Valkey + MailHog (SMTP capture) + server; server waits for the Postgres and Valkey health checks
 │   │   ├── entry-point.sh          # Seeds root user via env vars then starts the server
 │   │   └── .env.example            # Template for Google OAuth + root seed secrets used by compose
 │   ├── .docker-staging/            # Standalone staging image (no compose — deployed to ECS/k8s/Fly.io)
@@ -84,6 +89,8 @@ charity-chest/
     │   │   └── [locale]/           # All pages live here — locale prefix in URL
     │   │       ├── setup/          # "System not configured" waiting page
     │   │       ├── profile/        # User profile + MFA enable/disable
+    │   │       ├── forgot-password/ # Public — submits email to request a password reset
+    │   │       ├── reset-password/ # Public — reads ?token= and sets a new password
     │   │       └── auth/callback/  # Google OAuth callback — reads ?token= and stores it
     │   ├── components/
     │   │   ├── ErrorBanner.tsx     # Styled error box (border-l-4, warning icon, role=alert)
@@ -139,6 +146,8 @@ When a breaking change is needed, introduce a `/v2/` group in `main.go` alongsid
 | POST | `/v1/auth/mfa/verify` | MFA-pending JWT | — | Submit TOTP code to complete login → full JWT |
 | GET | `/v1/auth/google?locale=<en\|it>` | — | — | Redirect to Google consent screen |
 | GET | `/v1/auth/google/callback` | — | — | Exchange OAuth code → redirect to webapp with JWT |
+| POST | `/v1/auth/password/forgot` | — | — | Request a password-reset email. Always returns 204 (enumeration-safe) |
+| POST | `/v1/auth/password/reset` | — | — | Consume a reset token; sets a new password; user must log in afterwards |
 | GET | `/v1/system/status` | — | — | Returns `{"configured": bool}` — true if a root user exists |
 | GET | `/v1/api/me` | Bearer JWT | any | Return current user (includes `role` and `mfa_enabled` fields) |
 | GET | `/v1/api/profile/mfa/setup` | Bearer JWT | any | Generate TOTP secret + QR URI for enrollment |
@@ -176,6 +185,7 @@ Protected routes live under `/v1/api/` and require a valid `Authorization: Beare
 - Cache vars (all optional): `CACHE_ENABLED` (default `false`), `CACHE_URL` (default `redis://localhost:6379`), `CACHE_TTL` (default `5m` — any `time.ParseDuration` string).
 - `REQUEST_LOG_ENABLED` (optional, default `true`): when `false`, Echo's per-request access log middleware (`echomw.RequestLogger()`) is not mounted. Any other value (including unset) keeps it on.
 - Stripe vars (all optional — billing endpoints return 503 when `STRIPE_SECRET_KEY` is unset): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`. When `STRIPE_SECRET_KEY` is set, **both** `STRIPE_WEBHOOK_SECRET` and `STRIPE_PRO_PRICE_ID` must also be set; `Load()` treats them as a group and names every missing companion var in the error.
+- SMTP vars (all optional — when `SMTP_HOST` is unset the password-recovery email is silently skipped, the forgot-password endpoint still returns the neutral 204 response, and a server-side warning is logged; **no 503** is returned because that would be an enumeration signal): `SMTP_HOST`, `SMTP_PORT` (default `587`), `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME` (default `Charity Chest`). When `SMTP_HOST` is set, `SMTP_FROM` is required. `SMTP_USERNAME` and `SMTP_PASSWORD` are an **optional pair** — both or neither — so MailHog (which rejects unauthenticated AUTH) and internal relays work without changes; the mailer skips the AUTH step when both are empty. `Load()` reports every missing companion in the error.
 - `FRONTEND_URL` is used by `GoogleCallback` to redirect the browser back to the webapp after the OAuth exchange.
 - `ROOT_USER` / `ROOT_PASSWORD` are **container-level** vars consumed by the Docker entry-point scripts (`.docker-dev/entry-point.sh`, `.docker-staging/entry-point.sh`) — not by `config.Load()`. The script invokes `seed-root -email "$ROOT_USER" -password "$ROOT_PASSWORD"` on container startup. The dev image makes both required (compose enforces it). The staging image treats them as optional: when both are set the entry-point seeds best-effort and continues to start the server even if seeding fails (e.g. user already exists); when either is unset, seeding is skipped.
 
@@ -198,6 +208,7 @@ cd server
 go run .
 
 # Run with Docker (no local Go/Postgres needed)
+# Brings up Postgres, Valkey, MailHog (SMTP capture on :1025, UI on :8025), and the server.
 docker compose -f server/.docker-dev/docker-compose.yml up --build
 
 # Build
@@ -248,11 +259,11 @@ The cache layer lives in `internal/cache/`. It wraps Valkey (Redis-compatible) v
 | Key | Endpoint | Invalidated by |
 |---|---|---|
 | `system:status` | `GET /v1/system/status` | Only `configured=true` is cached; `configured=false` is never stored |
-| `user:{id}` | `GET /v1/api/me` | EnableMFA, DisableMFA, AssignSystemRole, Google link |
+| `user:{id}` | `GET /v1/api/me` | EnableMFA, DisableMFA, AssignSystemRole, Google link, ResetPassword |
 | `orgs:list` | `GET /v1/api/orgs` | CreateOrg, UpdateOrg, DeleteOrg |
 | `org:{id}` | `GET /v1/api/orgs/:orgID` | UpdateOrg, DeleteOrg |
 | `org:{id}:members` | `GET /v1/api/orgs/:orgID/members` | AddMember, UpdateMember, RemoveMember, DeleteOrg |
-| `admin:users:{email}:{page}:{size}` | `GET /v1/api/admin/users` | Register, AssignSystemRole, any member change, Google create/link |
+| `admin:users:{email}:{page}:{size}` | `GET /v1/api/admin/users` | Register, AssignSystemRole, any member change, Google create/link, ResetPassword |
 
 Use `cache.KeyUser(id)`, `cache.KeyOrg(id)`, etc. from `internal/cache/keys.go` — never hardcode key strings in handlers.
 
@@ -287,6 +298,21 @@ Organisations have one of three subscription plans stored in `organizations.plan
 - In the `checkout.session.completed` webhook case, if the org is already on the enterprise plan, the handler persists a `BillingCleanupJob` row (with the duplicate subscription ID and payment intent ID) **before** acknowledging the webhook. Only DB persistence errors return 500 so Stripe retries the webhook; once the row is durable the webhook is acknowledged with 200 and the cancel + refund Stripe calls are attempted in-line, recording success timestamps or `last_error` on the job row. The org's plan is never altered. Cancel and refund are independent — a failure of one does not skip the other. Pending rows (`subscription_cancelled_at`/`payment_refunded_at` still NULL) are the source of truth for an out-of-band retry worker.
 - `AssignEnterprisePlan` cancels an existing Stripe subscription before promoting the org. If the cancellation fails the handler returns 500 and aborts — the org is not promoted and `stripe_subscription_id` is preserved so the subscription can be reconciled later.
 - The `StripeGateway` interface in `handler/billing.go` is exported so tests can inject a mock via `NewBillingHandlerWithGateway`. It exposes three methods: `CreateCheckoutSession`, `CancelSubscription`, and `RefundPayment`. The real gateway (`stripeGoGateway`) is constructed once with a per-client `*stripeclient.API` — the global `stripe.Key` is never mutated.
+
+---
+
+## Password recovery
+
+Self-service "forgot password" flow lives in `handler/auth_password_reset.go`.
+
+- **Endpoints**: `POST /v1/auth/password/forgot` (request reset) and `POST /v1/auth/password/reset` (consume token + set new password). Both are public, both are enumeration-safe.
+- **Token model**: 32 random bytes (`crypto/rand`), base64url-encoded for the URL; only the **SHA-256 hex digest** is stored in `password_reset_tokens`. SHA-256 is appropriate because tokens are high-entropy random values, not low-entropy passwords. Tokens expire after **1 hour** and are single-use.
+- **`ForgotPassword`**: always responds `204 No Content` regardless of whether the email matches a user. When it does, a token is persisted and `mailer.Send(...)` runs in a background goroutine on a `context.Background()` with a 30s timeout (do NOT use `c.Request().Context()` — Echo cancels it as soon as the handler returns, aborting the SMTP dial). A per-email 60s throttle (`passwordResetThrottleWindow`) silently suppresses repeats so the endpoint cannot be turned into an email bomb. Google-only accounts (no `password_hash`) ARE allowed to request a reset — this is the only way they can set an initial password.
+- **`ResetPassword`**: runs every step inside a single `db.Transaction(...)` so two concurrent requests carrying the same token cannot both succeed. On success it (a) updates `password_hash`, (b) stamps `used_at` on the consumed token, and (c) stamps `used_at` on every *other* outstanding token for that user (defence in depth). It deliberately does **NOT** issue a JWT — the user must log in again, and MFA still applies. Every failure mode (missing / malformed / expired / used token) returns the same `KeyPasswordResetTokenInvalid` i18n key so an attacker cannot probe which tokens ever existed.
+- **Mailer gateway**: `MailerGateway` in `handler/auth_mailer.go` mirrors `StripeGateway` exactly — exported interface, `goMailMailer` real impl (backed by `github.com/wneessen/go-mail`), `disabledMailer` fallback when `cfg.SMTPHost == ""`, and a `NewAuthHandlerWithMailer` test seam (mirroring `NewBillingHandlerWithGateway`). Email bodies are rendered via `html/template` + `text/template` — user-controllable data (name, reset URL) is passed as template data, never concatenated into i18n strings.
+- **Localization**: the email subject and body strings come from `internal/i18n` (`KeyPasswordResetEmail*`). The reset URL embeds the locale (`/en/reset-password?token=...` or `/it/reset-password?token=...`) so users land on the page in the language they used to request the reset.
+- **Known limitation**: existing JWTs remain valid after a password reset (no `password_changed_at` + `iat` check in the JWT middleware). An attacker with a stolen 24h-valid token keeps access until expiry, even after the password is rotated. Add a `password_changed_at` column on `users` and an iat-rejection rule in `middleware/jwt.go` if/when needed.
+- **Dev SMTP**: dev compose ships MailHog. Visit `http://localhost:8025` to inspect captured emails. Staging/production should point `SMTP_*` at a real relay (SES, Mailgun, Postmark).
 
 ---
 
@@ -408,7 +434,7 @@ docker compose -f webapp/.docker-dev/docker-compose.yml up --build
 
 - Supported locales: `en` (default), `it`. Defined in `webapp/src/i18n/routing.ts`.
 - All UI strings live in `webapp/messages/en.json` and `webapp/messages/it.json`. Both files must be kept in sync — every key present in one must exist in the other.
-- Namespaces: `common`, `home`, `login`, `register`, `dashboard`, `authCallback`, `setup`. Add new namespaces as the app grows.
+- Namespaces: `common`, `home`, `login`, `register`, `dashboard`, `authCallback`, `setup`, `forgotPassword`, `resetPassword`. Add new namespaces as the app grows.
 - To add a new language: add the locale to `routing.ts`, create `messages/<code>.json`, add its label to `LanguageSwitcher.tsx`, and extend the middleware matcher regex.
 
 ---

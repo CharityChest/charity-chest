@@ -363,3 +363,170 @@ func TestLoad_AppEnv_InvalidValueReturnsError(t *testing.T) {
 		t.Errorf("error %q does not mention the invalid value", err.Error())
 	}
 }
+
+// --- SMTP validation ---
+
+// clearSMTP unsets every SMTP-related env var so tests start from a clean slate.
+func clearSMTP(t *testing.T) {
+	t.Helper()
+	t.Setenv("SMTP_HOST", "")
+	t.Setenv("SMTP_PORT", "")
+	t.Setenv("SMTP_USERNAME", "")
+	t.Setenv("SMTP_PASSWORD", "")
+	t.Setenv("SMTP_FROM", "")
+	t.Setenv("SMTP_FROM_NAME", "")
+}
+
+func TestLoad_SMTPDisabled_NoValidation(t *testing.T) {
+	setEnv(t, allRequired)
+	clearSMTP(t)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error with SMTP disabled: %v", err)
+	}
+	if cfg.SMTPHost != "" {
+		t.Errorf("SMTPHost = %q, want empty", cfg.SMTPHost)
+	}
+	if cfg.SMTPPort != 587 {
+		t.Errorf("SMTPPort = %d, want 587 (default)", cfg.SMTPPort)
+	}
+}
+
+func TestLoad_SMTPFullyConfigured_Success(t *testing.T) {
+	setEnv(t, allRequired)
+	clearSMTP(t)
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_PORT", "2525")
+	t.Setenv("SMTP_USERNAME", "user")
+	t.Setenv("SMTP_PASSWORD", "secret")
+	t.Setenv("SMTP_FROM", "no-reply@example.com")
+	t.Setenv("SMTP_FROM_NAME", "Example")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SMTPHost != "smtp.example.com" {
+		t.Errorf("SMTPHost = %q", cfg.SMTPHost)
+	}
+	if cfg.SMTPPort != 2525 {
+		t.Errorf("SMTPPort = %d", cfg.SMTPPort)
+	}
+	if cfg.SMTPUsername != "user" {
+		t.Errorf("SMTPUsername = %q", cfg.SMTPUsername)
+	}
+	if cfg.SMTPFrom != "no-reply@example.com" {
+		t.Errorf("SMTPFrom = %q", cfg.SMTPFrom)
+	}
+	if cfg.SMTPFromName != "Example" {
+		t.Errorf("SMTPFromName = %q", cfg.SMTPFromName)
+	}
+}
+
+func TestLoad_SMTPHostWithoutFrom_ReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	clearSMTP(t)
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	// SMTP_FROM intentionally omitted.
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when SMTP_FROM is missing")
+	}
+	if !strings.Contains(err.Error(), "SMTP_FROM") {
+		t.Errorf("error %q does not mention SMTP_FROM", err.Error())
+	}
+}
+
+func TestLoad_SMTPMailHogStyle_NoCredentials_OK(t *testing.T) {
+	// MailHog accepts unauthenticated submissions, so username+password may both be empty.
+	setEnv(t, allRequired)
+	clearSMTP(t)
+	t.Setenv("SMTP_HOST", "mailhog")
+	t.Setenv("SMTP_PORT", "1025")
+	t.Setenv("SMTP_FROM", "no-reply@charitychest.local")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error for unauthenticated SMTP: %v", err)
+	}
+	if cfg.SMTPHost != "mailhog" || cfg.SMTPPort != 1025 {
+		t.Errorf("unexpected host/port: %q:%d", cfg.SMTPHost, cfg.SMTPPort)
+	}
+}
+
+func TestLoad_SMTPUsernameWithoutPassword_ReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	clearSMTP(t)
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_FROM", "no-reply@example.com")
+	t.Setenv("SMTP_USERNAME", "user")
+	// SMTP_PASSWORD intentionally omitted.
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when SMTP_USERNAME is set without SMTP_PASSWORD")
+	}
+	if !strings.Contains(err.Error(), "SMTP_PASSWORD") {
+		t.Errorf("error %q does not mention SMTP_PASSWORD", err.Error())
+	}
+}
+
+func TestLoad_SMTPPasswordWithoutUsername_ReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	clearSMTP(t)
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_FROM", "no-reply@example.com")
+	t.Setenv("SMTP_PASSWORD", "secret")
+	// SMTP_USERNAME intentionally omitted.
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when SMTP_PASSWORD is set without SMTP_USERNAME")
+	}
+	if !strings.Contains(err.Error(), "SMTP_USERNAME") {
+		t.Errorf("error %q does not mention SMTP_USERNAME", err.Error())
+	}
+}
+
+func TestLoad_SMTPInvalidPort_ReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	clearSMTP(t)
+	t.Setenv("SMTP_PORT", "not-a-port")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for invalid SMTP_PORT")
+	}
+	if !strings.Contains(err.Error(), "SMTP_PORT") {
+		t.Errorf("error %q does not mention SMTP_PORT", err.Error())
+	}
+}
+
+func TestLoad_SMTPPortOutOfRange_ReturnsError(t *testing.T) {
+	setEnv(t, allRequired)
+	clearSMTP(t)
+	t.Setenv("SMTP_PORT", "70000")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for out-of-range SMTP_PORT")
+	}
+	if !strings.Contains(err.Error(), "SMTP_PORT") {
+		t.Errorf("error %q does not mention SMTP_PORT", err.Error())
+	}
+}
+
+func TestLoad_SMTPFromName_Default(t *testing.T) {
+	setEnv(t, allRequired)
+	clearSMTP(t)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SMTPFromName != "Charity Chest" {
+		t.Errorf("SMTPFromName = %q, want default %q", cfg.SMTPFromName, "Charity Chest")
+	}
+}

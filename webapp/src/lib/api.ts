@@ -112,6 +112,32 @@ export const api = {
   },
 
   /**
+   * POST /v1/auth/password/forgot — request a password reset email.
+   * The server responds 204 regardless of whether the email maps to a user
+   * (enumeration-safe), so this resolves successfully even for unknown emails.
+   * Network or 5xx failures still throw {@link ApiError}.
+   */
+  forgotPassword(email: string): Promise<void> {
+    return request('/v1/auth/password/forgot', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  /**
+   * POST /v1/auth/password/reset — consume a reset token and set a new password.
+   * Throws {@link ApiError} (HTTP 400) when the token is missing, malformed,
+   * expired, or already used. On success the server returns 204 and the user
+   * must log in again via {@link api.login}.
+   */
+  resetPassword(token: string, password: string): Promise<void> {
+    return request('/v1/auth/password/reset', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
+  },
+
+  /**
    * Returns the full URL to redirect the browser to for Google OAuth.
    * The server handles the consent screen and callback entirely; no fetch needed.
    * The locale is forwarded so the server can redirect back to the correct locale prefix.

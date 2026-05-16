@@ -57,6 +57,20 @@ const (
 	KeyInvalidWebhookSignature    Key = "invalid_webhook_signature"
 	KeySubscriptionNotFound       Key = "subscription_not_found"
 	KeyEnterpriseCheckoutConflict Key = "enterprise_checkout_conflict"
+
+	// Password recovery — KeyPasswordResetTokenInvalid covers every failure mode
+	// (missing, malformed, expired, already used). A single message prevents an
+	// attacker from probing which tokens ever existed.
+	KeyEmailRequired              Key = "email_required"
+	KeyPasswordResetTokenRequired Key = "password_reset_token_required"
+	KeyPasswordResetTokenInvalid  Key = "password_reset_token_invalid"
+	KeyPasswordResetEmailSubject  Key = "password_reset_email_subject"
+	KeyPasswordResetEmailGreeting Key = "password_reset_email_greeting"
+	KeyPasswordResetEmailIntro    Key = "password_reset_email_intro"
+	KeyPasswordResetEmailCTA      Key = "password_reset_email_cta"
+	KeyPasswordResetEmailExpiry   Key = "password_reset_email_expiry"
+	KeyPasswordResetEmailIgnore   Key = "password_reset_email_ignore"
+	KeyPasswordResetEmailFooter   Key = "password_reset_email_footer"
 )
 
 // messages maps locale → Key → translated string.
@@ -114,6 +128,17 @@ var messages = map[string]map[Key]string{
 		KeyInvalidWebhookSignature:    "invalid webhook signature",
 		KeySubscriptionNotFound:       "no active subscription found",
 		KeyEnterpriseCheckoutConflict: "checkout rejected: organization is already on the enterprise plan",
+
+		KeyEmailRequired:              "email is required",
+		KeyPasswordResetTokenRequired: "reset token and new password are required",
+		KeyPasswordResetTokenInvalid:  "this password reset link is invalid or has expired",
+		KeyPasswordResetEmailSubject:  "Reset your Charity Chest password",
+		KeyPasswordResetEmailGreeting: "Hi",
+		KeyPasswordResetEmailIntro:    "We received a request to reset the password for your Charity Chest account.",
+		KeyPasswordResetEmailCTA:      "Reset your password",
+		KeyPasswordResetEmailExpiry:   "This link will expire in 1 hour.",
+		KeyPasswordResetEmailIgnore:   "If you did not request a password reset, you can safely ignore this email — your password will not be changed.",
+		KeyPasswordResetEmailFooter:   "The Charity Chest team",
 	},
 	"it": {
 		KeyInvalidBody:        "corpo della richiesta non valido",
@@ -167,6 +192,17 @@ var messages = map[string]map[Key]string{
 		KeyInvalidWebhookSignature:    "firma del webhook non valida",
 		KeySubscriptionNotFound:       "nessun abbonamento attivo trovato",
 		KeyEnterpriseCheckoutConflict: "checkout rifiutato: l'organizzazione ha già il piano Enterprise",
+
+		KeyEmailRequired:              "l'email è obbligatoria",
+		KeyPasswordResetTokenRequired: "token di reimpostazione e nuova password sono obbligatori",
+		KeyPasswordResetTokenInvalid:  "questo link di reimpostazione password non è valido o è scaduto",
+		KeyPasswordResetEmailSubject:  "Reimposta la tua password Charity Chest",
+		KeyPasswordResetEmailGreeting: "Ciao",
+		KeyPasswordResetEmailIntro:    "Abbiamo ricevuto una richiesta di reimpostazione della password per il tuo account Charity Chest.",
+		KeyPasswordResetEmailCTA:      "Reimposta la password",
+		KeyPasswordResetEmailExpiry:   "Questo link scadrà tra 1 ora.",
+		KeyPasswordResetEmailIgnore:   "Se non hai richiesto la reimpostazione della password, puoi ignorare questa email — la tua password non verrà modificata.",
+		KeyPasswordResetEmailFooter:   "Il team di Charity Chest",
 	},
 }
 

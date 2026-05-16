@@ -35,7 +35,34 @@
     "mfaStep": "Codice a 6 cifre",
     "verify": "Verifica",
     "verifying": "Verifica in corso…",
-    "backToLogin": "Torna all'accesso"
+    "backToLogin": "Torna all'accesso",
+    "forgotPassword": "Password dimenticata?"
+  },
+  "forgotPassword": {
+    "title": "Reimposta la password",
+    "subtitle": "Inserisci l'email associata al tuo account e ti invieremo un link per reimpostare la password.",
+    "email": "Email",
+    "send": "Invia link di reimpostazione",
+    "sending": "Invio in corso…",
+    "successTitle": "Controlla la tua casella di posta",
+    "successBody": "Se esiste un account associato a quell'email, ti abbiamo inviato un link per reimpostare la password. Il link è valido per 1 ora.",
+    "backToLogin": "Torna all'accesso",
+    "emailRequired": "Inserisci un indirizzo email."
+  },
+  "resetPassword": {
+    "title": "Imposta una nuova password",
+    "subtitle": "Scegli una password robusta che non riutilizzi altrove.",
+    "password": "Nuova password",
+    "passwordHint": "(min. 8 caratteri)",
+    "confirm": "Conferma la nuova password",
+    "submit": "Reimposta password",
+    "submitting": "Reimpostazione in corso…",
+    "successTitle": "Password aggiornata",
+    "successBody": "La tua password è stata modificata. Accedi con la nuova password.",
+    "backToLogin": "Accedi",
+    "missingToken": "Il link di reimpostazione non contiene un token — richiedine uno nuovo.",
+    "mismatch": "Le password non corrispondono.",
+    "tooShort": "La password deve essere di almeno 8 caratteri."
   },
   "register": {
     "subtitle": "Crea il tuo account",

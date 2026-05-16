@@ -9,8 +9,10 @@ All routes are prefixed with the active locale. Bare `/` redirects to `/en/` by 
 | Route | Auth required | Description |
 |---|---|---|
 | `/:locale/` | — | Landing page |
-| `/:locale/login` | — | Email/password login + Google OAuth button; TOTP step when MFA is enabled |
+| `/:locale/login` | — | Email/password login + Google OAuth button; TOTP step when MFA is enabled; "Forgot password?" link |
 | `/:locale/register` | — | Account creation |
+| `/:locale/forgot-password` | — | Submits the user's email to request a password-reset link |
+| `/:locale/reset-password` | — | Reads `?token=` from the URL and lets the user pick a new password |
 | `/:locale/dashboard` | JWT | Current user profile (calls `GET /v1/api/me`) |
 | `/:locale/profile` | JWT | User profile + MFA enable/disable |
 | `/:locale/orgs` | JWT (system/root) | List + create organisations |
@@ -50,6 +52,8 @@ webapp/
 │   │       ├── page.tsx        # Landing
 │   │       ├── login/page.tsx
 │   │       ├── register/page.tsx
+│   │       ├── forgot-password/page.tsx  # Public — submits email to request a reset link
+│   │       ├── reset-password/page.tsx   # Public — reads ?token= from URL and sets a new password
 │   │       ├── dashboard/page.tsx  # Protected — redirects to /login if no token
 │   │       ├── orgs/page.tsx           # Protected (system/root) — list + create orgs
 │   │       ├── orgs/[orgID]/page.tsx   # Protected — org detail, members, plan management
