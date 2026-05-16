@@ -16,6 +16,7 @@ import (
 
 	"charity-chest/internal/cache"
 	"charity-chest/internal/handler"
+	ccmiddleware "charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 
 	"github.com/labstack/echo/v4"
@@ -212,7 +213,7 @@ func TestForgotPassword_ItalianLocale_BuildsItalianURL(t *testing.T) {
 	mailer := &fakeMailer{}
 	h := handler.NewAuthHandlerWithMailer(db, cfg, cache.Disabled(), mailer)
 	e := echo.New()
-	e.Use(localeMiddleware()) // local helper below
+	e.Use(ccmiddleware.Locale())
 	v1 := e.Group("/v1")
 	v1.Group("/auth").POST("/register", h.Register)
 	v1.Group("/auth").POST("/password/forgot", h.ForgotPassword)
@@ -505,20 +506,5 @@ func TestResetPassword_ConcurrentSameToken_OnlyOneSucceeds(t *testing.T) {
 	}
 	if successes != 1 {
 		t.Errorf("expected exactly 1 success, got %d (codes=%v)", successes, results)
-	}
-}
-
-// localeMiddleware returns the project's locale middleware via a thin wrapper
-// so this test file does not import the middleware package directly twice.
-func localeMiddleware() echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			loc := c.Request().Header.Get("X-Locale")
-			if loc != "en" && loc != "it" {
-				loc = "en"
-			}
-			c.Set("locale", loc)
-			return next(c)
-		}
 	}
 }
