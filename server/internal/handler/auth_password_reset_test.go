@@ -75,6 +75,24 @@ func (f *fakeMailer) waitForCalls(t *testing.T, n int) []fakeMailerCall {
 	return snap
 }
 
+// assertNoCallsWithin polls mailer.snapshot() until the timeout elapses and
+// fails the test as soon as any call is recorded. Replaces a fixed time.Sleep
+// so the negative assertion stays deterministic under scheduler jitter without
+// pessimistically slowing down the happy path.
+func assertNoCallsWithin(t *testing.T, m *fakeMailer, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if snap := m.snapshot(); len(snap) != 0 {
+			t.Fatalf("mailer called %d times; should never send", len(snap))
+		}
+		if !time.Now().Before(deadline) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // newServerWithMailer wires a fresh Echo + handler stack with an injectable
 // mailer. The FrontendURL is set so the reset URL builder produces a value
 // tests can assert on deterministically.
@@ -157,10 +175,7 @@ func TestForgotPassword_UnknownEmail_ReturnsNoContent_NoMail(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body: %s", rec.Code, rec.Body.String())
 	}
-	time.Sleep(50 * time.Millisecond)
-	if got := mailer.snapshot(); len(got) != 0 {
-		t.Errorf("mailer called %d times for unknown email; should never send", len(got))
-	}
+	assertNoCallsWithin(t, mailer, 50*time.Millisecond)
 }
 
 func TestForgotPassword_KnownEmail_SendsEmailWithEnglishURL(t *testing.T) {
