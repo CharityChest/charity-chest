@@ -1801,6 +1801,24 @@ func (m *e2eMailer) waitForFirstEmail(t *testing.T) e2eMailerCall {
 	return e2eMailerCall{}
 }
 
+// assertNoCallsWithin polls mailer.snapshot() until the timeout elapses and
+// fails the test as soon as any call is recorded. Replaces a fixed time.Sleep
+// so the negative assertion stays deterministic under scheduler jitter without
+// pessimistically slowing down the happy path.
+func (m *e2eMailer) assertNoCallsWithin(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if snap := m.snapshot(); len(snap) != 0 {
+			t.Fatalf("mailer called %d times; should never send", len(snap))
+		}
+		if !time.Now().Before(deadline) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // extractResetToken plucks the token out of the URL in an email body.
 func extractResetToken(t *testing.T, body string) string {
 	t.Helper()
@@ -1868,10 +1886,7 @@ func TestPasswordRecovery_UnknownEmail_ReturnsNoContent(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want 204", rec.Code)
 	}
-	time.Sleep(50 * time.Millisecond)
-	if got := mailer.snapshot(); len(got) != 0 {
-		t.Errorf("mailer must not be called for unknown email; got %d calls", len(got))
-	}
+	mailer.assertNoCallsWithin(t, 50*time.Millisecond)
 }
 
 func TestPasswordRecovery_ItalianLocale_UsesItalianURL(t *testing.T) {
