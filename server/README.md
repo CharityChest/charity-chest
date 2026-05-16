@@ -495,6 +495,7 @@ The flow is enumeration-safe. `POST /v1/auth/password/forgot` always returns `20
 # Always 204, even for unknown emails.
 curl -X POST http://localhost:8080/v1/auth/password/forgot \
   -H "Content-Type: application/json" \
+  -H "Accept-Language: en" \
   -H "X-Locale: en" \
   -d '{"email":"you@example.com"}'
 
