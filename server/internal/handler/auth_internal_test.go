@@ -22,8 +22,7 @@ import (
 )
 
 // roundTripperFunc adapts a function into an http.RoundTripper so tests can
-// build a local *http.Client with a stubbed transport (no real server, no
-// mutation of the process-global http.DefaultClient).
+// hijack http.DefaultClient.Transport without spinning up a real server.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 // RoundTrip dispatches the call to the underlying function.
@@ -61,17 +60,20 @@ func internalTestCfg() *config.Config {
 // --- fetchGoogleUserInfo ---
 
 func TestFetchGoogleUserInfo_Success(t *testing.T) {
+	old := http.DefaultClient.Transport
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
+
 	var sawAuthHeader string
-	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+	http.DefaultClient.Transport = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		sawAuthHeader = r.Header.Get("Authorization")
 		return &http.Response{
 			StatusCode: 200,
 			Body:       io.NopCloser(strings.NewReader(`{"id":"g-1","email":"u@example.com","name":"User"}`)),
 			Header:     make(http.Header),
 		}, nil
-	})}
+	})
 
-	info, err := fetchGoogleUserInfo(client, "the-token")
+	info, err := fetchGoogleUserInfo("the-token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -84,26 +86,32 @@ func TestFetchGoogleUserInfo_Success(t *testing.T) {
 }
 
 func TestFetchGoogleUserInfo_TransportError(t *testing.T) {
-	wantErr := errors.New("network down")
-	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		return nil, wantErr
-	})}
+	old := http.DefaultClient.Transport
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
 
-	if _, err := fetchGoogleUserInfo(client, "t"); err == nil {
+	wantErr := errors.New("network down")
+	http.DefaultClient.Transport = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return nil, wantErr
+	})
+
+	if _, err := fetchGoogleUserInfo("t"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
 
 func TestFetchGoogleUserInfo_InvalidJSON(t *testing.T) {
-	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+	old := http.DefaultClient.Transport
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
+
+	http.DefaultClient.Transport = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: 200,
 			Body:       io.NopCloser(strings.NewReader(`not json`)),
 			Header:     make(http.Header),
 		}, nil
-	})}
+	})
 
-	if _, err := fetchGoogleUserInfo(client, "t"); err == nil {
+	if _, err := fetchGoogleUserInfo("t"); err == nil {
 		t.Fatal("expected JSON decode error, got nil")
 	}
 }
