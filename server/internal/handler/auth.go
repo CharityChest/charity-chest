@@ -301,7 +301,7 @@ func (h *AuthHandler) GoogleCallback(c echo.Context) error {
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
-	gUser, err := fetchGoogleUserInfo(oauthToken.AccessToken)
+	gUser, err := fetchGoogleUserInfo(http.DefaultClient, oauthToken.AccessToken)
 	if err != nil {
 		log.Printf("invalid OAuth code (Fetch): query=%v, err=%v", c.QueryParam("code"), err)
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
@@ -368,14 +368,16 @@ type googleUserInfo struct {
 }
 
 // fetchGoogleUserInfo calls the Google userinfo endpoint and returns the user's profile.
-func fetchGoogleUserInfo(accessToken string) (*googleUserInfo, error) {
+// The HTTP client is injected so tests can stub the transport without mutating
+// http.DefaultClient (which is process-global and racy across parallel tests).
+func fetchGoogleUserInfo(client *http.Client, accessToken string) (*googleUserInfo, error) {
 	req, err := http.NewRequest(http.MethodGet, "https://www.googleapis.com/oauth2/v2/userinfo", nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
