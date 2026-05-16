@@ -276,7 +276,7 @@ func (h *AuthHandler) buildResetURL(loc, token string) string {
 // originating request's lifecycle.
 func (h *AuthHandler) dispatchPasswordResetEmail(loc, to, name, resetURL string) {
 	if errors.Is(deliverPasswordReset(h.mailer, loc, to, name, resetURL), ErrMailerDisabled) {
-		log.Printf("password reset: mailer disabled — would have emailed %s with %s", to, resetURL)
+		log.Printf("password reset: mailer disabled — would have emailed %s", to)
 		return
 	}
 }
