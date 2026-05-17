@@ -58,6 +58,26 @@ func (f *fakeMailer) snapshot() []fakeMailerCall {
 	return out
 }
 
+// disabledSignalingMailer mirrors the production disabledMailer's behavior
+// (returns handler.ErrMailerDisabled immediately) but additionally closes a
+// channel after Send returns. Tests use it to wait deterministically for the
+// background dispatch goroutine in ForgotPassword to finish instead of
+// time.Sleep-ing for an arbitrary duration.
+type disabledSignalingMailer struct {
+	done chan struct{}
+}
+
+func newDisabledSignalingMailer() *disabledSignalingMailer {
+	return &disabledSignalingMailer{done: make(chan struct{})}
+}
+
+// Send returns ErrMailerDisabled (matching disabledMailer) and signals
+// completion. Send is expected to fire at most once per test.
+func (m *disabledSignalingMailer) Send(context.Context, string, string, string, string) error {
+	defer close(m.done)
+	return handler.ErrMailerDisabled
+}
+
 // waitForCalls polls until at least n calls are recorded or the deadline
 // passes. Required because the recovery email is dispatched from a goroutine
 // off the handler hot path.
@@ -286,18 +306,29 @@ func TestForgotPassword_MailerDisabled_StillReturns204(t *testing.T) {
 // TestNewAuthHandlerWithMailer_NilMailer_DoesNotPanic guards the constructor's
 // nil-mailer substitution. Without it, h.mailer.Send (invoked from the
 // background goroutine in ForgotPassword) would dereference a nil interface
-// and crash the entire test binary. A panic in that goroutine takes down the
-// process, so the assertion is implicit: if this test completes, the guard
-// worked.
+// and crash the entire test binary.
+//
+// The goroutine path is exercised through a disabledSignalingMailer, which
+// reproduces the substituted disabledMailer's contract (returns
+// ErrMailerDisabled immediately) but closes a channel when Send returns. That
+// signal lets the test block on the goroutine's actual completion instead of
+// a brittle time.Sleep, so a regression that stops invoking the mailer (or
+// reintroduces a nil deref) surfaces as a 2s timeout rather than a silent
+// pass.
 func TestNewAuthHandlerWithMailer_NilMailer_DoesNotPanic(t *testing.T) {
 	db := newTestDB(t)
 	cfg := testCfg()
 	cfg.FrontendURL = "https://app.example.test"
 
-	h := handler.NewAuthHandlerWithMailer(db, cfg, cache.Disabled(), nil)
-	if h == nil {
-		t.Fatal("NewAuthHandlerWithMailer returned nil")
+	// The nil-mailer guard lives in the constructor; verify it still returns
+	// a usable handler when given nil so subsequent goroutine dispatch is
+	// safe.
+	if h := handler.NewAuthHandlerWithMailer(db, cfg, cache.Disabled(), nil); h == nil {
+		t.Fatal("NewAuthHandlerWithMailer returned nil with nil mailer arg")
 	}
+
+	mailer := newDisabledSignalingMailer()
+	h := handler.NewAuthHandlerWithMailer(db, cfg, cache.Disabled(), mailer)
 
 	e := echo.New()
 	e.Group("/v1").Group("/auth").POST("/password/forgot", h.ForgotPassword)
@@ -309,11 +340,11 @@ func TestNewAuthHandlerWithMailer_NilMailer_DoesNotPanic(t *testing.T) {
 		t.Fatalf("status = %d, want 204", rec.Code)
 	}
 
-	// Give the background dispatch goroutine time to run so any nil-deref
-	// panic would surface before the test returns. The substituted
-	// disabledMailer returns ErrMailerDisabled immediately, so this wait is
-	// generous.
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-mailer.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("background dispatch goroutine did not call mailer.Send within 2s")
+	}
 }
 
 // --- ResetPassword ---
