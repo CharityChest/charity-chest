@@ -3,6 +3,8 @@ package model
 // Plan represents the subscription tier of an Organisation.
 type Plan string
 
+// Recognised subscription tiers. The persisted value of organizations.plan is
+// always one of these constants — never a bare string literal.
 const (
 	PlanFree       Plan = "free"
 	PlanPro        Plan = "pro"
