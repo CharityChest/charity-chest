@@ -204,11 +204,18 @@ func (h *AuthHandler) ResetPassword(c echo.Context) error {
 		if err != nil {
 			return errPasswordResetHashFailed
 		}
-		// Persist the new password hash.
-		if err := tx.Model(&model.User{}).
+		// Persist the new password hash. RowsAffected != 1 means the user row
+		// vanished between token issue and consumption (cascade delete, manual
+		// purge); collapse it to the generic invalid-token error so the tx
+		// rolls back instead of returning 204 on a no-op write.
+		upd := tx.Model(&model.User{}).
 			Where("id = ?", tok.UserID).
-			Update("password_hash", string(hash)).Error; err != nil {
-			return err
+			Update("password_hash", string(hash))
+		if upd.Error != nil {
+			return upd.Error
+		}
+		if upd.RowsAffected != 1 {
+			return errPasswordResetInvalid
 		}
 		userID = tok.UserID
 		return nil
