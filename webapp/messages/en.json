@@ -64,7 +64,8 @@
     "backToLogin": "Sign in",
     "missingToken": "Reset link is missing a token — please request a new one.",
     "mismatch": "Passwords do not match.",
-    "tooShort": "Password must be at least 8 characters."
+    "tooShort": "Password must be at least 8 characters.",
+    "submitError": "Something went wrong. Please try again."
   },
   "register": {
     "subtitle": "Create your account",

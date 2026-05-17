@@ -64,7 +64,8 @@
     "backToLogin": "Accedi",
     "missingToken": "Il link di reimpostazione non contiene un token — richiedine uno nuovo.",
     "mismatch": "Le password non corrispondono.",
-    "tooShort": "La password deve essere di almeno 8 caratteri."
+    "tooShort": "La password deve essere di almeno 8 caratteri.",
+    "submitError": "Qualcosa è andato storto. Riprova."
   },
   "register": {
     "subtitle": "Crea il tuo account",

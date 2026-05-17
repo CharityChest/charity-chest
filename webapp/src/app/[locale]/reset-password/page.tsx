@@ -66,7 +66,7 @@ export default function ResetPasswordPage() {
       await api.resetPassword(token, password);
       setDone(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('submit'));
+      setError(err instanceof ApiError ? err.message : t('submitError'));
     } finally {
       setLoading(false);
     }
