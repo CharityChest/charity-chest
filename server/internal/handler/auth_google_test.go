@@ -348,9 +348,9 @@ func (s *smtpCapture) acceptLoop() {
 }
 
 func (s *smtpCapture) handle(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	fmt.Fprintf(conn, "220 fake-smtp ESMTP ready\r\n")
+	_, _ = fmt.Fprintf(conn, "220 fake-smtp ESMTP ready\r\n")
 
 	r := bufio.NewReader(conn)
 	inData := false
@@ -362,7 +362,7 @@ func (s *smtpCapture) handle(conn net.Conn) {
 		trimmed := strings.TrimRight(line, "\r\n")
 		if inData {
 			if trimmed == "." {
-				fmt.Fprintf(conn, "250 OK message accepted\r\n")
+				_, _ = fmt.Fprintf(conn, "250 OK message accepted\r\n")
 				atomic.AddInt32(&s.delivered, 1)
 				inData = false
 			}
@@ -372,24 +372,24 @@ func (s *smtpCapture) handle(conn net.Conn) {
 		switch {
 		case strings.HasPrefix(upper, "EHLO"), strings.HasPrefix(upper, "HELO"):
 			// Advertise AUTH but NOT STARTTLS so TLSOpportunistic stays plaintext.
-			fmt.Fprintf(conn, "250-fake-smtp\r\n250-AUTH PLAIN LOGIN\r\n250 SIZE 10240000\r\n")
+			_, _ = fmt.Fprintf(conn, "250-fake-smtp\r\n250-AUTH PLAIN LOGIN\r\n250 SIZE 10240000\r\n")
 		case strings.HasPrefix(upper, "AUTH"):
 			atomic.StoreInt32(&s.authSeen, 1)
-			fmt.Fprintf(conn, "235 2.7.0 Authentication successful\r\n")
+			_, _ = fmt.Fprintf(conn, "235 2.7.0 Authentication successful\r\n")
 		case strings.HasPrefix(upper, "MAIL FROM:"):
-			fmt.Fprintf(conn, "250 OK\r\n")
+			_, _ = fmt.Fprintf(conn, "250 OK\r\n")
 		case strings.HasPrefix(upper, "RCPT TO:"):
-			fmt.Fprintf(conn, "250 OK\r\n")
+			_, _ = fmt.Fprintf(conn, "250 OK\r\n")
 		case upper == "DATA":
-			fmt.Fprintf(conn, "354 End data with <CR><LF>.<CR><LF>\r\n")
+			_, _ = fmt.Fprintf(conn, "354 End data with <CR><LF>.<CR><LF>\r\n")
 			inData = true
 		case upper == "QUIT":
-			fmt.Fprintf(conn, "221 bye\r\n")
+			_, _ = fmt.Fprintf(conn, "221 bye\r\n")
 			return
 		case upper == "RSET", upper == "NOOP":
-			fmt.Fprintf(conn, "250 OK\r\n")
+			_, _ = fmt.Fprintf(conn, "250 OK\r\n")
 		default:
-			fmt.Fprintf(conn, "250 OK\r\n")
+			_, _ = fmt.Fprintf(conn, "250 OK\r\n")
 		}
 	}
 }
