@@ -168,12 +168,6 @@ func (h *AuthHandler) ResetPassword(c echo.Context) error {
 
 	hashed := hashPasswordResetToken(req.Token)
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyProcessPassword))
-	}
-	hashStr := string(hash)
-
 	var userID uint
 	txErr := h.db.Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
@@ -204,10 +198,16 @@ func (h *AuthHandler) ResetPassword(c echo.Context) error {
 			Update("used_at", now).Error; err != nil {
 			return err
 		}
+		// Hash the new password only after the token has been validated and
+		// consumed, so invalid/expired tokens cannot burn CPU on bcrypt.
+		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return errPasswordResetHashFailed
+		}
 		// Persist the new password hash.
 		if err := tx.Model(&model.User{}).
 			Where("id = ?", tok.UserID).
-			Update("password_hash", hashStr).Error; err != nil {
+			Update("password_hash", string(hash)).Error; err != nil {
 			return err
 		}
 		userID = tok.UserID
@@ -216,6 +216,9 @@ func (h *AuthHandler) ResetPassword(c echo.Context) error {
 
 	if errors.Is(txErr, errPasswordResetInvalid) {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyPasswordResetTokenInvalid))
+	}
+	if errors.Is(txErr, errPasswordResetHashFailed) {
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyProcessPassword))
 	}
 	if txErr != nil {
 		log.Printf("password reset: tx failed: %v", txErr)
@@ -238,6 +241,11 @@ func (h *AuthHandler) ResetPassword(c echo.Context) error {
 // errPasswordResetInvalid is a sentinel returned from the reset transaction
 // to collapse missing/expired/used token errors into a single response.
 var errPasswordResetInvalid = errors.New("password reset: token invalid")
+
+// errPasswordResetHashFailed is a sentinel returned when bcrypt fails to hash
+// the new password inside the reset transaction. Kept separate so the caller
+// can return 500/KeyProcessPassword instead of the generic DB-error mapping.
+var errPasswordResetHashFailed = errors.New("password reset: hash failed")
 
 // newPasswordResetToken returns a freshly-generated plaintext token (for the
 // email URL) and its SHA-256 hex digest (for storage). The plaintext value is
