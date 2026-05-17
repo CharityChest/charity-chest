@@ -17,11 +17,11 @@ Go HTTP server built with [Echo v4](https://echo.labstack.com/). Supports email/
 cp .docker-dev/.env.example .docker-dev/.env
 # Edit .docker-dev/.env — add your GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET
 
-# 2. Start everything (Postgres + Valkey + MailHog + server, migrations run automatically)
+# 2. Start everything (Postgres + Valkey + Mailpit + server, migrations run automatically)
 docker compose -f .docker-dev/docker-compose.yml up --build
 ```
 
-The server is available at `http://localhost:8080`. Postgres is exposed on port `5432`, Valkey on port `6379`, MailHog SMTP on port `1025`, and the MailHog inbox UI at http://localhost:8025 — recovery emails sent during local dev land there and never leave the developer's machine.
+The server is available at `http://localhost:8080`. Postgres is exposed on port `5432`, Valkey on port `6379`, Mailpit SMTP on port `1025`, and the Mailpit inbox UI at http://localhost:8025 — recovery emails sent during local dev land there and never leave the developer's machine.
 
 **Useful commands:**
 
@@ -262,26 +262,26 @@ cp .env.example .env
 | `STRIPE_WEBHOOK_SECRET` | if Stripe enabled | Stripe webhook signing secret. **Required** when `STRIPE_SECRET_KEY` is set — the server refuses to start without it. Also enforced at runtime: `POST /stripe/webhook` returns 503 immediately whenever this is unset, in any environment, so unsigned events can never alter plan state. |
 | `STRIPE_PRO_PRICE_ID` | if Stripe enabled | Stripe Price ID for the Pro plan (e.g. `price_xxx`). **Required** when `STRIPE_SECRET_KEY` is set. |
 | `SMTP_HOST` | no | SMTP relay host for the password-recovery email. Leave empty to disable email entirely — the forgot-password endpoint still returns a neutral 204 and a server-side warning is logged (no 503; that would be an enumeration signal). |
-| `SMTP_PORT` | no | TCP port for the SMTP relay (default `587`). Use `1025` for MailHog in dev. |
-| `SMTP_USERNAME` | if SMTP enabled & relay requires AUTH | Optional. Paired with `SMTP_PASSWORD`: set both or neither. When empty the mailer skips the AUTH step (MailHog and many internal relays reject AUTH outright). |
+| `SMTP_PORT` | no | TCP port for the SMTP relay (default `587`). Use `1025` for Mailpit in dev. |
+| `SMTP_USERNAME` | if SMTP enabled & relay requires AUTH | Optional. Paired with `SMTP_PASSWORD`: set both or neither. When empty the mailer skips the AUTH step (Mailpit and many internal relays reject AUTH outright). |
 | `SMTP_PASSWORD` | if SMTP enabled & relay requires AUTH | Optional. See above — must be set together with `SMTP_USERNAME`. |
 | `SMTP_FROM` | if SMTP enabled | Sender address. **Required** when `SMTP_HOST` is set — the server refuses to start otherwise. |
 | `SMTP_FROM_NAME` | no | Sender display name (default `Charity Chest`). |
 
-### SMTP — local dev with MailHog
+### SMTP — local dev with Mailpit
 
-The dev compose stack at `.docker-dev/docker-compose.yml` ships a MailHog container so recovery emails never leave the developer's machine.
+The dev compose stack at `.docker-dev/docker-compose.yml` ships a Mailpit container so recovery emails never leave the developer's machine.
 
 | Service | URL |
 |---|---|
-| SMTP submission | `mailhog:1025` (inside the compose network), `localhost:1025` from the host |
+| SMTP submission | `mailpit:1025` (inside the compose network), `localhost:1025` from the host |
 | Captured-email UI | http://localhost:8025 |
 
-The server is wired with `SMTP_HOST=mailhog`, `SMTP_PORT=1025`, `SMTP_FROM=no-reply@charitychest.local`, and **no credentials** (MailHog rejects AUTH).
+The server is wired with `SMTP_HOST=mailpit`, `SMTP_PORT=1025`, `SMTP_FROM=no-reply@charitychest.local`, and **no credentials** (Mailpit rejects AUTH by default).
 
 ### SMTP — staging / production
 
-There is intentionally no `.docker-mailhog-staging/Dockerfile`. MailHog is a capture server, not an MTA — outside dev it would silently swallow every email a real user expects to receive. Point `SMTP_*` at a production relay instead:
+There is intentionally no `.docker-mailpit-staging/Dockerfile`. Mailpit is a capture server, not an MTA — outside dev it would silently swallow every email a real user expects to receive. Point `SMTP_*` at a production relay instead:
 
 | Relay | Host | Port | Notes |
 |---|---|---|---|
@@ -508,7 +508,7 @@ curl -X POST http://localhost:8080/v1/auth/password/reset \
 
 Tokens are 32 random bytes (base64url), only their SHA-256 hex digest is stored, they expire after 1 hour, and they are single-use. A successful reset also invalidates every other outstanding token for the same user. The endpoint does **not** issue a JWT — the user has to log in again (and pass MFA if enabled).
 
-In dev, recovery emails land in the MailHog UI at http://localhost:8025.
+In dev, recovery emails land in the Mailpit UI at http://localhost:8025.
 
 ### Login with MFA enabled
 

@@ -14,17 +14,20 @@ services:
       timeout: 5s
       retries: 10
 
-  # ── MailHog (SMTP capture for password-recovery emails in dev) ───────────────
+  # ── Mailpit (SMTP capture for password-recovery emails in dev) ───────────────
   # The server points its SMTP_* config at this container so recovery emails
   # never leave the developer's machine. Open http://localhost:8025 to inspect
   # the captured inbox.
   #
-  # No healthcheck: mailhog/mailhog:v1.0.1 is a minimal image without curl,
-  # wget, or nc. The server's mailer retries on its own, so service_started is
-  # enough.
-  mailhog:
-    image: mailhog/mailhog:v1.0.1
+  # The image is FROM scratch (just the mailpit binary, no shell), but it ships
+  # a built-in HEALTHCHECK via `mailpit readyz`, so we can wait on
+  # service_healthy below.
+  mailpit:
+    image: axllent/mailpit:v1.21
     restart: unless-stopped
+    environment:
+      # Basic Auth on the web UI at :8025. Format is `username:password`.
+      MP_UI_AUTH: "charity-chest:Secret"
     ports:
       - "1025:1025"   # SMTP — the server connects here
       - "8025:8025"   # Web UI — browse captured emails
@@ -80,9 +83,9 @@ services:
       CACHE_TTL: 5m
       APP_ENV: local
 
-      # SMTP (MailHog) — unauthenticated; SMTP_USERNAME / SMTP_PASSWORD are
+      # SMTP (Mailpit) — unauthenticated; SMTP_USERNAME / SMTP_PASSWORD are
       # intentionally omitted so the mailer skips the AUTH step.
-      SMTP_HOST: mailhog
+      SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       SMTP_FROM: no-reply@charitychest.local
       SMTP_FROM_NAME: Charity Chest
@@ -91,8 +94,8 @@ services:
         condition: service_healthy   # wait until postgres is ready before starting
       valkey:
         condition: service_healthy   # wait until valkey is ready before starting
-      mailhog:
-        condition: service_started   # mailhog has no healthcheck; just wait for the process
+      mailpit:
+        condition: service_healthy   # mailpit ships a built-in `mailpit readyz` healthcheck
 
 volumes:
   postgres_data:

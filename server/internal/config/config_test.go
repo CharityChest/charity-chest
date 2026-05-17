@@ -439,11 +439,11 @@ func TestLoad_SMTPHostWithoutFrom_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestLoad_SMTPMailHogStyle_NoCredentials_OK(t *testing.T) {
-	// MailHog accepts unauthenticated submissions, so username+password may both be empty.
+func TestLoad_SMTPMailpitStyle_NoCredentials_OK(t *testing.T) {
+	// Mailpit accepts unauthenticated submissions, so username+password may both be empty.
 	setEnv(t, allRequired)
 	clearSMTP(t)
-	t.Setenv("SMTP_HOST", "mailhog")
+	t.Setenv("SMTP_HOST", "mailpit")
 	t.Setenv("SMTP_PORT", "1025")
 	t.Setenv("SMTP_FROM", "no-reply@charitychest.local")
 
@@ -451,7 +451,7 @@ func TestLoad_SMTPMailHogStyle_NoCredentials_OK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for unauthenticated SMTP: %v", err)
 	}
-	if cfg.SMTPHost != "mailhog" || cfg.SMTPPort != 1025 {
+	if cfg.SMTPHost != "mailpit" || cfg.SMTPPort != 1025 {
 		t.Errorf("unexpected host/port: %q:%d", cfg.SMTPHost, cfg.SMTPPort)
 	}
 }

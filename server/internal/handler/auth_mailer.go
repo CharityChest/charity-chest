@@ -47,7 +47,7 @@ type goMailMailer struct {
 
 // newGoMailMailer returns a configured production mailer.
 // authSet records whether SMTP authentication was supplied so the mailer can
-// skip the AUTH step when talking to relays that reject it (e.g. MailHog).
+// skip the AUTH step when talking to relays that reject it (e.g. Mailpit).
 func newGoMailMailer(cfg *config.Config) *goMailMailer {
 	return &goMailMailer{
 		host:     cfg.SMTPHost,
@@ -86,10 +86,10 @@ func (m *goMailMailer) Send(ctx context.Context, to, subject, htmlBody, textBody
 			gomail.WithPassword(m.password),
 		)
 	} else {
-		// MailHog and similar capture relays reject the AUTH command outright.
+		// Mailpit and similar capture relays reject the AUTH command outright.
 		opts = append(opts, gomail.WithSMTPAuth(gomail.SMTPAuthNoAuth))
 	}
-	// Avoid TLS on plaintext capture servers (port 1025 is the MailHog default).
+	// Avoid TLS on plaintext capture servers (port 1025 is the Mailpit default).
 	if m.port == 1025 {
 		opts = append(opts, gomail.WithTLSPolicy(gomail.NoTLS))
 	}
