@@ -6,6 +6,7 @@ Go HTTP server built with [Echo v4](https://echo.labstack.com/). Supports email/
 
 - Go 1.22+ **or** Docker + Docker Compose (no local Go/Postgres needed)
 - A Google Cloud project with OAuth 2.0 credentials
+- **For running the test suite**: a running Docker daemon (the Go tests boot a `postgres:16-alpine` container on demand via `testcontainers-go`)
 
 ---
 
@@ -314,8 +315,8 @@ A `Makefile` is provided with the following targets:
 | `make build` | both | Builds debug and release |
 | `make build-debug` | `dist/debug/server` | Race detector on, optimisations off — debugger-friendly. Runs `templ generate` first. |
 | `make build-release` | `dist/release/server` | Static binary, debug info stripped, optimised for deployment. Runs `templ generate` first. |
-| `make test` | — | Runs the unit + integration test suite under `-race` |
-| `make test-coverage` | `coverage.out`, `coverage.business.out` | Reports total coverage and "business" coverage (excludes `main.go`, `cmd/*`, and generated `*_templ.go`) |
+| `make test` | — | Runs the unit + integration test suite under `-race`. **Requires a running Docker daemon** — testcontainers-go boots a `postgres:16-alpine` instance for the duration of the run. |
+| `make test-coverage` | `coverage.out`, `coverage.business.out` | Reports total coverage and "business" coverage (excludes `main.go`, `cmd/*`, and generated `*_templ.go`). Same Docker requirement as `make test`. |
 | `make templ` | `*_templ.go` | Regenerates Go from every `.templ` source under `internal/templates/` |
 | `make seed-root EMAIL=… PASSWORD=…` | — | Creates the first root user in the database |
 | `make tidy` | — | Runs `go mod tidy` |

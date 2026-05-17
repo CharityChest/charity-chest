@@ -89,7 +89,7 @@ See the component READMEs for local (non-Docker) setup, environment variable ref
 | Frontend | [Next.js 15](https://nextjs.org/) (App Router) |
 | Styling | [Tailwind CSS v3](https://tailwindcss.com/) |
 | i18n | [next-intl](https://next-intl-docs.vercel.app/) |
-| Server tests | Go standard `testing` package, SQLite in-memory |
+| Server tests | Go standard `testing` package, real Postgres in `postgres:16-alpine` via [testcontainers-go](https://golang.testcontainers.org/) (Docker required) |
 | Webapp tests | [Vitest](https://vitest.dev/) + [React Testing Library](https://testing-library.com/) |
 
 ---

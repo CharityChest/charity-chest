@@ -48,6 +48,7 @@ build-release: templ
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 test:
+	@docker info >/dev/null 2>&1 || (echo "ERROR: Docker daemon required for tests (testcontainers boots a Postgres container)"; exit 1)
 	go test -race ./internal/...
 
 # Report coverage across all production packages, excluding files that cannot
@@ -59,6 +60,7 @@ test:
 # integration tests in routes/v1 counts against the file that owns the code.
 # The result is `coverage.business.out`; the raw report is `coverage.out`.
 test-coverage:
+	@docker info >/dev/null 2>&1 || (echo "ERROR: Docker daemon required for tests (testcontainers boots a Postgres container)"; exit 1)
 	go test -race -coverpkg=./... -coverprofile=coverage.out ./...
 	@grep -v -E '(charity-chest/main\.go|charity-chest/cmd/|_templ\.go)' coverage.out > coverage.business.out
 	@echo "── full coverage ──"

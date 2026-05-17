@@ -37,6 +37,12 @@ jobs:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
 
+      # testcontainers-go uses the Docker daemon to boot postgres:16-alpine on
+      # demand. The ubuntu-latest runner ships with Docker preinstalled and
+      # running, so no extra setup is needed beyond confirming it's reachable.
+      - name: Verify Docker is available
+        run: docker info
+
       - name: Run tests with coverage
         run: |
           go test -race -coverprofile=coverage.out ./internal/...

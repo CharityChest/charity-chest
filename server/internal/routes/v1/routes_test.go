@@ -17,8 +17,8 @@ import (
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 	routesv1 "charity-chest/internal/routes/v1"
+	"charity-chest/internal/testdb"
 
-	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
@@ -30,20 +30,7 @@ import (
 
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(
-		&model.User{},
-		&model.Organization{},
-		&model.OrgMember{},
-		&model.BillingCleanupJob{},
-		&model.PasswordResetToken{},
-	); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	return db
+	return testdb.Open(t)
 }
 
 func testCfg() *config.Config {
