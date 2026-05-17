@@ -48,7 +48,8 @@
     "successTitle": "Check your inbox",
     "successBody": "If an account exists for that email, we've sent a link to reset your password. The link is valid for 1 hour.",
     "backToLogin": "Back to sign in",
-    "emailRequired": "Please enter an email address."
+    "emailRequired": "Please enter an email address.",
+    "submitError": "Something went wrong. Please try again."
   },
   "resetPassword": {
     "title": "Set a new password",

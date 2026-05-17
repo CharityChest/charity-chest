@@ -48,7 +48,8 @@
     "successTitle": "Controlla la tua casella di posta",
     "successBody": "Se esiste un account associato a quell'email, ti abbiamo inviato un link per reimpostare la password. Il link è valido per 1 ora.",
     "backToLogin": "Torna all'accesso",
-    "emailRequired": "Inserisci un indirizzo email."
+    "emailRequired": "Inserisci un indirizzo email.",
+    "submitError": "Qualcosa è andato storto. Riprova."
   },
   "resetPassword": {
     "title": "Imposta una nuova password",

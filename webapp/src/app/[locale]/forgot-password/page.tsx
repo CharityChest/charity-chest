@@ -36,7 +36,7 @@ export default function ForgotPasswordPage() {
       await api.forgotPassword(email.trim());
       setSubmitted(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('send'));
+      setError(err instanceof ApiError ? err.message : t('submitError'));
     } finally {
       setLoading(false);
     }
