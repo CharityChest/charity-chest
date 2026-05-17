@@ -533,8 +533,16 @@ func TestResetPassword_ConcurrentSameToken_OnlyOneSucceeds(t *testing.T) {
 
 	successes := 0
 	for _, code := range results {
-		if code == http.StatusNoContent {
+		if code >= 500 && code < 600 {
+			t.Fatalf("unexpected server error from concurrent reset: %d (codes=%v)", code, results)
+		}
+		switch code {
+		case http.StatusNoContent:
 			successes++
+		case http.StatusBadRequest:
+			// expected loser response
+		default:
+			t.Errorf("unexpected status %d (codes=%v); want 204 or 400", code, results)
 		}
 	}
 	if successes != 1 {
