@@ -176,21 +176,27 @@ func (h *AuthHandler) ResetPassword(c echo.Context) error {
 
 	var userID uint
 	txErr := h.db.Transaction(func(tx *gorm.DB) error {
-		var tok model.PasswordResetToken
-		if err := tx.Where("token_hash = ?", hashed).First(&tok).Error; err != nil {
-			return errPasswordResetInvalid
+		now := time.Now()
+		// Atomic compare-and-set: consume the token only if it is still unused
+		// and unexpired. The DB row-level lock acquired by UPDATE serializes
+		// concurrent attempts on the same token — losers see RowsAffected == 0
+		// because the re-evaluated WHERE no longer matches.
+		res := tx.Model(&model.PasswordResetToken{}).
+			Where("token_hash = ? AND used_at IS NULL AND expires_at > ?", hashed, now).
+			Update("used_at", now)
+		if res.Error != nil {
+			return res.Error
 		}
-		if tok.UsedAt != nil || time.Now().After(tok.ExpiresAt) {
+		if res.RowsAffected != 1 {
 			return errPasswordResetInvalid
 		}
 
-		now := time.Now()
-		// Mark this token used.
-		if err := tx.Model(&model.PasswordResetToken{}).
-			Where("id = ?", tok.ID).
-			Update("used_at", now).Error; err != nil {
+		// Re-read to recover the UserID for the follow-up writes.
+		var tok model.PasswordResetToken
+		if err := tx.Where("token_hash = ?", hashed).First(&tok).Error; err != nil {
 			return err
 		}
+
 		// Defence-in-depth: invalidate every other unused token for this user
 		// so a second token issued during the reset window cannot be redeemed.
 		if err := tx.Model(&model.PasswordResetToken{}).
