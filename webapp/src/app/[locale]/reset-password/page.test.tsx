@@ -4,11 +4,14 @@ import ResetPasswordPage from './page';
 
 const mockReplace = vi.fn();
 
+interface LinkProps {
+  href: string;
+  children: React.ReactNode;
+}
+
 vi.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace: mockReplace, push: vi.fn() }),
-  Link: ({ href, children }: { href: string; children: React.ReactNode }) => (
-    <a href={href}>{children}</a>
-  ),
+  Link: ({ href, children }: LinkProps) => <a href={href}>{children}</a>,
 }));
 
 vi.mock('next-intl', () => ({
