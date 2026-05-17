@@ -14,4 +14,8 @@ func RegisterAuth(v1 *echo.Group, h *handler.AuthHandler) {
 	auth.POST("/mfa/verify", h.VerifyMFA)
 	auth.GET("/google", h.GoogleLogin)
 	auth.GET("/google/callback", h.GoogleCallback)
+	// Password recovery — both endpoints are public and enumeration-safe;
+	// they return 204 regardless of whether the email maps to an account.
+	auth.POST("/password/forgot", h.ForgotPassword)
+	auth.POST("/password/reset", h.ResetPassword)
 }

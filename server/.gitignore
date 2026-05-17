@@ -6,3 +6,4 @@
 # Build output
 dist
 coverage.out
+coverage.business.out

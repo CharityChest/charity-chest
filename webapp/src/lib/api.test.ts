@@ -59,7 +59,7 @@ describe('getLocale', () => {
 
 // --- request (via api methods) ---
 
-describe('api — X-Locale header', () => {
+describe('api — locale headers', () => {
   beforeEach(() => {
     vi.stubGlobal('location', { pathname: '/it/login' });
     vi.stubGlobal(
@@ -98,6 +98,60 @@ describe('api — X-Locale header', () => {
       RequestInit,
     ];
     expect((options.headers as Record<string, string>)['X-Locale']).toBe('en');
+  });
+
+  it('sends Accept-Language: it when the locale is Italian', async () => {
+    await api.login('a@b.com', 'pass');
+    const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect((options.headers as Record<string, string>)['Accept-Language']).toBe('it');
+  });
+
+  it('sends Accept-Language: en when the locale is English', async () => {
+    vi.stubGlobal('location', { pathname: '/en/login' });
+    await api.login('a@b.com', 'pass');
+    const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect((options.headers as Record<string, string>)['Accept-Language']).toBe('en');
+  });
+
+  it('sends Accept-Language on forgotPassword (request helper)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.resolve(null) }));
+    await api.forgotPassword('a@b.com');
+    const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect((options.headers as Record<string, string>)['Accept-Language']).toBe('it');
+  });
+
+  it('sends Accept-Language on resetPassword (request helper)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.resolve(null) }));
+    await api.resetPassword('token', 'new-pass');
+    const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect((options.headers as Record<string, string>)['Accept-Language']).toBe('it');
+  });
+
+  it('sends Accept-Language on searchUsers (requestPaginated helper)', async () => {
+    localStorage.setItem('cc_token', 'root-jwt');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: [], metadata: { page: 1, size: 20, total: 0, total_pages: 1 } }),
+    }));
+    await api.searchUsers('', 1, 20);
+    const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect((options.headers as Record<string, string>)['Accept-Language']).toBe('it');
+    localStorage.clear();
   });
 });
 

@@ -8,22 +8,15 @@ import (
 
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
+	"charity-chest/internal/testdb"
 
-	"github.com/glebarez/sqlite"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
 
 func newACLTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrgMember{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	return db
+	return testdb.Open(t)
 }
 
 // invokeSystemRole runs RequireSystemRole(allowed...) with the given caller role

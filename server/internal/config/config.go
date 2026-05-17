@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,16 @@ type Config struct {
 	StripeSecretKey     string
 	StripeWebhookSecret string
 	StripePriceIDPro    string
+	// SMTP (all optional — password-reset emails are skipped and a server-side
+	// warning is logged when SMTPHost is unset. The forgot-password endpoint
+	// still returns the neutral 2xx response to avoid leaking the disabled
+	// state to clients).
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPFromName string
 }
 
 // Load reads configuration from environment variables.
@@ -69,6 +80,11 @@ func Load() (*Config, error) {
 		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
 		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		StripePriceIDPro:    os.Getenv("STRIPE_PRO_PRICE_ID"),
+		SMTPHost:            os.Getenv("SMTP_HOST"),
+		SMTPUsername:        os.Getenv("SMTP_USERNAME"),
+		SMTPPassword:        os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:            os.Getenv("SMTP_FROM"),
+		SMTPFromName:        envOrDefault("SMTP_FROM_NAME", "Charity Chest"),
 	}
 
 	cacheTTL, err := parseDuration(os.Getenv("CACHE_TTL"), 5*time.Minute)
@@ -76,6 +92,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid CACHE_TTL: %w", err)
 	}
 	cfg.CacheTTL = cacheTTL
+
+	smtpPort, err := parsePort(os.Getenv("SMTP_PORT"), 587)
+	if err != nil {
+		return nil, fmt.Errorf("invalid SMTP_PORT: %w", err)
+	}
+	cfg.SMTPPort = smtpPort
 
 	var missing []string
 
@@ -115,11 +137,47 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// When SMTP is enabled (SMTP_HOST is set), SMTP_FROM is required so the
+	// recovery email has a sender address. SMTP_USERNAME and SMTP_PASSWORD are
+	// an optional pair: both or neither (MailHog and many internal relays
+	// accept unauthenticated submissions). Empty strings are treated as unset.
+	if cfg.SMTPHost != "" {
+		if cfg.SMTPFrom == "" {
+			missing = append(missing, "SMTP_FROM")
+		}
+		usernameSet := cfg.SMTPUsername != ""
+		passwordSet := cfg.SMTPPassword != ""
+		if usernameSet != passwordSet {
+			if !usernameSet {
+				missing = append(missing, "SMTP_USERNAME")
+			}
+			if !passwordSet {
+				missing = append(missing, "SMTP_PASSWORD")
+			}
+		}
+	}
+
 	if len(missing) > 0 {
 		return nil, errors.New("missing required environment variables: " + strings.Join(missing, ", "))
 	}
 
 	return cfg, nil
+}
+
+// parsePort parses a TCP port from s; returns def when s is empty. Rejects
+// values outside the valid TCP port range (1–65535).
+func parsePort(s string, def int) (int, error) {
+	if s == "" {
+		return def, nil
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, err
+	}
+	if v < 1 || v > 65535 {
+		return 0, fmt.Errorf("port out of range: %d", v)
+	}
+	return v, nil
 }
 
 // envOrDefault returns the value of the environment variable key, or def if it is unset.

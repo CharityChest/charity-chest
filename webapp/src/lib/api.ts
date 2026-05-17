@@ -45,6 +45,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers: {
       'Content-Type': 'application/json',
       'X-Locale': getLocale(),
+      'Accept-Language': getLocale(),
       ...(options.headers as Record<string, string>),
     },
   });
@@ -68,6 +69,7 @@ async function requestPaginated<T>(path: string, options: RequestInit = {}): Pro
     headers: {
       'Content-Type': 'application/json',
       'X-Locale': getLocale(),
+      'Accept-Language': getLocale(),
       ...(options.headers as Record<string, string>),
     },
   });
@@ -108,6 +110,32 @@ export const api = {
     return request('/v1/auth/mfa/verify', {
       method: 'POST',
       body: JSON.stringify({ mfa_token: mfaToken, code }),
+    });
+  },
+
+  /**
+   * POST /v1/auth/password/forgot — request a password reset email.
+   * The server responds 204 regardless of whether the email maps to a user
+   * (enumeration-safe), so this resolves successfully even for unknown emails.
+   * Network or 5xx failures still throw {@link ApiError}.
+   */
+  forgotPassword(email: string): Promise<void> {
+    return request('/v1/auth/password/forgot', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  /**
+   * POST /v1/auth/password/reset — consume a reset token and set a new password.
+   * Throws {@link ApiError} (HTTP 400) when the token is missing, malformed,
+   * expired, or already used. On success the server returns 204 and the user
+   * must log in again via {@link api.login}.
+   */
+  resetPassword(token: string, password: string): Promise<void> {
+    return request('/v1/auth/password/reset', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
     });
   },
 

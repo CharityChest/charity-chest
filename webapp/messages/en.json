@@ -35,7 +35,39 @@
     "mfaStep": "6-digit code",
     "verify": "Verify",
     "verifying": "Verifying…",
-    "backToLogin": "Back to sign in"
+    "backToLogin": "Back to sign in",
+    "forgotPassword": "Forgot password?"
+  },
+  "forgotPassword": {
+    "title": "Reset your password",
+    "subtitle": "Enter the email associated with your account and we will send you a reset link.",
+    "email": "Email",
+    "emailPlaceholder": "you@example.com",
+    "send": "Send reset link",
+    "sending": "Sending…",
+    "successTitle": "Check your inbox",
+    "successBody": "If an account exists for that email, we've sent a link to reset your password. The link is valid for 1 hour.",
+    "backToLogin": "Back to sign in",
+    "emailRequired": "Please enter an email address.",
+    "submitError": "Something went wrong. Please try again."
+  },
+  "resetPassword": {
+    "title": "Set a new password",
+    "subtitle": "Choose a strong password you don't reuse elsewhere.",
+    "password": "New password",
+    "passwordHint": "(min. 8 chars)",
+    "passwordPlaceholder": "••••••••",
+    "confirm": "Confirm new password",
+    "confirmPasswordPlaceholder": "••••••••",
+    "submit": "Reset password",
+    "submitting": "Resetting…",
+    "successTitle": "Password updated",
+    "successBody": "Your password has been changed. Please sign in with your new password.",
+    "backToLogin": "Sign in",
+    "missingToken": "Reset link is missing a token — please request a new one.",
+    "mismatch": "Passwords do not match.",
+    "tooShort": "Password must be at least 8 characters.",
+    "submitError": "Something went wrong. Please try again."
   },
   "register": {
     "subtitle": "Create your account",

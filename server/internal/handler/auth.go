@@ -38,20 +38,44 @@ const (
 	callbackTokenQuery = "?token="
 )
 
-// AuthHandler handles authentication: registration, login, MFA verification, and Google OAuth.
+// AuthHandler handles authentication: registration, login, MFA verification,
+// Google OAuth, and password recovery. It depends on a MailerGateway for
+// outbound recovery emails; when SMTP is not configured the gateway is the
+// no-op disabledMailer so the rest of the handler logic stays unchanged.
 type AuthHandler struct {
 	db          *gorm.DB
 	cfg         *config.Config
 	cache       *cache.Cache
+	mailer      MailerGateway
 	oauthConfig *oauth2.Config
 }
 
-// NewAuthHandler creates an AuthHandler wired to the given database, config, and cache.
+// NewAuthHandler creates an AuthHandler wired to the given database, config,
+// and cache. A real mailer is constructed automatically when cfg.SMTPHost is
+// set; otherwise the disabled mailer takes over (forgot-password still returns
+// the neutral 2xx response but no email is sent and a server-side warning is
+// logged).
 func NewAuthHandler(db *gorm.DB, cfg *config.Config, c *cache.Cache) *AuthHandler {
+	var mailer MailerGateway = disabledMailer{}
+	if cfg.SMTPHost != "" {
+		mailer = newGoMailMailer(cfg)
+	}
+	return NewAuthHandlerWithMailer(db, cfg, c, mailer)
+}
+
+// NewAuthHandlerWithMailer creates an AuthHandler with a caller-supplied
+// MailerGateway. Tests pass a fakeMailer through this constructor to assert
+// recovery email contents without doing network IO. A nil mailer is replaced
+// with the disabled mailer so h.mailer.Send is always safe to call.
+func NewAuthHandlerWithMailer(db *gorm.DB, cfg *config.Config, c *cache.Cache, mailer MailerGateway) *AuthHandler {
+	if mailer == nil {
+		mailer = disabledMailer{}
+	}
 	return &AuthHandler{
-		db:    db,
-		cfg:   cfg,
-		cache: c,
+		db:     db,
+		cfg:    cfg,
+		cache:  c,
+		mailer: mailer,
 		oauthConfig: &oauth2.Config{
 			ClientID:     cfg.GoogleClientID,
 			ClientSecret: cfg.GoogleClientSecret,
@@ -281,7 +305,7 @@ func (h *AuthHandler) GoogleCallback(c echo.Context) error {
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
 	}
 
-	gUser, err := fetchGoogleUserInfo(oauthToken.AccessToken)
+	gUser, err := fetchGoogleUserInfo(http.DefaultClient, oauthToken.AccessToken)
 	if err != nil {
 		log.Printf("invalid OAuth code (Fetch): query=%v, err=%v", c.QueryParam("code"), err)
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
@@ -348,14 +372,16 @@ type googleUserInfo struct {
 }
 
 // fetchGoogleUserInfo calls the Google userinfo endpoint and returns the user's profile.
-func fetchGoogleUserInfo(accessToken string) (*googleUserInfo, error) {
+// The HTTP client is injected so tests can stub the transport without mutating
+// http.DefaultClient (which is process-global and racy across parallel tests).
+func fetchGoogleUserInfo(client *http.Client, accessToken string) (*googleUserInfo, error) {
 	req, err := http.NewRequest(http.MethodGet, "https://www.googleapis.com/oauth2/v2/userinfo", nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

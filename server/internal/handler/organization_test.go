@@ -11,23 +11,17 @@ import (
 	"charity-chest/internal/handler"
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
+	"charity-chest/internal/testdb"
 
-	"github.com/glebarez/sqlite"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
 
-// newOrgTestDB opens an in-memory SQLite DB with all models needed for org tests.
+// newOrgTestDB returns a fresh per-test Postgres database with all migrations
+// applied. The DB is dropped on cleanup.
 func newOrgTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrgMember{}, &model.BillingCleanupJob{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	return db
+	return testdb.Open(t)
 }
 
 // newOrgContext creates an Echo context for org handler unit tests.

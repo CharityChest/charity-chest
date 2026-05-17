@@ -2,5 +2,17 @@
   "enabledPlugins": {
     "modern-go-guidelines@goland-claude-marketplace": true,
     "typescript-lsp@claude-plugins-official": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"This project contains Go code (server/, Go 1.26). When writing or editing Go code, apply the modern-go-guidelines skill rules up to Go 1.26 (slices/maps/cmp packages; any over interface{}; errors.Is/AsType; t.Context() in tests; omitzero in JSON tags; b.Loop() in benchmarks; wg.Go(); new(value) for pointer-to-value). Invoke /modern-go-guidelines:use-modern-go for the full feature reference.\"}}'"
+          }
+        ]
+      }
+    ]
   }
 }

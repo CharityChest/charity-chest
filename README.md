@@ -15,9 +15,10 @@ Platform for managing charitable organisations. Handles user authentication, mul
 
 - **Authentication** — email/password registration and login, Google OAuth
 - **MFA** — TOTP-based two-factor authentication (RFC 6238), with QR code enrollment
+- **Password recovery** — self-service "forgot password" flow with single-use, time-limited email tokens; MailHog is wired into the dev compose so recovery emails never leave the developer's machine
 - **Role hierarchy** — `root` → `system` → org-level `owner` / `admin` / `operational`
 - **Organisation management** — CRUD for organisations; member invite and role assignment with hierarchy enforcement
-- **Internationalisation** — English and Italian throughout (API error messages + full UI)
+- **Internationalisation** — English and Italian throughout (API error messages + email content + full UI)
 - **System configuration gate** — UI redirects to a setup page until a root user exists
 
 ---
@@ -61,6 +62,7 @@ docker compose -f webapp/.docker-dev/docker-compose.yml up --build
 |---|---|
 | Web application | http://localhost:3000 |
 | API server | http://localhost:8080 |
+| MailHog inbox (recovery emails) | http://localhost:8025 |
 
 **Bootstrap the first root user** (run once after the server is up):
 
@@ -87,7 +89,7 @@ See the component READMEs for local (non-Docker) setup, environment variable ref
 | Frontend | [Next.js 15](https://nextjs.org/) (App Router) |
 | Styling | [Tailwind CSS v3](https://tailwindcss.com/) |
 | i18n | [next-intl](https://next-intl-docs.vercel.app/) |
-| Server tests | Go standard `testing` package, SQLite in-memory |
+| Server tests | Go standard `testing` package, real Postgres in `postgres:16-alpine` via [testcontainers-go](https://golang.testcontainers.org/) (Docker required) |
 | Webapp tests | [Vitest](https://vitest.dev/) + [React Testing Library](https://testing-library.com/) |
 
 ---
@@ -98,7 +100,7 @@ Every pull request must pass two independent checks before it can be merged:
 
 | Check | What it runs | Coverage gate |
 |---|---|---|
-| **Server tests (Go)** | `go test -race ./internal/...` | ≥ 80% total |
+| **Server tests (Go)** | `go test -race -coverprofile=coverage.out ./internal/...` (locally: `make test-coverage`) | ≥ 80% total across `./internal/...` (main.go and `cmd/*` are skipped because they're thin entry points; templ-generated `*_templ.go` is included in the average but exercised through its package tests) |
 | **Webapp tests (Node)** | `vitest run --coverage` | ≥ 80% lines / functions / branches / statements |
 
 ---

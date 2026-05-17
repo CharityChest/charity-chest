@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,8 +17,8 @@ import (
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 	routesv1 "charity-chest/internal/routes/v1"
+	"charity-chest/internal/testdb"
 
-	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
@@ -29,14 +30,7 @@ import (
 
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrgMember{}, &model.BillingCleanupJob{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	return db
+	return testdb.Open(t)
 }
 
 func testCfg() *config.Config {
@@ -68,10 +62,35 @@ func (m *mockStripeGateway) RefundPayment(_ context.Context, _ string) error { r
 // returns nil when StripeSecretKey is unset).
 func newServerWithStripe(t *testing.T, gw handler.StripeGateway) (*echo.Echo, *gorm.DB) {
 	t.Helper()
+	e, db, _ := newServerFull(t, gw, nil)
+	return e, db
+}
+
+// newServerWithMailer wires the full stack with an injectable MailerGateway so
+// e2e password-recovery tests can capture outbound emails. A FrontendURL is
+// set on the config so the reset URL builder produces a deterministic value.
+func newServerWithMailer(t *testing.T, mailer handler.MailerGateway) (*echo.Echo, *gorm.DB) {
+	t.Helper()
+	e, db, _ := newServerFull(t, nil, mailer)
+	return e, db
+}
+
+// newServerFull is the inner wiring helper shared by newServer,
+// newServerWithStripe, and newServerWithMailer. Returns the resolved AuthHandler
+// so callers can reuse it if needed.
+func newServerFull(t *testing.T, gw handler.StripeGateway, mailer handler.MailerGateway) (*echo.Echo, *gorm.DB, *handler.AuthHandler) {
+	t.Helper()
 	db := newTestDB(t)
 	cfg := testCfg()
+	cfg.FrontendURL = "https://app.example.test"
 	noCache := cache.Disabled()
-	h := handler.NewAuthHandler(db, cfg, noCache)
+
+	var h *handler.AuthHandler
+	if mailer != nil {
+		h = handler.NewAuthHandlerWithMailer(db, cfg, noCache, mailer)
+	} else {
+		h = handler.NewAuthHandler(db, cfg, noCache)
+	}
 
 	e := echo.New()
 	e.HideBanner = true
@@ -88,7 +107,7 @@ func newServerWithStripe(t *testing.T, gw handler.StripeGateway) (*echo.Echo, *g
 	routesv1.RegisterAdmin(v1, db, noCache, cfg.JWTSecret)
 	routesv1.RegisterBilling(e, v1, db, noCache, cfg, cfg.JWTSecret, gw)
 
-	return e, db
+	return e, db, h
 }
 
 // newServer wires the full Echo instance — all routes plus middleware — mirroring
@@ -1718,5 +1737,177 @@ func TestCancelSubscription_ByOwner_Returns204(t *testing.T) {
 	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", ownerToken, "")
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want 204; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Password recovery (e2e) ---
+
+// e2eMailerCall mirrors handler-test fakeMailerCall locally so the e2e file
+// stays self-contained.
+type e2eMailerCall struct {
+	To       string
+	Subject  string
+	HTMLBody string
+	TextBody string
+}
+
+// e2eMailer is the e2e variant of fakeMailer; tests use it to capture the
+// recovery email and extract the plaintext token from the URL.
+type e2eMailer struct {
+	mu    sync.Mutex
+	calls []e2eMailerCall
+}
+
+func (m *e2eMailer) Send(_ context.Context, to, subject, htmlBody, textBody string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, e2eMailerCall{To: to, Subject: subject, HTMLBody: htmlBody, TextBody: textBody})
+	return nil
+}
+
+func (m *e2eMailer) snapshot() []e2eMailerCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]e2eMailerCall, len(m.calls))
+	copy(out, m.calls)
+	return out
+}
+
+// waitForFirstEmail polls until exactly one email has been captured.
+func (m *e2eMailer) waitForFirstEmail(t *testing.T) e2eMailerCall {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snap := m.snapshot()
+		if len(snap) >= 1 {
+			return snap[0]
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("waitForFirstEmail: no email captured")
+	return e2eMailerCall{}
+}
+
+// assertNoCallsWithin polls mailer.snapshot() until the timeout elapses and
+// fails the test as soon as any call is recorded. Replaces a fixed time.Sleep
+// so the negative assertion stays deterministic under scheduler jitter without
+// pessimistically slowing down the happy path.
+func (m *e2eMailer) assertNoCallsWithin(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if snap := m.snapshot(); len(snap) != 0 {
+			t.Fatalf("mailer called %d times; should never send", len(snap))
+		}
+		if !time.Now().Before(deadline) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// extractResetToken plucks the token out of the URL in an email body.
+func extractResetToken(t *testing.T, body string) string {
+	t.Helper()
+	const needle = "?token="
+	idx := strings.Index(body, needle)
+	if idx < 0 {
+		t.Fatalf("body does not contain %s: %s", needle, body)
+	}
+	rest := body[idx+len(needle):]
+	end := len(rest)
+	for i, r := range rest {
+		if r == '"' || r == '\'' || r == ' ' || r == '\n' || r == '\r' || r == '<' || r == '&' {
+			end = i
+			break
+		}
+	}
+	return rest[:end]
+}
+
+func TestPasswordRecovery_RoundTrip(t *testing.T) {
+	mailer := &e2eMailer{}
+	e, _ := newServerWithMailer(t, mailer)
+
+	registerUser(t, e, "round@example.com", "originalpass1", "Round")
+
+	// Step 1: request reset.
+	rec := do(e, http.MethodPost, "/v1/auth/password/forgot",
+		`{"email":"round@example.com"}`, "", "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("forgot status = %d, want 204; body: %s", rec.Code, rec.Body.String())
+	}
+
+	call := mailer.waitForFirstEmail(t)
+	if call.To != "round@example.com" {
+		t.Errorf("To = %q", call.To)
+	}
+	token := extractResetToken(t, call.HTMLBody)
+
+	// Step 2: consume the reset token.
+	body := fmt.Sprintf(`{"token":%q,"password":%q}`, token, "rotatedpass2")
+	rec = do(e, http.MethodPost, "/v1/auth/password/reset", body, "", "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("reset status = %d, want 204; body: %s", rec.Code, rec.Body.String())
+	}
+
+	// Step 3: log in with the new password (old must fail).
+	rec = do(e, http.MethodPost, "/v1/auth/login",
+		`{"email":"round@example.com","password":"originalpass1"}`, "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("login w/ old password should be 401, got %d", rec.Code)
+	}
+	rec = do(e, http.MethodPost, "/v1/auth/login",
+		`{"email":"round@example.com","password":"rotatedpass2"}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login w/ new password should be 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPasswordRecovery_UnknownEmail_ReturnsNoContent(t *testing.T) {
+	mailer := &e2eMailer{}
+	e, _ := newServerWithMailer(t, mailer)
+
+	rec := do(e, http.MethodPost, "/v1/auth/password/forgot",
+		`{"email":"nobody@example.com"}`, "", "")
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", rec.Code)
+	}
+	mailer.assertNoCallsWithin(t, 50*time.Millisecond)
+}
+
+func TestPasswordRecovery_ItalianLocale_UsesItalianURL(t *testing.T) {
+	mailer := &e2eMailer{}
+	e, _ := newServerWithMailer(t, mailer)
+	registerUser(t, e, "ita@example.com", "password123", "Ita")
+
+	rec := do(e, http.MethodPost, "/v1/auth/password/forgot",
+		`{"email":"ita@example.com"}`, "", "it")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("forgot status = %d", rec.Code)
+	}
+	call := mailer.waitForFirstEmail(t)
+	if !strings.Contains(call.HTMLBody, "https://app.example.test/it/reset-password?token=") {
+		t.Errorf("HTMLBody should contain /it/ URL; got: %s", call.HTMLBody)
+	}
+}
+
+func TestPasswordRecovery_ResetWithoutToken_Returns400(t *testing.T) {
+	mailer := &e2eMailer{}
+	e, _ := newServerWithMailer(t, mailer)
+	rec := do(e, http.MethodPost, "/v1/auth/password/reset",
+		`{"password":"newpassword1"}`, "", "")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestPasswordRecovery_ResetWithBogusToken_Returns400(t *testing.T) {
+	mailer := &e2eMailer{}
+	e, _ := newServerWithMailer(t, mailer)
+	rec := do(e, http.MethodPost, "/v1/auth/password/reset",
+		`{"token":"not-a-real-token","password":"newpassword1"}`, "", "")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
 	}
 }

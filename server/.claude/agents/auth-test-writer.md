@@ -13,7 +13,7 @@ Write idiomatic, thorough Go tests for authentication-related code in `server/in
 ## Project Testing Conventions You Must Follow
 - **No testify**: use only the standard `testing` package — no `require`, no `assert`, no third-party assertion libraries.
 - **Black-box testing**: test files use `package foo_test` (external package), not `package foo`.
-- **Fresh DB per test**: each test that needs a database gets a fresh in-memory SQLite via `newTestDB(t)`.
+- **Fresh DB per test**: each test that needs a database gets a fresh per-test Postgres database via `newTestDB(t)` (which delegates to `testdb.Open(t)` in `internal/testdb`). The first call in a test binary boots `postgres:16-alpine` via testcontainers-go and applies the project's migrations to a template DB; each subsequent call clones the template and drops it on `t.Cleanup`. Tests require a running Docker daemon.
 - **No global state**: tests are fully isolated.
 - **File co-location**: test files live alongside the source file they test, named `<source>_test.go`.
 - **Unit tests** for `internal/handler/` and similar packages; **e2e tests** in `internal/routes/v1/routes_test.go` for full-stack endpoint coverage.
