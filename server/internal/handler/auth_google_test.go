@@ -309,7 +309,7 @@ func TestForgotPassword_ResetURL_FallsBackToEN_OnUnknownLocale(t *testing.T) {
 // tests. It accepts connections, runs through the SMTP commands go-mail
 // issues, and records whether the client attempted AUTH. We bind on port
 // 1025 specifically because goMailMailer.Send hard-codes TLSPolicy=NoTLS for
-// that port (matching the MailHog dev convention); on any other port the
+// that port (matching the Mailpit dev convention); on any other port the
 // default TLSMandatory policy would require STARTTLS support that this
 // minimal listener cannot provide.
 type smtpCapture struct {
@@ -321,7 +321,7 @@ type smtpCapture struct {
 }
 
 // startSMTPCapture stands up the listener on port 1025. If that port is in
-// use (e.g. a local MailHog is running on the dev box) the test is skipped —
+// use (e.g. a local Mailpit is running on the dev box) the test is skipped —
 // the goMailMailer's TLS contract makes any other port unworkable for a
 // plaintext fake server.
 func startSMTPCapture(t *testing.T) *smtpCapture {

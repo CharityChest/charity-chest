@@ -75,7 +75,7 @@ charity-chest/
 │   │   └── 000008_create_password_reset_tokens.down.sql
 │   ├── .docker-dev/                # Docker Compose demo environment
 │   │   ├── Dockerfile              # Two-stage build (golang:alpine → alpine:3.23)
-│   │   ├── docker-compose.yml      # Postgres + Valkey + MailHog (SMTP capture) + server; server waits for the Postgres and Valkey health checks
+│   │   ├── docker-compose.yml      # Postgres + Valkey + Mailpit (SMTP capture) + server; server waits for the Postgres, Valkey, and Mailpit health checks
 │   │   ├── entry-point.sh          # Seeds root user via env vars then starts the server
 │   │   └── .env.example            # Template for Google OAuth + root seed secrets used by compose
 │   ├── .docker-staging/            # Standalone staging image (no compose — deployed to ECS/k8s/Fly.io)
@@ -193,7 +193,7 @@ Protected routes live under `/v1/api/` and require a valid `Authorization: Beare
 - Cache vars (all optional): `CACHE_ENABLED` (default `false`), `CACHE_URL` (default `redis://localhost:6379`), `CACHE_TTL` (default `5m` — any `time.ParseDuration` string).
 - `REQUEST_LOG_ENABLED` (optional, default `true`): when `false`, Echo's per-request access log middleware (`echomw.RequestLogger()`) is not mounted. Any other value (including unset) keeps it on.
 - Stripe vars (all optional — billing endpoints return 503 when `STRIPE_SECRET_KEY` is unset): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`. When `STRIPE_SECRET_KEY` is set, **both** `STRIPE_WEBHOOK_SECRET` and `STRIPE_PRO_PRICE_ID` must also be set; `Load()` treats them as a group and names every missing companion var in the error.
-- SMTP vars (all optional — when `SMTP_HOST` is unset the password-recovery email is silently skipped, the forgot-password endpoint still returns the neutral 204 response, and a server-side warning is logged; **no 503** is returned because that would be an enumeration signal): `SMTP_HOST`, `SMTP_PORT` (default `587`), `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME` (default `Charity Chest`). When `SMTP_HOST` is set, `SMTP_FROM` is required. `SMTP_USERNAME` and `SMTP_PASSWORD` are an **optional pair** — both or neither — so MailHog (which rejects unauthenticated AUTH) and internal relays work without changes; the mailer skips the AUTH step when both are empty. `Load()` reports every missing companion in the error.
+- SMTP vars (all optional — when `SMTP_HOST` is unset the password-recovery email is silently skipped, the forgot-password endpoint still returns the neutral 204 response, and a server-side warning is logged; **no 503** is returned because that would be an enumeration signal): `SMTP_HOST`, `SMTP_PORT` (default `587`), `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME` (default `Charity Chest`). When `SMTP_HOST` is set, `SMTP_FROM` is required. `SMTP_USERNAME` and `SMTP_PASSWORD` are an **optional pair** — both or neither — so capture servers like Mailpit (which rejects AUTH outright) and internal relays work without changes; the mailer skips the AUTH step when both are empty. `Load()` reports every missing companion in the error.
 - `FRONTEND_URL` is used by `GoogleCallback` to redirect the browser back to the webapp after the OAuth exchange.
 - `ROOT_USER` / `ROOT_PASSWORD` are **container-level** vars consumed by the Docker entry-point scripts (`.docker-dev/entry-point.sh`, `.docker-staging/entry-point.sh`) — not by `config.Load()`. The script invokes `seed-root -email "$ROOT_USER" -password "$ROOT_PASSWORD"` on container startup. The dev image makes both required (compose enforces it). The staging image treats them as optional: when both are set the entry-point seeds best-effort and continues to start the server even if seeding fails (e.g. user already exists); when either is unset, seeding is skipped.
 
@@ -216,7 +216,7 @@ cd server
 go run .
 
 # Run with Docker (no local Go/Postgres needed)
-# Brings up Postgres, Valkey, MailHog (SMTP capture on :1025, UI on :8025), and the server.
+# Brings up Postgres, Valkey, Mailpit (SMTP capture on :1025, UI on :8025), and the server.
 docker compose -f server/.docker-dev/docker-compose.yml up --build
 
 # Build
@@ -330,7 +330,7 @@ Self-service "forgot password" flow lives in `handler/auth_password_reset.go`.
 - **Mailer gateway**: `MailerGateway` in `handler/auth_mailer.go` mirrors `StripeGateway` exactly — exported interface, `goMailMailer` real impl (backed by `github.com/wneessen/go-mail`), `disabledMailer` fallback when `cfg.SMTPHost == ""`, and a `NewAuthHandlerWithMailer` test seam (mirroring `NewBillingHandlerWithGateway`). The HTML body is rendered by a [templ](https://github.com/a-h/templ) component (`email.PasswordReset` in `internal/templates/email/password_reset.templ`) so user-controllable data (name, reset URL) is auto-escaped and cannot inject markup; the plaintext alternative is assembled with a `strings.Builder` because HTML-escaping would turn `<` into `&lt;` inside the user's inbox. The greeting line ("Hello[, Name],") is composed in Go before being handed to the template so the conditional name suffix does not have to live inside the templ source.
 - **Localization**: the email subject and body strings come from `internal/i18n` (`KeyPasswordResetEmail*`). The reset URL embeds the locale (`/en/reset-password?token=...` or `/it/reset-password?token=...`) so users land on the page in the language they used to request the reset.
 - **Known limitation**: existing JWTs remain valid after a password reset (no `password_changed_at` + `iat` check in the JWT middleware). An attacker with a stolen 24h-valid token keeps access until expiry, even after the password is rotated. Add a `password_changed_at` column on `users` and an iat-rejection rule in `middleware/jwt.go` if/when needed.
-- **Dev SMTP**: dev compose ships MailHog. Visit `http://localhost:8025` to inspect captured emails. Staging/production should point `SMTP_*` at a real relay (SES, Mailgun, Postmark).
+- **Dev SMTP**: dev compose ships Mailpit. Visit `http://localhost:8025` to inspect captured emails. Staging/production should point `SMTP_*` at a real relay (SES, Mailgun, Postmark).
 
 ---
 

@@ -139,7 +139,7 @@ func Load() (*Config, error) {
 
 	// When SMTP is enabled (SMTP_HOST is set), SMTP_FROM is required so the
 	// recovery email has a sender address. SMTP_USERNAME and SMTP_PASSWORD are
-	// an optional pair: both or neither (MailHog and many internal relays
+	// an optional pair: both or neither (Mailpit and many internal relays
 	// accept unauthenticated submissions). Empty strings are treated as unset.
 	if cfg.SMTPHost != "" {
 		if cfg.SMTPFrom == "" {
