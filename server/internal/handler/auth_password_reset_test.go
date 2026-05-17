@@ -265,7 +265,9 @@ func TestForgotPassword_ThrottlesRepeatedRequests(t *testing.T) {
 func TestForgotPassword_GoogleOnlyUser_StillIssuesToken(t *testing.T) {
 	e, _, db, mailer := newServerWithMailer(t)
 	googleID := "google-uid-pw-reset"
-	db.Create(&model.User{Email: "go@example.com", Name: "Go", GoogleID: &googleID})
+	if err := db.Create(&model.User{Email: "go@example.com", Name: "Go", GoogleID: &googleID}).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
 
 	rec := postJSON(e, "/v1/auth/password/forgot", `{"email":"go@example.com"}`)
 	if rec.Code != http.StatusNoContent {
@@ -295,7 +297,9 @@ func TestForgotPassword_MailerDisabled_StillReturns204(t *testing.T) {
 	v1 := e.Group("/v1")
 	v1.Group("/auth").POST("/password/forgot", h.ForgotPassword)
 
-	db.Create(&model.User{Email: "disabled@example.com", Name: "User"})
+	if err := db.Create(&model.User{Email: "disabled@example.com", Name: "User"}).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
 
 	rec := postJSON(e, "/v1/auth/password/forgot", `{"email":"disabled@example.com"}`)
 	if rec.Code != http.StatusNoContent {
@@ -333,7 +337,9 @@ func TestNewAuthHandlerWithMailer_NilMailer_DoesNotPanic(t *testing.T) {
 	e := echo.New()
 	e.Group("/v1").Group("/auth").POST("/password/forgot", h.ForgotPassword)
 
-	db.Create(&model.User{Email: "nilmailer@example.com", Name: "Nil"})
+	if err := db.Create(&model.User{Email: "nilmailer@example.com", Name: "Nil"}).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
 
 	rec := postJSON(e, "/v1/auth/password/forgot", `{"email":"nilmailer@example.com"}`)
 	if rec.Code != http.StatusNoContent {
@@ -439,7 +445,9 @@ func TestResetPassword_ExpiredToken_Returns400(t *testing.T) {
 	postJSON(e, "/v1/auth/register", `{"email":"expired@example.com","password":"password123","name":"E"}`)
 
 	var user model.User
-	db.Where("email = ?", "expired@example.com").First(&user)
+	if err := db.Where("email = ?", "expired@example.com").First(&user).Error; err != nil {
+		t.Fatalf("look up user: %v", err)
+	}
 
 	raw := "expired-raw-token-fixture"
 	db.Create(&model.PasswordResetToken{
@@ -460,7 +468,9 @@ func TestResetPassword_UsedToken_Returns400(t *testing.T) {
 	postJSON(e, "/v1/auth/register", `{"email":"used@example.com","password":"password123","name":"U"}`)
 
 	var user model.User
-	db.Where("email = ?", "used@example.com").First(&user)
+	if err := db.Where("email = ?", "used@example.com").First(&user).Error; err != nil {
+		t.Fatalf("look up user: %v", err)
+	}
 
 	raw := "consumed-raw-token-fixture"
 	now := time.Now()
@@ -504,7 +514,9 @@ func TestResetPassword_InvalidatesOtherTokensForSameUser(t *testing.T) {
 	firstToken := urlToken(t, calls[0].HTMLBody)
 
 	var user model.User
-	db.Where("email = ?", "multi@example.com").First(&user)
+	if err := db.Where("email = ?", "multi@example.com").First(&user).Error; err != nil {
+		t.Fatalf("look up user: %v", err)
+	}
 	secondRaw := "extra-token-for-defense-in-depth-test"
 	db.Create(&model.PasswordResetToken{
 		UserID:    user.ID,
@@ -538,7 +550,9 @@ func TestResetPassword_ConcurrentSameToken_OnlyOneSucceeds(t *testing.T) {
 	postJSON(e, "/v1/auth/register", `{"email":"race@example.com","password":"password123","name":"R"}`)
 
 	var user model.User
-	db.Where("email = ?", "race@example.com").First(&user)
+	if err := db.Where("email = ?", "race@example.com").First(&user).Error; err != nil {
+		t.Fatalf("look up user: %v", err)
+	}
 
 	raw := "race-token-fixture-string"
 	db.Create(&model.PasswordResetToken{
