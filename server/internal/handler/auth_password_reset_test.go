@@ -77,15 +77,17 @@ func (f *fakeMailer) waitForCalls(t *testing.T, n int) []fakeMailerCall {
 }
 
 // assertNoCallsWithin polls mailer.snapshot() until the timeout elapses and
-// fails the test as soon as any call is recorded. Replaces a fixed time.Sleep
-// so the negative assertion stays deterministic under scheduler jitter without
-// pessimistically slowing down the happy path.
-func assertNoCallsWithin(t *testing.T, m *fakeMailer, timeout time.Duration) {
+// fails the test as soon as the recorded call count deviates from expected.
+// Replaces a fixed time.Sleep so the negative assertion stays deterministic
+// under scheduler jitter without pessimistically slowing down the happy path.
+// Pass expected=0 to assert no calls at all, or a positive baseline to assert
+// that no additional calls land after that baseline (throttle/dedupe checks).
+func assertNoCallsWithin(t *testing.T, m *fakeMailer, expected int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
-		if snap := m.snapshot(); len(snap) != 0 {
-			t.Fatalf("mailer called %d times; should never send", len(snap))
+		if snap := m.snapshot(); len(snap) != expected {
+			t.Fatalf("mailer call count = %d; want %d", len(snap), expected)
 		}
 		if !time.Now().Before(deadline) {
 			return
@@ -176,7 +178,7 @@ func TestForgotPassword_UnknownEmail_ReturnsNoContent_NoMail(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body: %s", rec.Code, rec.Body.String())
 	}
-	assertNoCallsWithin(t, mailer, 50*time.Millisecond)
+	assertNoCallsWithin(t, mailer, 0, 50*time.Millisecond)
 }
 
 func TestForgotPassword_KnownEmail_SendsEmailWithEnglishURL(t *testing.T) {
@@ -237,11 +239,7 @@ func TestForgotPassword_ThrottlesRepeatedRequests(t *testing.T) {
 	mailer.waitForCalls(t, 1)
 
 	postJSON(e, "/v1/auth/password/forgot", `{"email":"throttle@example.com"}`)
-	time.Sleep(100 * time.Millisecond)
-
-	if got := mailer.snapshot(); len(got) != 1 {
-		t.Errorf("mailer called %d times; throttle window should suppress duplicates", len(got))
-	}
+	assertNoCallsWithin(t, mailer, 1, 100*time.Millisecond)
 }
 
 func TestForgotPassword_GoogleOnlyUser_StillIssuesToken(t *testing.T) {
