@@ -53,12 +53,13 @@ type Config struct {
 	// warning is logged when SMTPHost is unset. The forgot-password endpoint
 	// still returns the neutral 2xx response to avoid leaking the disabled
 	// state to clients).
-	SMTPHost     string
-	SMTPPort     int
-	SMTPUsername string
-	SMTPPassword string
-	SMTPFrom     string
-	SMTPFromName string
+	SMTPHost      string
+	SMTPPort      int
+	SMTPUsername  string
+	SMTPPassword  string
+	SMTPFrom      string
+	SMTPFromName  string
+	SMTPForceIPv4 bool
 }
 
 // Load reads configuration from environment variables.
@@ -85,6 +86,7 @@ func Load() (*Config, error) {
 		SMTPPassword:        os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:            os.Getenv("SMTP_FROM"),
 		SMTPFromName:        envOrDefault("SMTP_FROM_NAME", "Charity Chest"),
+		SMTPForceIPv4:       os.Getenv("SMTP_FORCE_IPV4") != "false",
 	}
 
 	cacheTTL, err := parseDuration(os.Getenv("CACHE_TTL"), 5*time.Minute)
