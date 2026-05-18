@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -36,13 +37,14 @@ type MailerGateway interface {
 // the resolved SMTP configuration; the client is reused across requests so
 // each Send opens a fresh connection but reuses the same TLS settings.
 type goMailMailer struct {
-	host     string
-	port     int
-	username string
-	password string
-	from     string
-	fromName string
-	authSet  bool
+	host      string
+	port      int
+	username  string
+	password  string
+	from      string
+	fromName  string
+	authSet   bool
+	forceIPv4 bool
 }
 
 // newGoMailMailer returns a configured production mailer.
@@ -50,14 +52,24 @@ type goMailMailer struct {
 // skip the AUTH step when talking to relays that reject it (e.g. Mailpit).
 func newGoMailMailer(cfg *config.Config) *goMailMailer {
 	return &goMailMailer{
-		host:     cfg.SMTPHost,
-		port:     cfg.SMTPPort,
-		username: cfg.SMTPUsername,
-		password: cfg.SMTPPassword,
-		from:     cfg.SMTPFrom,
-		fromName: cfg.SMTPFromName,
-		authSet:  cfg.SMTPUsername != "" && cfg.SMTPPassword != "",
+		host:      cfg.SMTPHost,
+		port:      cfg.SMTPPort,
+		username:  cfg.SMTPUsername,
+		password:  cfg.SMTPPassword,
+		from:      cfg.SMTPFrom,
+		fromName:  cfg.SMTPFromName,
+		authSet:   cfg.SMTPUsername != "" && cfg.SMTPPassword != "",
+		forceIPv4: cfg.SMTPForceIPv4,
 	}
+}
+
+// ipv4DialContext is a go-mail DialContextFunc that pins the SMTP connection
+// to IPv4. The network argument supplied by go-mail (always "tcp", including
+// on its internal fallback in client.go) is intentionally ignored so the
+// resolver never returns an AAAA record the egress path can't reach.
+func ipv4DialContext(ctx context.Context, _, address string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, "tcp4", address)
 }
 
 // Send delivers the message synchronously. The caller is expected to invoke
@@ -92,6 +104,9 @@ func (m *goMailMailer) Send(ctx context.Context, to, subject, htmlBody, textBody
 	// Avoid TLS on plaintext capture servers (port 1025 is the Mailpit default).
 	if m.port == 1025 {
 		opts = append(opts, gomail.WithTLSPolicy(gomail.NoTLS))
+	}
+	if m.forceIPv4 {
+		opts = append(opts, gomail.WithDialContextFunc(ipv4DialContext))
 	}
 
 	client, err := gomail.NewClient(m.host, opts...)

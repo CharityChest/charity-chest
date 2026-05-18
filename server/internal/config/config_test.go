@@ -375,6 +375,7 @@ func clearSMTP(t *testing.T) {
 	t.Setenv("SMTP_PASSWORD", "")
 	t.Setenv("SMTP_FROM", "")
 	t.Setenv("SMTP_FROM_NAME", "")
+	t.Setenv("SMTP_FORCE_IPV4", "")
 }
 
 func TestLoad_SMTPDisabled_NoValidation(t *testing.T) {
@@ -528,5 +529,32 @@ func TestLoad_SMTPFromName_Default(t *testing.T) {
 	}
 	if cfg.SMTPFromName != "Charity Chest" {
 		t.Errorf("SMTPFromName = %q, want default %q", cfg.SMTPFromName, "Charity Chest")
+	}
+}
+
+func TestLoad_SMTPForceIPv4_DefaultsToTrue(t *testing.T) {
+	setEnv(t, allRequired)
+	clearSMTP(t)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.SMTPForceIPv4 {
+		t.Error("SMTPForceIPv4 should default to true")
+	}
+}
+
+func TestLoad_SMTPForceIPv4_Disabled(t *testing.T) {
+	setEnv(t, allRequired)
+	clearSMTP(t)
+	t.Setenv("SMTP_FORCE_IPV4", "false")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SMTPForceIPv4 {
+		t.Error("SMTPForceIPv4 should be false when SMTP_FORCE_IPV4=false")
 	}
 }
