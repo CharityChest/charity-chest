@@ -4,13 +4,13 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"strconv"
 
 	"charity-chest/internal/cache"
 	"charity-chest/internal/i18n"
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -34,18 +34,20 @@ type createOrgRequest struct {
 	Name string `json:"name"`
 }
 
-// updateOrgRequest is the JSON body for PUT /v1/api/orgs/:orgID.
+// updateOrgRequest is the JSON body for PUT /v1/api/orgs/:orgUUID.
 type updateOrgRequest struct {
 	Name string `json:"name"`
 }
 
-// addMemberRequest is the JSON body for POST /v1/api/orgs/:orgID/members.
+// addMemberRequest is the JSON body for POST /v1/api/orgs/:orgUUID/members.
+// The user is identified by their public UUID — not the internal int id —
+// so admin tooling never has to expose enumerable identifiers.
 type addMemberRequest struct {
-	UserID uint             `json:"user_id"`
-	Role   model.MemberRole `json:"role"`
+	UserUUID string           `json:"user_uuid"`
+	Role     model.MemberRole `json:"role"`
 }
 
-// updateMemberRequest is the JSON body for PUT /v1/api/orgs/:orgID/members/:userID.
+// updateMemberRequest is the JSON body for PUT /v1/api/orgs/:orgUUID/members/:userUUID.
 type updateMemberRequest struct {
 	Role model.MemberRole `json:"role"`
 }
@@ -94,11 +96,12 @@ func (h *OrgHandler) CreateOrg(c echo.Context) error {
 	return dataJSON(c, http.StatusCreated, &org)
 }
 
-// GetOrg godoc — GET /v1/api/orgs/:orgID
+// GetOrg godoc — GET /v1/api/orgs/:orgUUID
+// Behind RequireOrgRole, so the int org id is already resolved into context.
 func (h *OrgHandler) GetOrg(c echo.Context) error {
 	loc := locale(c)
-	orgID, err := parseOrgID(c)
-	if err != nil {
+	orgID := orgIDFromContext(c)
+	if orgID == 0 {
 		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
 	ctx := c.Request().Context()
@@ -122,10 +125,12 @@ func (h *OrgHandler) GetOrg(c echo.Context) error {
 	return dataJSON(c, http.StatusOK, &org)
 }
 
-// UpdateOrg godoc — PUT /v1/api/orgs/:orgID
+// UpdateOrg godoc — PUT /v1/api/orgs/:orgUUID
+// Behind RequireSystemRole only (no RequireOrgRole), so the handler resolves
+// the UUID to a row itself.
 func (h *OrgHandler) UpdateOrg(c echo.Context) error {
 	loc := locale(c)
-	org, err := h.loadOrg(c)
+	org, err := h.loadOrgByUUID(c)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
@@ -145,10 +150,10 @@ func (h *OrgHandler) UpdateOrg(c echo.Context) error {
 	return dataJSON(c, http.StatusOK, org)
 }
 
-// DeleteOrg godoc — DELETE /v1/api/orgs/:orgID
+// DeleteOrg godoc — DELETE /v1/api/orgs/:orgUUID
 func (h *OrgHandler) DeleteOrg(c echo.Context) error {
 	loc := locale(c)
-	org, err := h.loadOrg(c)
+	org, err := h.loadOrgByUUID(c)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
@@ -163,12 +168,12 @@ func (h *OrgHandler) DeleteOrg(c echo.Context) error {
 
 // --- Member management ---
 
-// ListMembers godoc — GET /v1/api/orgs/:orgID/members
+// ListMembers godoc — GET /v1/api/orgs/:orgUUID/members
 func (h *OrgHandler) ListMembers(c echo.Context) error {
 	loc := locale(c)
-	orgID, err := parseOrgID(c)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
+	orgID := orgIDFromContext(c)
+	if orgID == 0 {
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
 	ctx := c.Request().Context()
 	key := cache.KeyOrgMembers(orgID)
@@ -191,13 +196,15 @@ func (h *OrgHandler) ListMembers(c echo.Context) error {
 	return dataJSON(c, http.StatusOK, members)
 }
 
-// AddMember godoc — POST /v1/api/orgs/:orgID/members
+// AddMember godoc — POST /v1/api/orgs/:orgUUID/members
 // Role hierarchy is enforced: caller may only assign roles below their own.
+// The request body identifies the user by UUID; we resolve it to the int FK
+// once and use the int thereafter.
 func (h *OrgHandler) AddMember(c echo.Context) error {
 	loc := locale(c)
-	orgID, err := parseOrgID(c)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
+	orgID := orgIDFromContext(c)
+	if orgID == 0 {
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
 	var req addMemberRequest
 	if err := c.Bind(&req); err != nil {
@@ -205,6 +212,10 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 	}
 	if !model.ValidOrgRole(req.Role) {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidRole))
+	}
+	targetUserID, err := resolveUserIDByUUID(h.db, req.UserUUID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidUserUUID))
 	}
 	if err := h.enforceCanAssign(c, orgID, req.Role); err != nil {
 		return err
@@ -223,7 +234,7 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 		}
 		var existing model.OrgMember
-		lookupErr := tx.Where("org_id = ? AND user_id = ?", orgID, req.UserID).First(&existing).Error
+		lookupErr := tx.Where("org_id = ? AND user_id = ?", orgID, targetUserID).First(&existing).Error
 		if lookupErr == nil {
 			return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyMemberExists))
 		}
@@ -233,14 +244,15 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 		if err := checkPlanLimit(tx, loc, org, req.Role); err != nil {
 			return err
 		}
-		member = model.OrgMember{OrgID: orgID, UserID: req.UserID, Role: req.Role}
+		member = model.OrgMember{OrgID: orgID, UserID: targetUserID, Role: req.Role}
 		if err := tx.Create(&member).Error; err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 		}
 		return nil
 	})
 	if txErr != nil {
-		if he, ok := txErr.(*echo.HTTPError); ok {
+		var he *echo.HTTPError
+		if errors.As(txErr, &he) {
 			return he
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
@@ -256,16 +268,16 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 	return dataJSON(c, http.StatusCreated, &member)
 }
 
-// UpdateMember godoc — PUT /v1/api/orgs/:orgID/members/:userID
+// UpdateMember godoc — PUT /v1/api/orgs/:orgUUID/members/:userUUID
 func (h *OrgHandler) UpdateMember(c echo.Context) error {
 	loc := locale(c)
-	orgID, err := parseOrgID(c)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
+	orgID := orgIDFromContext(c)
+	if orgID == 0 {
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
-	targetUserID, err := parseUserIDParam(c)
+	targetUserID, err := resolveUserIDFromUUIDParam(c, h.db)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
 	}
 	var req updateMemberRequest
 	if err := c.Bind(&req); err != nil {
@@ -308,7 +320,8 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 		return nil
 	})
 	if txErr != nil {
-		if he, ok := txErr.(*echo.HTTPError); ok {
+		var he *echo.HTTPError
+		if errors.As(txErr, &he) {
 			return he
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
@@ -324,16 +337,16 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 	return dataJSON(c, http.StatusOK, &member)
 }
 
-// RemoveMember godoc — DELETE /v1/api/orgs/:orgID/members/:userID
+// RemoveMember godoc — DELETE /v1/api/orgs/:orgUUID/members/:userUUID
 func (h *OrgHandler) RemoveMember(c echo.Context) error {
 	loc := locale(c)
-	orgID, err := parseOrgID(c)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
+	orgID := orgIDFromContext(c)
+	if orgID == 0 {
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
-	targetUserID, err := parseUserIDParam(c)
+	targetUserID, err := resolveUserIDFromUUIDParam(c, h.db)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
 	}
 
 	var member model.OrgMember
@@ -388,14 +401,16 @@ func (h *OrgHandler) enforceCanAssign(c echo.Context, orgID uint, targetRole mod
 	return nil
 }
 
-// loadOrg parses :orgID from the route and fetches the organization from the database.
-func (h *OrgHandler) loadOrg(c echo.Context) (*model.Organization, error) {
-	orgID, err := parseOrgID(c)
+// loadOrgByUUID parses :orgUUID from the route and fetches the organisation
+// from the database. Used by handlers that are NOT behind RequireOrgRole
+// (which would have resolved the UUID into OrgIDContextKey already).
+func (h *OrgHandler) loadOrgByUUID(c echo.Context) (*model.Organization, error) {
+	parsed, err := uuid.Parse(c.Param("orgUUID"))
 	if err != nil {
-		return nil, err
+		return nil, gorm.ErrRecordNotFound
 	}
 	var org model.Organization
-	if err := h.db.First(&org, orgID).Error; err != nil {
+	if err := h.db.Where("uuid = ?", parsed).First(&org).Error; err != nil {
 		return nil, err
 	}
 	return &org, nil
@@ -422,14 +437,30 @@ func checkPlanLimit(tx *gorm.DB, loc string, org model.Organization, targetRole 
 	return nil
 }
 
-// parseOrgID parses the :orgID path parameter as a uint.
-func parseOrgID(c echo.Context) (uint, error) {
-	id, err := strconv.ParseUint(c.Param("orgID"), 10, 64)
-	return uint(id), err
+// orgIDFromContext reads the internal int org id resolved by RequireOrgRole.
+// Returns 0 if absent — the caller must treat 0 as "org not found".
+func orgIDFromContext(c echo.Context) uint {
+	id, _ := c.Get(middleware.OrgIDContextKey).(uint)
+	return id
 }
 
-// parseUserIDParam parses the :userID path parameter as a uint.
-func parseUserIDParam(c echo.Context) (uint, error) {
-	id, err := strconv.ParseUint(c.Param("userID"), 10, 64)
-	return uint(id), err
+// resolveUserIDByUUID parses the supplied UUID string and looks up the user's
+// internal int id. Returns gorm.ErrRecordNotFound for malformed UUIDs and for
+// non-existent users alike.
+func resolveUserIDByUUID(db *gorm.DB, raw string) (uint, error) {
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return 0, gorm.ErrRecordNotFound
+	}
+	var u model.User
+	if err := db.Select("id").Where("uuid = ?", parsed).First(&u).Error; err != nil {
+		return 0, err
+	}
+	return u.ID, nil
+}
+
+// resolveUserIDFromUUIDParam parses :userUUID from the path and returns the
+// user's int id.
+func resolveUserIDFromUUIDParam(c echo.Context, db *gorm.DB) (uint, error) {
+	return resolveUserIDByUUID(db, c.Param("userUUID"))
 }

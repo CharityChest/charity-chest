@@ -57,11 +57,11 @@ export default function OrgsPage() {
     }
   }
 
-  async function handleDelete(orgId: number) {
+  async function handleDelete(orgUuid: string) {
     if (!confirm(t('orgs.deleteOrg') + '?')) return;
     try {
-      await api.deleteOrg(orgId);
-      setOrgs((prev) => prev.filter((o) => o.id !== orgId));
+      await api.deleteOrg(orgUuid);
+      setOrgs((prev) => prev.filter((o) => o.uuid !== orgUuid));
     } catch (err) {
       alert(err instanceof ApiError ? err.message : 'Failed to delete');
     }
@@ -114,27 +114,27 @@ export default function OrgsPage() {
           <ul className="space-y-2">
             {orgs.map((org) => (
               <li
-                key={org.id}
+                key={org.uuid}
                 className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm"
               >
-                <div>
+                <div className="min-w-0">
                   <Link
-                    href={`/orgs/${org.id}`}
+                    href={`/orgs/${org.uuid}`}
                     className="font-medium text-emerald-700 hover:underline"
                   >
                     {org.name}
                   </Link>
-                  <p className="text-xs text-gray-400">#{org.id}</p>
+                  <p className="break-all text-xs text-gray-400">#{org.uuid}</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex shrink-0 gap-2">
                   <Link
-                    href={`/orgs/${org.id}`}
+                    href={`/orgs/${org.uuid}`}
                     className="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
                   >
                     {t('orgs.members')}
                   </Link>
                   <button
-                    onClick={() => handleDelete(org.id)}
+                    onClick={() => handleDelete(org.uuid)}
                     className="rounded-md border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
                   >
                     {t('orgs.deleteOrg')}

@@ -35,6 +35,8 @@ const (
 	KeyCannotManageRole        Key = "cannot_manage_role"
 	KeySystemNotConfigured     Key = "system_not_configured"
 	KeySystemStatusQueryFailed Key = "system_status_query_failed"
+	KeyInvalidOrgUUID          Key = "invalid_org_uuid"
+	KeyInvalidUserUUID         Key = "invalid_user_uuid"
 
 	KeyMFACodeRequired        Key = "mfa_code_required"
 	KeyMFAInvalidCode         Key = "mfa_invalid_code"
@@ -106,6 +108,8 @@ var messages = map[string]map[Key]string{
 		KeyCannotManageRole:        "you do not have permission to assign this role",
 		KeySystemNotConfigured:     "system not yet configured",
 		KeySystemStatusQueryFailed: "failed to query system status",
+		KeyInvalidOrgUUID:          "invalid organization identifier",
+		KeyInvalidUserUUID:         "invalid user identifier",
 
 		KeyMFACodeRequired:        "mfa code is required",
 		KeyMFAInvalidCode:         "invalid mfa code",
@@ -170,6 +174,8 @@ var messages = map[string]map[Key]string{
 		KeyCannotManageRole:        "non hai i permessi per assegnare questo ruolo",
 		KeySystemNotConfigured:     "sistema non ancora configurato",
 		KeySystemStatusQueryFailed: "errore nella verifica dello stato del sistema",
+		KeyInvalidOrgUUID:          "identificativo organizzazione non valido",
+		KeyInvalidUserUUID:         "identificativo utente non valido",
 
 		KeyMFACodeRequired:        "il codice mfa è obbligatorio",
 		KeyMFAInvalidCode:         "codice mfa non valido",

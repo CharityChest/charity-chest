@@ -54,11 +54,16 @@ vi.mock('@/lib/api', () => {
 import { isAuthenticated, getRole } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
 
-const ORG = { id: 1, name: 'Test Org', plan: 'free' as const, created_at: '', updated_at: '' };
-const ME = { id: 10, email: 'me@test.com', name: 'Me', created_at: '', updated_at: '' };
+const ORG_UUID = '00000000-0000-0000-0000-000000000001';
+const ME_UUID = '00000000-0000-0000-0000-000000000010';
+const OTHER_UUID = '00000000-0000-0000-0000-000000000020';
+const NEW_MEMBER_UUID = '00000000-0000-0000-0000-000000000099';
 
-function makeParams(orgID = '1') {
-  return Promise.resolve({ orgID });
+const ORG = { uuid: ORG_UUID, name: 'Test Org', plan: 'free' as const, created_at: '', updated_at: '' };
+const ME = { uuid: ME_UUID, email: 'me@test.com', name: 'Me', mfa_enabled: false, created_at: '', updated_at: '' };
+
+function makeParams(orgUUID = ORG_UUID) {
+  return Promise.resolve({ orgUUID });
 }
 
 beforeEach(() => {
@@ -113,12 +118,12 @@ describe('OrgDetailPage — org display', () => {
   it('renders member names in the list', async () => {
     const members = [
       {
-        id: 1, org_id: 1, user_id: 10, role: 'owner', created_at: '', updated_at: '',
-        user: { id: 10, email: 'me@test.com', name: 'Me', created_at: '', updated_at: '' },
+        uuid: '00000000-0000-0000-0000-0000000000a1', role: 'owner', created_at: '', updated_at: '',
+        user: { uuid: ME_UUID, email: 'me@test.com', name: 'Me', mfa_enabled: false, created_at: '', updated_at: '' },
       },
       {
-        id: 2, org_id: 1, user_id: 20, role: 'admin', created_at: '', updated_at: '',
-        user: { id: 20, email: 'other@test.com', name: 'Other', created_at: '', updated_at: '' },
+        uuid: '00000000-0000-0000-0000-0000000000a2', role: 'admin', created_at: '', updated_at: '',
+        user: { uuid: OTHER_UUID, email: 'other@test.com', name: 'Other', mfa_enabled: false, created_at: '', updated_at: '' },
       },
     ];
     vi.mocked(api.listMembers).mockResolvedValue(members);
@@ -164,8 +169,8 @@ describe('OrgDetailPage — role-based actions', () => {
     vi.mocked(api.me).mockResolvedValue(ME);
     vi.mocked(api.listMembers).mockResolvedValue([
       {
-        id: 1, org_id: 1, user_id: 10, role: 'owner', created_at: '', updated_at: '',
-        user: { id: 10, email: 'me@test.com', name: 'Me', created_at: '', updated_at: '' },
+        uuid: '00000000-0000-0000-0000-0000000000a1', role: 'owner', created_at: '', updated_at: '',
+        user: { uuid: ME_UUID, email: 'me@test.com', name: 'Me', mfa_enabled: false, created_at: '', updated_at: '' },
       },
     ]);
 
@@ -199,7 +204,7 @@ describe('OrgDetailPage — edit org name', () => {
   });
 
   it('calls api.updateOrg and hides form on successful save', async () => {
-    const updatedOrg = { id: 1, name: 'Updated Name', created_at: '', updated_at: '' };
+    const updatedOrg = { uuid: ORG_UUID, name: 'Updated Name', plan: 'free' as const, created_at: '', updated_at: '' };
     vi.mocked(api.updateOrg).mockResolvedValue(updatedOrg);
 
     render(<OrgDetailPage params={makeParams()} />);
@@ -214,7 +219,7 @@ describe('OrgDetailPage — edit org name', () => {
     fireEvent.click(screen.getByText('orgs.save'));
 
     await waitFor(() => {
-      expect(api.updateOrg).toHaveBeenCalledWith(1, 'Updated Name');
+      expect(api.updateOrg).toHaveBeenCalledWith(ORG_UUID, 'Updated Name');
       expect(screen.getByText('Updated Name')).toBeTruthy();
     });
   });
@@ -254,8 +259,8 @@ describe('OrgDetailPage — add member', () => {
 
   it('calls api.addMember and appends to the list on success', async () => {
     const newMember = {
-      id: 5, org_id: 1, user_id: 99, role: 'operational', created_at: '', updated_at: '',
-      user: { id: 99, email: 'new@test.com', name: 'New Member', created_at: '', updated_at: '' },
+      uuid: '00000000-0000-0000-0000-0000000000b1', role: 'operational', created_at: '', updated_at: '',
+      user: { uuid: NEW_MEMBER_UUID, email: 'new@test.com', name: 'New Member', mfa_enabled: false, created_at: '', updated_at: '' },
     };
     vi.mocked(api.addMember).mockResolvedValue(newMember);
 
@@ -264,12 +269,12 @@ describe('OrgDetailPage — add member', () => {
     await waitFor(() => screen.getByPlaceholderText('orgs.userIdPlaceholder'));
 
     fireEvent.change(screen.getByPlaceholderText('orgs.userIdPlaceholder'), {
-      target: { value: '99' },
+      target: { value: NEW_MEMBER_UUID },
     });
     fireEvent.click(screen.getByText('orgs.add'));
 
     await waitFor(() => {
-      expect(api.addMember).toHaveBeenCalledWith(1, 99, 'operational');
+      expect(api.addMember).toHaveBeenCalledWith(ORG_UUID, NEW_MEMBER_UUID, 'operational');
       expect(screen.getByText('New Member')).toBeTruthy();
     });
   });
@@ -282,7 +287,7 @@ describe('OrgDetailPage — add member', () => {
     await waitFor(() => screen.getByPlaceholderText('orgs.userIdPlaceholder'));
 
     fireEvent.change(screen.getByPlaceholderText('orgs.userIdPlaceholder'), {
-      target: { value: '999' },
+      target: { value: '00000000-0000-0000-0000-0000000000ff' },
     });
     fireEvent.click(screen.getByText('orgs.add'));
 
@@ -296,8 +301,8 @@ describe('OrgDetailPage — add member', () => {
 describe('OrgDetailPage — member management', () => {
   const MEMBERS = [
     {
-      id: 2, org_id: 1, user_id: 20, role: 'admin', created_at: '', updated_at: '',
-      user: { id: 20, email: 'other@test.com', name: 'Other', created_at: '', updated_at: '' },
+      uuid: '00000000-0000-0000-0000-0000000000a2', role: 'admin', created_at: '', updated_at: '',
+      user: { uuid: OTHER_UUID, email: 'other@test.com', name: 'Other', mfa_enabled: false, created_at: '', updated_at: '' },
     },
   ];
 
@@ -350,7 +355,7 @@ describe('OrgDetailPage — member management', () => {
     fireEvent.click(screen.getByText('orgs.save'));
 
     await waitFor(() => {
-      expect(api.updateMember).toHaveBeenCalledWith(1, 20, expect.any(String));
+      expect(api.updateMember).toHaveBeenCalledWith(ORG_UUID, OTHER_UUID, expect.any(String));
     });
   });
 
@@ -365,7 +370,7 @@ describe('OrgDetailPage — member management', () => {
     fireEvent.click(screen.getByText('orgs.remove'));
 
     await waitFor(() => {
-      expect(api.removeMember).toHaveBeenCalledWith(1, 20);
+      expect(api.removeMember).toHaveBeenCalledWith(ORG_UUID, OTHER_UUID);
     });
   });
 
@@ -451,8 +456,8 @@ describe('OrgDetailPage — billing actions', () => {
   it('shows Upgrade to Pro for org owner (no system role)', async () => {
     vi.mocked(getRole).mockReturnValue(null);
     vi.mocked(api.listMembers).mockResolvedValue([
-      { id: 1, org_id: 1, user_id: 10, role: 'owner', created_at: '', updated_at: '',
-        user: { id: 10, email: 'me@test.com', name: 'Me', created_at: '', updated_at: '' } },
+      { uuid: '00000000-0000-0000-0000-0000000000a1', role: 'owner', created_at: '', updated_at: '',
+        user: { uuid: ME_UUID, email: 'me@test.com', name: 'Me', mfa_enabled: false, created_at: '', updated_at: '' } },
     ]);
     render(<OrgDetailPage params={makeParams()} />);
     await waitFor(() => {
@@ -463,8 +468,8 @@ describe('OrgDetailPage — billing actions', () => {
   it('hides Upgrade to Pro for operational member', async () => {
     vi.mocked(getRole).mockReturnValue(null);
     vi.mocked(api.listMembers).mockResolvedValue([
-      { id: 1, org_id: 1, user_id: 10, role: 'operational', created_at: '', updated_at: '',
-        user: { id: 10, email: 'me@test.com', name: 'Me', created_at: '', updated_at: '' } },
+      { uuid: '00000000-0000-0000-0000-0000000000a1', role: 'operational', created_at: '', updated_at: '',
+        user: { uuid: ME_UUID, email: 'me@test.com', name: 'Me', mfa_enabled: false, created_at: '', updated_at: '' } },
     ]);
     render(<OrgDetailPage params={makeParams()} />);
     await waitFor(() => {
@@ -497,7 +502,7 @@ describe('OrgDetailPage — billing actions', () => {
     fireEvent.click(screen.getByText('billing.activateEnterprise'));
 
     await waitFor(() => {
-      expect(api.assignEnterprisePlan).toHaveBeenCalledWith(1);
+      expect(api.assignEnterprisePlan).toHaveBeenCalledWith(ORG_UUID);
       expect(screen.getByText('billing.planEnterprise')).toBeTruthy();
     });
   });
@@ -522,7 +527,7 @@ describe('OrgDetailPage — billing actions', () => {
     fireEvent.click(screen.getByText('billing.cancelSubscription'));
 
     await waitFor(() => {
-      expect(api.cancelSubscription).toHaveBeenCalledWith(1);
+      expect(api.cancelSubscription).toHaveBeenCalledWith(ORG_UUID);
     });
     vi.unstubAllGlobals();
   });
@@ -537,7 +542,7 @@ describe('OrgDetailPage — billing actions', () => {
     fireEvent.click(screen.getByText('billing.upgradeToPro'));
 
     await waitFor(() => {
-      expect(api.createCheckoutSession).toHaveBeenCalledWith(1, 'en');
+      expect(api.createCheckoutSession).toHaveBeenCalledWith(ORG_UUID, 'en');
       expect(window.location.href).toBe('https://checkout.stripe.com/test');
     });
     vi.unstubAllGlobals();

@@ -16,6 +16,12 @@ const (
 	UserIDContextKey = "user_id"
 	EmailContextKey  = "email"
 	RoleContextKey   = "role"
+
+	// OrgIDContextKey holds the internal integer org id resolved from the
+	// `:orgUUID` path parameter. Set by RequireOrgRole (or by a handler that
+	// performs the UUID lookup itself) so subsequent handler code can use the
+	// int FK without a second lookup.
+	OrgIDContextKey = "org_id"
 )
 
 // Claims holds the JWT payload stored in each token.

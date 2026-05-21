@@ -49,7 +49,7 @@ import { isAuthenticated } from '@/lib/auth';
 import { api } from '@/lib/api';
 
 const BASE_USER = {
-  id: 1,
+  uuid: '00000000-0000-0000-0000-000000000001',
   email: 'u@u.com',
   name: 'User',
   mfa_enabled: false,

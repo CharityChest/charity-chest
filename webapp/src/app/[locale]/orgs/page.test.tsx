@@ -44,9 +44,13 @@ vi.mock('@/lib/api', () => {
 import { isAuthenticated, getRole, clearToken } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
 
+const UUID_ALPHA = '00000000-0000-0000-0000-000000000001';
+const UUID_BETA = '00000000-0000-0000-0000-000000000002';
+const UUID_GAMMA = '00000000-0000-0000-0000-000000000003';
+
 const baseOrgs = [
-  { id: 1, name: 'Alpha', created_at: '', updated_at: '' },
-  { id: 2, name: 'Beta', created_at: '', updated_at: '' },
+  { uuid: UUID_ALPHA, name: 'Alpha', plan: 'free' as const, created_at: '', updated_at: '' },
+  { uuid: UUID_BETA, name: 'Beta', plan: 'free' as const, created_at: '', updated_at: '' },
 ];
 
 beforeEach(() => {
@@ -151,7 +155,7 @@ describe('OrgsPage — create org', () => {
   }
 
   it('adds the new org to the list on successful create', async () => {
-    const newOrg = { id: 3, name: 'Gamma', created_at: '', updated_at: '' };
+    const newOrg = { uuid: UUID_GAMMA, name: 'Gamma', plan: 'free' as const, created_at: '', updated_at: '' };
     vi.mocked(api.createOrg).mockResolvedValue(newOrg);
 
     render(<OrgsPage />);
@@ -201,7 +205,7 @@ describe('OrgsPage — delete org', () => {
     fireEvent.click(screen.getAllByText('orgs.deleteOrg')[0]);
 
     await waitFor(() => {
-      expect(api.deleteOrg).toHaveBeenCalledWith(1);
+      expect(api.deleteOrg).toHaveBeenCalledWith(UUID_ALPHA);
       expect(screen.queryByText('Alpha')).toBeNull();
     });
   });

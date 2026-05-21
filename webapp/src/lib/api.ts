@@ -166,11 +166,11 @@ export const api = {
   // --- System management (root only) ---
 
   /** POST /v1/api/system/assign-role — pass role="" to remove system role */
-  assignSystemRole(userId: number, role: string): Promise<User> {
+  assignSystemRole(userUuid: string, role: string): Promise<User> {
     return request('/v1/api/system/assign-role', {
       method: 'POST',
       headers: bearerHeader(),
-      body: JSON.stringify({ user_id: userId, role }),
+      body: JSON.stringify({ user_uuid: userUuid, role }),
     });
   },
 
@@ -190,23 +190,23 @@ export const api = {
     });
   },
 
-  /** GET /v1/api/orgs/:orgID */
-  getOrg(orgId: number): Promise<Organization> {
-    return request(`/v1/api/orgs/${orgId}`, { headers: bearerHeader() });
+  /** GET /v1/api/orgs/:orgUUID */
+  getOrg(orgUuid: string): Promise<Organization> {
+    return request(`/v1/api/orgs/${orgUuid}`, { headers: bearerHeader() });
   },
 
-  /** PUT /v1/api/orgs/:orgID */
-  updateOrg(orgId: number, name: string): Promise<Organization> {
-    return request(`/v1/api/orgs/${orgId}`, {
+  /** PUT /v1/api/orgs/:orgUUID */
+  updateOrg(orgUuid: string, name: string): Promise<Organization> {
+    return request(`/v1/api/orgs/${orgUuid}`, {
       method: 'PUT',
       headers: bearerHeader(),
       body: JSON.stringify({ name }),
     });
   },
 
-  /** DELETE /v1/api/orgs/:orgID */
-  deleteOrg(orgId: number): Promise<void> {
-    return request(`/v1/api/orgs/${orgId}`, {
+  /** DELETE /v1/api/orgs/:orgUUID */
+  deleteOrg(orgUuid: string): Promise<void> {
+    return request(`/v1/api/orgs/${orgUuid}`, {
       method: 'DELETE',
       headers: bearerHeader(),
     });
@@ -214,32 +214,32 @@ export const api = {
 
   // --- Member management ---
 
-  /** GET /v1/api/orgs/:orgID/members */
-  listMembers(orgId: number): Promise<OrganizationMember[]> {
-    return request(`/v1/api/orgs/${orgId}/members`, { headers: bearerHeader() });
+  /** GET /v1/api/orgs/:orgUUID/members */
+  listMembers(orgUuid: string): Promise<OrganizationMember[]> {
+    return request(`/v1/api/orgs/${orgUuid}/members`, { headers: bearerHeader() });
   },
 
-  /** POST /v1/api/orgs/:orgID/members */
-  addMember(orgId: number, userId: number, role: string): Promise<OrganizationMember> {
-    return request(`/v1/api/orgs/${orgId}/members`, {
+  /** POST /v1/api/orgs/:orgUUID/members */
+  addMember(orgUuid: string, userUuid: string, role: string): Promise<OrganizationMember> {
+    return request(`/v1/api/orgs/${orgUuid}/members`, {
       method: 'POST',
       headers: bearerHeader(),
-      body: JSON.stringify({ user_id: userId, role }),
+      body: JSON.stringify({ user_uuid: userUuid, role }),
     });
   },
 
-  /** PUT /v1/api/orgs/:orgID/members/:userID */
-  updateMember(orgId: number, userId: number, role: string): Promise<OrganizationMember> {
-    return request(`/v1/api/orgs/${orgId}/members/${userId}`, {
+  /** PUT /v1/api/orgs/:orgUUID/members/:userUUID */
+  updateMember(orgUuid: string, userUuid: string, role: string): Promise<OrganizationMember> {
+    return request(`/v1/api/orgs/${orgUuid}/members/${userUuid}`, {
       method: 'PUT',
       headers: bearerHeader(),
       body: JSON.stringify({ role }),
     });
   },
 
-  /** DELETE /v1/api/orgs/:orgID/members/:userID */
-  removeMember(orgId: number, userId: number): Promise<void> {
-    return request(`/v1/api/orgs/${orgId}/members/${userId}`, {
+  /** DELETE /v1/api/orgs/:orgUUID/members/:userUUID */
+  removeMember(orgUuid: string, userUuid: string): Promise<void> {
+    return request(`/v1/api/orgs/${orgUuid}/members/${userUuid}`, {
       method: 'DELETE',
       headers: bearerHeader(),
     });
@@ -258,26 +258,26 @@ export const api = {
 
   // --- Billing & plans ---
 
-  /** POST /v1/api/orgs/:orgID/billing/checkout — returns a Stripe Checkout URL */
-  createCheckoutSession(orgId: number, locale: string): Promise<BillingCheckoutResponse> {
+  /** POST /v1/api/orgs/:orgUUID/billing/checkout — returns a Stripe Checkout URL */
+  createCheckoutSession(orgUuid: string, locale: string): Promise<BillingCheckoutResponse> {
     const qs = new URLSearchParams({ locale }).toString();
-    return request(`/v1/api/orgs/${orgId}/billing/checkout?${qs}`, {
+    return request(`/v1/api/orgs/${orgUuid}/billing/checkout?${qs}`, {
       method: 'POST',
       headers: bearerHeader(),
     });
   },
 
-  /** DELETE /v1/api/orgs/:orgID/billing/subscription — cancel the Pro subscription */
-  cancelSubscription(orgId: number): Promise<void> {
-    return request(`/v1/api/orgs/${orgId}/billing/subscription`, {
+  /** DELETE /v1/api/orgs/:orgUUID/billing/subscription — cancel the Pro subscription */
+  cancelSubscription(orgUuid: string): Promise<void> {
+    return request(`/v1/api/orgs/${orgUuid}/billing/subscription`, {
       method: 'DELETE',
       headers: bearerHeader(),
     });
   },
 
-  /** POST /v1/api/orgs/:orgID/plan/enterprise — root/system only */
-  assignEnterprisePlan(orgId: number): Promise<Organization> {
-    return request(`/v1/api/orgs/${orgId}/plan/enterprise`, {
+  /** POST /v1/api/orgs/:orgUUID/plan/enterprise — root/system only */
+  assignEnterprisePlan(orgUuid: string): Promise<Organization> {
+    return request(`/v1/api/orgs/${orgUuid}/plan/enterprise`, {
       method: 'POST',
       headers: bearerHeader(),
     });

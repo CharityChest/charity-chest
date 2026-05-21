@@ -1,7 +1,6 @@
 package handler_test
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"charity-chest/internal/handler"
 	"charity-chest/internal/model"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
@@ -95,7 +95,7 @@ func TestAssignSystemRole_AssignsSystemRole(t *testing.T) {
 	target := &model.User{Email: "target@example.com", Name: "Target"}
 	db.Create(target)
 
-	body := `{"user_id":` + uid(target.ID) + `,"role":"system"}`
+	body := `{"user_uuid":"` + target.UUID.String() + `","role":"system"}`
 	c, rec := newSystemContext(t, http.MethodPost, "/v1/api/system/assign-role", body)
 	if err := h.AssignSystemRole(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -124,7 +124,7 @@ func TestAssignSystemRole_ClearsRole(t *testing.T) {
 	target := &model.User{Email: "sys@example.com", Name: "Sys", Role: &role}
 	db.Create(target)
 
-	body := `{"user_id":` + uid(target.ID) + `,"role":""}`
+	body := `{"user_uuid":"` + target.UUID.String() + `","role":""}`
 	c, _ := newSystemContext(t, http.MethodPost, "/v1/api/system/assign-role", body)
 	if err := h.AssignSystemRole(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -141,7 +141,7 @@ func TestAssignSystemRole_UserNotFound_Returns404(t *testing.T) {
 	db := newTestDB(t)
 	h := handler.NewSystemHandler(db, cache.Disabled())
 
-	body := `{"user_id":99999,"role":"system"}`
+	body := `{"user_uuid":"` + uuid.New().String() + `","role":"system"}`
 	c, _ := newSystemContext(t, http.MethodPost, "/v1/api/system/assign-role", body)
 	err := h.AssignSystemRole(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusNotFound {
@@ -156,7 +156,7 @@ func TestAssignSystemRole_CannotModifyRoot_Returns403(t *testing.T) {
 	target := &model.User{Email: "root@example.com", Name: "Root", Role: &role}
 	db.Create(target)
 
-	body := `{"user_id":` + uid(target.ID) + `,"role":"system"}`
+	body := `{"user_uuid":"` + target.UUID.String() + `","role":"system"}`
 	c, _ := newSystemContext(t, http.MethodPost, "/v1/api/system/assign-role", body)
 	err := h.AssignSystemRole(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusForbidden {
@@ -170,7 +170,7 @@ func TestAssignSystemRole_InvalidRole_Returns400(t *testing.T) {
 	target := &model.User{Email: "t@example.com", Name: "T"}
 	db.Create(target)
 
-	body := `{"user_id":` + uid(target.ID) + `,"role":"owner"}`
+	body := `{"user_uuid":"` + target.UUID.String() + `","role":"owner"}`
 	c, _ := newSystemContext(t, http.MethodPost, "/v1/api/system/assign-role", body)
 	err := h.AssignSystemRole(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusBadRequest {
@@ -185,17 +185,12 @@ func TestAssignSystemRole_RootRoleNotAssignable_Returns400(t *testing.T) {
 	db.Create(target)
 
 	// "root" is not assignable via API — only "system" and "" are.
-	body := `{"user_id":` + uid(target.ID) + `,"role":"root"}`
+	body := `{"user_uuid":"` + target.UUID.String() + `","role":"root"}`
 	c, _ := newSystemContext(t, http.MethodPost, "/v1/api/system/assign-role", body)
 	err := h.AssignSystemRole(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 HTTPError, got %v", err)
 	}
-}
-
-// uid formats a uint as a decimal string for use in JSON request bodies.
-func uid(n uint) string {
-	return fmt.Sprintf("%d", n)
 }
 
 // --- Cache paths ---
@@ -273,7 +268,7 @@ func TestAssignSystemRole_BrokenCacheInvalidation(t *testing.T) {
 	// Break cache before the write so Del/DelPattern will fail.
 	mr.Close()
 
-	body := `{"user_id":` + uid(target.ID) + `,"role":"system"}`
+	body := `{"user_uuid":"` + target.UUID.String() + `","role":"system"}`
 	ctx, rec := newSystemContext(t, http.MethodPost, "/v1/api/system/assign-role", body)
 	if err := h.AssignSystemRole(ctx); err != nil {
 		t.Fatalf("AssignSystemRole with broken cache: %v", err)

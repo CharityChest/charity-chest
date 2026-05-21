@@ -19,6 +19,7 @@ import (
 	"charity-chest/internal/i18n"
 	"charity-chest/internal/model"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
@@ -91,16 +92,16 @@ func (g *stripeGoGateway) RefundPayment(ctx context.Context, paymentIntentID str
 
 // --- Handlers ---
 
-// CreateCheckout godoc — POST /v1/api/orgs/:orgID/billing/checkout
+// CreateCheckout godoc — POST /v1/api/orgs/:orgUUID/billing/checkout
 // Returns a Stripe Checkout URL to upgrade the org to Pro.
 func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 	loc := locale(c)
 	if h.stripe == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, i18n.T(loc, i18n.KeyStripeNotConfigured))
 	}
-	orgID, err := parseOrgID(c)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
+	orgID := orgIDFromContext(c)
+	if orgID == 0 {
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
 	var org model.Organization
 	if err := h.db.First(&org, orgID).Error; err != nil {
@@ -117,10 +118,12 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 	if requestedLocale != "it" {
 		requestedLocale = "en"
 	}
-	successURL := fmt.Sprintf("%s/%s/billing/success?org_id=%d&session_id={CHECKOUT_SESSION_ID}",
-		h.cfg.FrontendURL, requestedLocale, orgID)
-	cancelURL := fmt.Sprintf("%s/%s/billing/cancel?org_id=%d",
-		h.cfg.FrontendURL, requestedLocale, orgID)
+	// Success/cancel redirects expose the org's public UUID, not its internal
+	// int id, so the browser-visible URLs stay non-enumerable.
+	successURL := fmt.Sprintf("%s/%s/billing/success?org_uuid=%s&session_id={CHECKOUT_SESSION_ID}",
+		h.cfg.FrontendURL, requestedLocale, org.UUID)
+	cancelURL := fmt.Sprintf("%s/%s/billing/cancel?org_uuid=%s",
+		h.cfg.FrontendURL, requestedLocale, org.UUID)
 
 	params := &stripe.CheckoutSessionCreateParams{
 		Mode: stripe.String(string(stripe.CheckoutSessionModeSubscription)),
@@ -130,6 +133,9 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 				Quantity: stripe.Int64(1),
 			},
 		},
+		// Stripe metadata is round-tripped to us in the webhook payload. It is
+		// not user-visible, so we keep the int id here — the webhook can use it
+		// directly without a UUID→id lookup.
 		Metadata: map[string]string{
 			"org_id": strconv.FormatUint(uint64(orgID), 10),
 		},
@@ -315,16 +321,16 @@ func (h *BillingHandler) attemptEnterpriseCleanup(ctx context.Context, job *mode
 	}
 }
 
-// CancelSubscription godoc — DELETE /v1/api/orgs/:orgID/billing/subscription
+// CancelSubscription godoc — DELETE /v1/api/orgs/:orgUUID/billing/subscription
 // Cancels the Stripe subscription. The plan reverts to free via webhook.
 func (h *BillingHandler) CancelSubscription(c echo.Context) error {
 	loc := locale(c)
 	if h.stripe == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, i18n.T(loc, i18n.KeyStripeNotConfigured))
 	}
-	orgID, err := parseOrgID(c)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
+	orgID := orgIDFromContext(c)
+	if orgID == 0 {
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
 	var org model.Organization
 	if err := h.db.First(&org, orgID).Error; err != nil {
@@ -344,22 +350,25 @@ func (h *BillingHandler) CancelSubscription(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// AssignEnterprisePlan godoc — POST /v1/api/orgs/:orgID/plan/enterprise
+// AssignEnterprisePlan godoc — POST /v1/api/orgs/:orgUUID/plan/enterprise
 // Manually activates the enterprise plan (root/system only).
 // If the org has an active Stripe subscription it is cancelled best-effort.
+// This endpoint is behind RequireSystemRole only, so the handler resolves the
+// org UUID itself instead of relying on OrgIDContextKey.
 func (h *BillingHandler) AssignEnterprisePlan(c echo.Context) error {
 	loc := locale(c)
-	orgID, err := parseOrgID(c)
+	parsed, err := uuid.Parse(c.Param("orgUUID"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
 	var org model.Organization
-	if err := h.db.First(&org, orgID).Error; err != nil {
+	if err := h.db.Where("uuid = ?", parsed).First(&org).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
+	orgID := org.ID
 	if org.Plan == model.PlanEnterprise {
 		return echo.NewHTTPError(http.StatusConflict, i18n.T(loc, i18n.KeyPlanAlreadyActive))
 	}

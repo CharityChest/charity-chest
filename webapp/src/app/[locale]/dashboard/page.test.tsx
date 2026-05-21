@@ -41,9 +41,10 @@ import { isAuthenticated, getRole, clearToken } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
 
 const BASE_USER = {
-  id: 1,
+  uuid: '00000000-0000-0000-0000-000000000001',
   email: 'u@u.com',
   name: 'User',
+  mfa_enabled: false,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
 };
@@ -163,17 +164,18 @@ describe('DashboardPage — org access form', () => {
     vi.mocked(api.me).mockResolvedValue(BASE_USER);
   });
 
-  it('pushes to /orgs/:id when a valid org ID is submitted', async () => {
+  it('pushes to /orgs/:uuid when a valid org UUID is submitted', async () => {
     render(<DashboardPage />);
 
     await waitFor(() => screen.getByText('dashboard.orgAccess'));
 
+    const orgUuid = '00000000-0000-0000-0000-000000000042';
     fireEvent.change(screen.getByPlaceholderText('dashboard.orgIdPlaceholder'), {
-      target: { value: '42' },
+      target: { value: orgUuid },
     });
     fireEvent.click(screen.getByText('dashboard.goToOrg'));
 
-    expect(mockPush).toHaveBeenCalledWith('/orgs/42');
+    expect(mockPush).toHaveBeenCalledWith(`/orgs/${orgUuid}`);
   });
 });
 

@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // PasswordResetToken records a single password-reset request. The plaintext
 // token is sent only in the recovery email; the database stores only its
@@ -9,10 +13,11 @@ import "time"
 // attacker who somehow learns a hash cannot reuse it after the legitimate
 // holder has redeemed it.
 type PasswordResetToken struct {
-	ID        uint       `gorm:"primaryKey"                       json:"id"`
-	UserID    uint       `gorm:"not null;index"                   json:"user_id"`
-	TokenHash string     `gorm:"column:token_hash;uniqueIndex;not null;size:64" json:"-"`
-	ExpiresAt time.Time  `gorm:"column:expires_at;not null;index" json:"expires_at"`
-	UsedAt    *time.Time `gorm:"column:used_at"                   json:"used_at,omitempty"`
-	CreatedAt time.Time  `                                        json:"created_at"`
+	ID        uint       `gorm:"primaryKey"                                               json:"-"`
+	UUID      uuid.UUID  `gorm:"type:uuid;not null;uniqueIndex;default:gen_random_uuid()" json:"-"`
+	UserID    uint       `gorm:"not null;index"                                           json:"user_id"`
+	TokenHash string     `gorm:"column:token_hash;uniqueIndex;not null;size:64"           json:"-"`
+	ExpiresAt time.Time  `gorm:"column:expires_at;not null;index"                         json:"expires_at"`
+	UsedAt    *time.Time `gorm:"column:used_at"                                           json:"used_at,omitempty"`
+	CreatedAt time.Time  `                                                                 json:"created_at"`
 }

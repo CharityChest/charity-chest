@@ -22,8 +22,8 @@ export default function AdminUsersPage() {
   const [searchResult, setSearchResult] = useState<PaginatedResult<UserWithOrgs> | null>(null);
 
   // --- Role assignment state ---
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [userId, setUserId] = useState('');
+  const [selectedUserUuid, setSelectedUserUuid] = useState<string | null>(null);
+  const [userUuid, setUserUuid] = useState('');
   const [role, setRole] = useState('system');
   const [submitting, setSubmitting] = useState(false);
   const [assignError, setAssignError] = useState('');
@@ -71,13 +71,13 @@ export default function AdminUsersPage() {
     e.preventDefault();
     setAssignError('');
     setResult(null);
-    const id = parseInt(userId, 10);
-    if (!userId || isNaN(id)) return;
+    const trimmed = userUuid.trim();
+    if (!trimmed) return;
     setSubmitting(true);
     try {
-      const updated = await api.assignSystemRole(id, role === 'none' ? '' : role);
+      const updated = await api.assignSystemRole(trimmed, role === 'none' ? '' : role);
       setResult(updated);
-      setUserId('');
+      setUserUuid('');
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
@@ -156,11 +156,11 @@ export default function AdminUsersPage() {
                     ) : (
                       searchResult.data.map((u) => (
                         <tr
-                          key={u.id}
-                          onClick={() => { setUserId(String(u.id)); setSelectedUserId(u.id); }}
-                          className={`cursor-pointer ${selectedUserId === u.id ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
+                          key={u.uuid}
+                          onClick={() => { setUserUuid(u.uuid); setSelectedUserUuid(u.uuid); }}
+                          className={`cursor-pointer ${selectedUserUuid === u.uuid ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
                         >
-                          <td className="px-4 py-3 text-gray-500">{u.id}</td>
+                          <td className="break-all px-4 py-3 text-gray-500">{u.uuid}</td>
                           <td className="px-4 py-3 font-medium text-gray-900">{u.email}</td>
                           <td className="px-4 py-3 text-gray-600">{u.role ?? '—'}</td>
                           <td className="px-4 py-3 text-gray-600">
@@ -215,10 +215,9 @@ export default function AdminUsersPage() {
                 {t('adminUsers.userId')}
               </label>
               <input
-                type="number"
-                min={1}
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
+                type="text"
+                value={userUuid}
+                onChange={(e) => setUserUuid(e.target.value)}
                 placeholder={t('adminUsers.userIdPlaceholder')}
                 required
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-base text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
@@ -241,7 +240,7 @@ export default function AdminUsersPage() {
 
             <button
               type="submit"
-              disabled={submitting || !userId}
+              disabled={submitting || !userUuid.trim()}
               className="w-full rounded-md bg-emerald-600 px-4 py-3 text-base font-medium text-white hover:bg-emerald-700 disabled:opacity-50 sm:py-2 sm:text-sm"
             >
               {submitting ? t('adminUsers.assigning') : t('adminUsers.assign')}
@@ -251,8 +250,8 @@ export default function AdminUsersPage() {
           {result && (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
               <p className="font-medium">{t('adminUsers.result')}</p>
-              <p className="mt-1 text-gray-600">
-                #{result.id} · {result.email} ·{' '}
+              <p className="mt-1 break-all text-gray-600">
+                #{result.uuid} · {result.email} ·{' '}
                 <span className="font-medium">{result.role ?? t('dashboard.noRole')}</span>
               </p>
             </div>

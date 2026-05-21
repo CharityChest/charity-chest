@@ -20,6 +20,7 @@ import (
 	"charity-chest/internal/testdb"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
 	stripe "github.com/stripe/stripe-go/v82"
@@ -766,7 +767,7 @@ func TestAssignSystemRole_RootCanAssignSystem(t *testing.T) {
 	var target model.User
 	db.Where("email = ?", "target@example.com").First(&target)
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"system"}`, target.ID)
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"system"}`, target.UUID.String())
 	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", body, rootToken, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
@@ -783,7 +784,7 @@ func TestAssignSystemRole_NonRootForbidden(t *testing.T) {
 	var target model.User
 	db.Where("email = ?", "sys@example.com").First(&target)
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"system"}`, target.ID)
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"system"}`, target.UUID.String())
 	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", body, sysToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
@@ -792,7 +793,7 @@ func TestAssignSystemRole_NonRootForbidden(t *testing.T) {
 
 func TestAssignSystemRole_NoJWTUnauthorized(t *testing.T) {
 	e, _ := newServer(t)
-	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", `{"user_id":1,"role":"system"}`, "", "")
+	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", `{"user_uuid":"00000000-0000-0000-0000-000000000001","role":"system"}`, "", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
@@ -801,7 +802,7 @@ func TestAssignSystemRole_NoJWTUnauthorized(t *testing.T) {
 func TestAssignSystemRole_CannotPromoteRoot(t *testing.T) {
 	e, db := newServer(t)
 	rootToken, rootUser := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
-	body := fmt.Sprintf(`{"user_id":%d,"role":"system"}`, rootUser.ID)
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"system"}`, rootUser.UUID.String())
 	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", body, rootToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
@@ -815,7 +816,7 @@ func TestAssignSystemRole_InvalidRole(t *testing.T) {
 	var target model.User
 	db.Where("email = ?", "target@example.com").First(&target)
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"owner"}`, target.ID) // owner is not a system role
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"owner"}`, target.UUID.String()) // owner is not a system role
 	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", body, rootToken, "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
@@ -883,7 +884,7 @@ func TestDeleteOrg_SystemRole(t *testing.T) {
 	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
 	org := makeOrg(t, db, "ToDelete")
 
-	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", sysToken, "")
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%s", org.UUID), "", sysToken, "")
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want 204", rec.Code)
 	}
@@ -895,13 +896,18 @@ func TestGetOrg_OrgMemberCanAccess(t *testing.T) {
 	e, db := newServer(t)
 	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
 
-	// Create org via API so we get a real ID.
+	// Create org via API so we get a real row, then look up its int id by UUID
+	// to drive the FK insert below (OrgMember still keys off the int id internally).
 	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"Members Org"}`, sysToken, "")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create org: %d", rec.Code)
 	}
 	orgBody := decodeDataBody(t, rec)
-	orgID := uint(orgBody["id"].(float64))
+	orgUUIDStr := orgBody["uuid"].(string)
+	var org model.Organization
+	if err := db.Where("uuid = ?", orgUUIDStr).First(&org).Error; err != nil {
+		t.Fatalf("lookup org by uuid: %v", err)
+	}
 
 	// Create an owner user and add as member directly in DB.
 	_, ownerUser := makeUserWithRole(t, db, "owner@example.com", "Owner", "")
@@ -919,9 +925,9 @@ func TestGetOrg_OrgMemberCanAccess(t *testing.T) {
 	}
 	ownerToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
-	makeOrgMember(t, db, orgID, ownerUser.ID, model.OrgRoleOwner)
+	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
 
-	rec = do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", orgID), "", ownerToken, "")
+	rec = do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s", org.UUID), "", ownerToken, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -933,12 +939,12 @@ func TestGetOrg_NonMemberForbidden(t *testing.T) {
 
 	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"Private Org"}`, sysToken, "")
 	orgBody := decodeDataBody(t, rec)
-	orgID := uint(orgBody["id"].(float64))
+	orgUUIDStr := orgBody["uuid"].(string)
 
 	// A regular registered user (no org membership).
 	userToken := registerUser(t, e, "outsider@example.com", "password123", "Outsider")
 
-	rec = do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", orgID), "", userToken, "")
+	rec = do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s", orgUUIDStr), "", userToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
 	}
@@ -949,7 +955,7 @@ func TestGetOrg_SystemBypassesMembership(t *testing.T) {
 	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
 	org := makeOrg(t, db, "Any Org")
 
-	rec := do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", sysToken, "")
+	rec := do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s", org.UUID), "", sysToken, "")
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
 	}
@@ -982,8 +988,8 @@ func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
 	var adminUser model.User
 	db.Where("email = ?", "admin@example.com").First(&adminUser)
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"admin"}`, adminUser.ID)
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, ownerToken, "")
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"admin"}`, adminUser.UUID.String())
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, ownerToken, "")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", rec.Code, rec.Body.String())
 	}
@@ -1012,8 +1018,8 @@ func TestAddMember_AdminCanAddOperational(t *testing.T) {
 	var opUser model.User
 	db.Where("email = ?", "op@example.com").First(&opUser)
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, opUser.ID)
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, adminToken, "")
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"operational"}`, opUser.UUID.String())
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, adminToken, "")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", rec.Code, rec.Body.String())
 	}
@@ -1042,8 +1048,8 @@ func TestAddMember_AdminCannotAddOwner(t *testing.T) {
 	var newOwner model.User
 	db.Where("email = ?", "newowner@example.com").First(&newOwner)
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"owner"}`, newOwner.ID)
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, adminToken, "")
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"owner"}`, newOwner.UUID.String())
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, adminToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
 	}
@@ -1072,8 +1078,8 @@ func TestAddMember_AdminCannotAddAdmin(t *testing.T) {
 	var another model.User
 	db.Where("email = ?", "another@example.com").First(&another)
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"admin"}`, another.ID)
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, adminToken, "")
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"admin"}`, another.UUID.String())
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, adminToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
 	}
@@ -1102,8 +1108,8 @@ func TestAddMember_OperationalCannotAddAnyone(t *testing.T) {
 	var another model.User
 	db.Where("email = ?", "another@example.com").First(&another)
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, another.ID)
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, opToken, "")
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"operational"}`, another.UUID.String())
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, opToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
 	}
@@ -1115,18 +1121,18 @@ func TestAddMember_DuplicateMemberConflict(t *testing.T) {
 
 	rec := do(e, http.MethodPost, "/v1/api/orgs", `{"name":"DupOrg"}`, sysToken, "")
 	orgBody := decodeDataBody(t, rec)
-	orgID := uint(orgBody["id"].(float64))
+	orgUUIDStr := orgBody["uuid"].(string)
 
 	registerUser(t, e, "dup@example.com", "password123", "Dup")
 	var dupUser model.User
 	db.Where("email = ?", "dup@example.com").First(&dupUser)
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, dupUser.ID)
-	rec = do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", orgID), body, sysToken, "")
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"operational"}`, dupUser.UUID.String())
+	rec = do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", orgUUIDStr), body, sysToken, "")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("first add: status = %d; body: %s", rec.Code, rec.Body.String())
 	}
-	rec = do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", orgID), body, sysToken, "")
+	rec = do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", orgUUIDStr), body, sysToken, "")
 	if rec.Code != http.StatusConflict {
 		t.Errorf("duplicate: status = %d, want 409", rec.Code)
 	}
@@ -1137,8 +1143,10 @@ func TestAddMember_InvalidRole(t *testing.T) {
 	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
 	org := makeOrg(t, db, "Org")
 
-	body := `{"user_id":99,"role":"superadmin"}`
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, sysToken, "")
+	// Body uses a random UUID — the handler validates the role first, so we
+	// reach the invalid-role branch regardless of whether the user exists.
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"superadmin"}`, uuid.New().String())
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, sysToken, "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
@@ -1169,7 +1177,7 @@ func TestRemoveMember_OwnerCanRemoveAdmin(t *testing.T) {
 	makeOrgMember(t, db, org.ID, adminUser.ID, model.OrgRoleAdmin)
 
 	rec := do(e, http.MethodDelete,
-		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, adminUser.ID), "", ownerToken, "")
+		fmt.Sprintf("/v1/api/orgs/%s/members/%s", org.UUID, adminUser.UUID), "", ownerToken, "")
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want 204", rec.Code)
 	}
@@ -1199,7 +1207,7 @@ func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
 	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
 
 	rec := do(e, http.MethodDelete,
-		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, ownerUser.ID), "", adminToken, "")
+		fmt.Sprintf("/v1/api/orgs/%s/members/%s", org.UUID, ownerUser.UUID), "", adminToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
 	}
@@ -1224,7 +1232,7 @@ func TestListMembers_OrgMemberCanList(t *testing.T) {
 	}
 	opToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 
-	rec := do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", opToken, "")
+	rec := do(e, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), "", opToken, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -1532,7 +1540,7 @@ func TestSearchUsers_PaginationE2E(t *testing.T) {
 func TestBillingCheckout_Unauthenticated_Returns401(t *testing.T) {
 	e, db := newServer(t)
 	org := makeFreeOrg(t, db, "Org")
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", "", "")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/billing/checkout", org.UUID), "", "", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
@@ -1545,7 +1553,7 @@ func TestBillingCheckout_StripeNotConfigured_Returns503(t *testing.T) {
 	makeOrgMember(t, db, org.ID, 1, model.OrgRoleOwner)
 
 	// cfg has no StripeSecretKey → 503
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", rootToken, "")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/billing/checkout", org.UUID), "", rootToken, "")
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", rec.Code)
 	}
@@ -1556,7 +1564,7 @@ func TestAssignEnterprisePlan_ByRoot_Returns200(t *testing.T) {
 	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
 	org := makeFreeOrg(t, db, "Org")
 
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", rootToken, "")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/plan/enterprise", org.UUID), "", rootToken, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -1571,7 +1579,7 @@ func TestAssignEnterprisePlan_BySystem_Returns200(t *testing.T) {
 	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
 	org := makeFreeOrg(t, db, "Org")
 
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", sysToken, "")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/plan/enterprise", org.UUID), "", sysToken, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -1583,7 +1591,7 @@ func TestAssignEnterprisePlan_ByNonSystem_Returns403(t *testing.T) {
 	userToken := registerUser(t, e, "plain@example.com", "password123", "Plain")
 	org := makeFreeOrg(t, db, "Org")
 
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", userToken, "")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/plan/enterprise", org.UUID), "", userToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
 	}
@@ -1644,8 +1652,8 @@ func TestAddMember_PlanLimitReached_E2e(t *testing.T) {
 	var sixth model.User
 	db.Where("email = ?", "sixth@e2e.com").First(&sixth)
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, sixth.ID)
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, rootToken, "")
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"operational"}`, sixth.UUID.String())
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, rootToken, "")
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", rec.Code)
 	}
@@ -1654,7 +1662,7 @@ func TestAddMember_PlanLimitReached_E2e(t *testing.T) {
 func TestAssignEnterprisePlan_Unauthenticated_Returns401(t *testing.T) {
 	e, db := newServer(t)
 	org := makeFreeOrg(t, db, "Org")
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/plan/enterprise", org.ID), "", "", "")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/plan/enterprise", org.UUID), "", "", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
@@ -1665,7 +1673,7 @@ func TestBillingCheckout_ByNonOwner_Returns403(t *testing.T) {
 	userToken := registerUser(t, e, "plain@example.com", "password123", "Plain")
 	org := makeFreeOrg(t, db, "Org")
 	// plain user is not an org member → RequireOrgRole returns 403
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", userToken, "")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/billing/checkout", org.UUID), "", userToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
 	}
@@ -1674,7 +1682,7 @@ func TestBillingCheckout_ByNonOwner_Returns403(t *testing.T) {
 func TestCancelSubscription_Unauthenticated_Returns401(t *testing.T) {
 	e, db := newServer(t)
 	org := makeFreeOrg(t, db, "Org")
-	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", "", "")
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%s/billing/subscription", org.UUID), "", "", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
@@ -1685,7 +1693,7 @@ func TestCancelSubscription_ByNonOwner_Returns403(t *testing.T) {
 	userToken := registerUser(t, e, "plain@example.com", "password123", "Plain")
 	org := makeFreeOrg(t, db, "Org")
 	// plain user is not an org member → RequireOrgRole returns 403
-	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", userToken, "")
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%s/billing/subscription", org.UUID), "", userToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
 	}
@@ -1699,7 +1707,7 @@ func TestCancelSubscription_ByOwner_StripeNotConfigured_Returns503(t *testing.T)
 	org := makeFreeOrg(t, db, "Org")
 	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
 	// Owner passes JWT and role checks; cfg has no StripeSecretKey → 503.
-	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", ownerToken, "")
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%s/billing/subscription", org.UUID), "", ownerToken, "")
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", rec.Code)
 	}
@@ -1713,7 +1721,7 @@ func TestBillingCheckout_ByOwner_Returns200(t *testing.T) {
 	org := makeFreeOrg(t, db, "Org")
 	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
 
-	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/billing/checkout", org.ID), "", ownerToken, "")
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/billing/checkout", org.UUID), "", ownerToken, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -1734,7 +1742,7 @@ func TestCancelSubscription_ByOwner_Returns204(t *testing.T) {
 	db.Create(&org)
 	makeOrgMember(t, db, org.ID, ownerUser.ID, model.OrgRoleOwner)
 
-	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d/billing/subscription", org.ID), "", ownerToken, "")
+	rec := do(e, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%s/billing/subscription", org.UUID), "", ownerToken, "")
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want 204; body: %s", rec.Code, rec.Body.String())
 	}

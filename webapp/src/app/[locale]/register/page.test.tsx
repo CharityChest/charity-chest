@@ -61,7 +61,7 @@ describe('RegisterPage — form submission', () => {
   it('stores token and pushes to /dashboard on success', async () => {
     vi.mocked(api.register).mockResolvedValue({
       token: 'new-jwt',
-      user: { id: 1, email: 'u@u.com', name: 'User', created_at: '', updated_at: '' },
+      user: { uuid: '00000000-0000-0000-0000-000000000001', email: 'u@u.com', name: 'User', mfa_enabled: false, created_at: '', updated_at: '' },
     });
 
     render(<RegisterPage />);

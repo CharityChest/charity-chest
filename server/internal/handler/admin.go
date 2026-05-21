@@ -10,6 +10,7 @@ import (
 	"charity-chest/internal/cache"
 	"charity-chest/internal/model"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
@@ -27,14 +28,14 @@ func NewAdminHandler(db *gorm.DB, c *cache.Cache) *AdminHandler {
 
 // orgSummary is the compact org representation embedded in userWithOrgs.
 type orgSummary struct {
-	ID   uint             `json:"id"`
+	UUID uuid.UUID        `json:"uuid"`
 	Name string           `json:"name"`
 	Role model.MemberRole `json:"role"`
 }
 
 // userWithOrgs is the per-row shape returned by SearchUsers, including org memberships.
 type userWithOrgs struct {
-	ID            uint                      `json:"id"`
+	UUID          uuid.UUID                 `json:"uuid"`
 	Email         string                    `json:"email"`
 	Name          string                    `json:"name"`
 	Role          *model.AdministrativeRole `json:"role,omitempty"`
@@ -44,9 +45,12 @@ type userWithOrgs struct {
 }
 
 // orgMemberRow is a flat scan target for the org membership join query.
+// UserID/OrgID are int FKs used internally for the per-user grouping; the
+// projected OrgUUID is what we serialise out so the API stays UUID-only.
 type orgMemberRow struct {
 	UserID  uint
 	OrgID   uint
+	OrgUUID uuid.UUID
 	OrgName string
 	Role    model.MemberRole
 }
@@ -108,12 +112,12 @@ func (h *AdminHandler) SearchUsers(c echo.Context) error {
 		}
 		var rows []orgMemberRow
 		h.db.Table("org_members").
-			Select("org_members.user_id, org_members.org_id, organizations.name as org_name, org_members.role").
+			Select("org_members.user_id, org_members.org_id, organizations.uuid as org_uuid, organizations.name as org_name, org_members.role").
 			Joins("JOIN organizations ON organizations.id = org_members.org_id").
 			Where("org_members.user_id IN ?", ids).
 			Scan(&rows)
 		for _, r := range rows {
-			orgsMap[r.UserID] = append(orgsMap[r.UserID], orgSummary{ID: r.OrgID, Name: r.OrgName, Role: r.Role})
+			orgsMap[r.UserID] = append(orgsMap[r.UserID], orgSummary{UUID: r.OrgUUID, Name: r.OrgName, Role: r.Role})
 		}
 	}
 
@@ -124,7 +128,7 @@ func (h *AdminHandler) SearchUsers(c echo.Context) error {
 			orgs = []orgSummary{}
 		}
 		result[i] = userWithOrgs{
-			ID:            u.ID,
+			UUID:          u.UUID,
 			Email:         u.Email,
 			Name:          u.Name,
 			Role:          u.Role,

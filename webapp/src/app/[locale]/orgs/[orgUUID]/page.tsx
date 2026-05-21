@@ -20,12 +20,12 @@ const ASSIGNABLE: Record<string, string[]> = {
 export default function OrgDetailPage({
   params,
 }: {
-  params: Promise<{ orgID: string }>;
+  params: Promise<{ orgUUID: string }>;
 }) {
   const t = useTranslations();
   const router = useRouter();
   const locale = useLocale();
-  const [orgId, setOrgId] = useState<number | null>(null);
+  const [orgUuid, setOrgUuid] = useState<string | null>(null);
 
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<OrganizationMember[]>([]);
@@ -33,7 +33,7 @@ export default function OrgDetailPage({
 
   // The calling user's effective org-level role (derived from membership list after load).
   // System/root users have access to all roles.
-  const [myUserId, setMyUserId] = useState<number | null>(null);
+  const [myUserUuid, setMyUserUuid] = useState<string | null>(null);
   const [myOrgRole, setMyOrgRole] = useState<string | null>(null);
   const systemRole = getRole(); // "root" | "system" | null
 
@@ -44,13 +44,13 @@ export default function OrgDetailPage({
   const [editError, setEditError] = useState('');
 
   // Add-member state
-  const [newUserId, setNewUserId] = useState('');
+  const [newUserUuid, setNewUserUuid] = useState('');
   const [newRole, setNewRole] = useState('operational');
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState('');
 
   // Change-role state (per member)
-  const [changingRole, setChangingRole] = useState<number | null>(null);
+  const [changingRole, setChangingRole] = useState<string | null>(null);
   const [pendingRole, setPendingRole] = useState('');
 
   // Billing state
@@ -60,7 +60,7 @@ export default function OrgDetailPage({
   const [cancellingSubscription, setCancellingSubscription] = useState(false);
 
   useEffect(() => {
-    params.then(({ orgID }) => setOrgId(parseInt(orgID, 10)));
+    params.then(({ orgUUID }) => setOrgUuid(orgUUID));
   }, [params]);
 
   useEffect(() => {
@@ -68,15 +68,15 @@ export default function OrgDetailPage({
       router.replace('/login');
       return;
     }
-    if (orgId === null || isNaN(orgId)) return;
+    if (orgUuid === null) return;
 
     // Load org + members in parallel.
-    Promise.all([api.getOrg(orgId), api.listMembers(orgId), api.me()])
+    Promise.all([api.getOrg(orgUuid), api.listMembers(orgUuid), api.me()])
       .then(([o, m, me]) => {
         setOrg(o);
         setMembers(m);
-        setMyUserId(me.id);
-        const myMembership = m.find((mb) => mb.user_id === me.id);
+        setMyUserUuid(me.uuid);
+        const myMembership = m.find((mb) => mb.user?.uuid === me.uuid);
         setMyOrgRole(myMembership?.role ?? null);
       })
       .catch((err) => {
@@ -89,7 +89,7 @@ export default function OrgDetailPage({
           setLoadError(err instanceof ApiError ? err.message : 'Failed to load');
         }
       });
-  }, [orgId, router]);
+  }, [orgUuid, router]);
 
   // Roles this user can assign: system/root → all; otherwise use ASSIGNABLE map.
   const assignableRoles =
@@ -101,11 +101,11 @@ export default function OrgDetailPage({
 
   async function handleSaveName(e: React.FormEvent) {
     e.preventDefault();
-    if (!orgId || !editName.trim()) return;
+    if (!orgUuid || !editName.trim()) return;
     setSaving(true);
     setEditError('');
     try {
-      const updated = await api.updateOrg(orgId, editName.trim());
+      const updated = await api.updateOrg(orgUuid, editName.trim());
       setOrg(updated);
       setEditing(false);
     } catch (err) {
@@ -117,15 +117,13 @@ export default function OrgDetailPage({
 
   async function handleAddMember(e: React.FormEvent) {
     e.preventDefault();
-    if (!orgId || !newUserId) return;
-    const uid = parseInt(newUserId, 10);
-    if (isNaN(uid)) return;
+    if (!orgUuid || !newUserUuid.trim()) return;
     setAdding(true);
     setAddError('');
     try {
-      const member = await api.addMember(orgId, uid, newRole);
+      const member = await api.addMember(orgUuid, newUserUuid.trim(), newRole);
       setMembers((prev) => [...prev, member]);
-      setNewUserId('');
+      setNewUserUuid('');
     } catch (err) {
       setAddError(err instanceof ApiError ? err.message : 'Failed to add member');
     } finally {
@@ -133,12 +131,12 @@ export default function OrgDetailPage({
     }
   }
 
-  async function handleUpdateRole(userId: number, role: string) {
-    if (!orgId) return;
+  async function handleUpdateRole(userUuid: string, role: string) {
+    if (!orgUuid) return;
     try {
-      const updated = await api.updateMember(orgId, userId, role);
+      const updated = await api.updateMember(orgUuid, userUuid, role);
       setMembers((prev) =>
-        prev.map((m) => (m.user_id === userId ? { ...m, role: updated.role } : m)),
+        prev.map((m) => (m.user?.uuid === userUuid ? { ...m, role: updated.role } : m)),
       );
       setChangingRole(null);
     } catch (err) {
@@ -146,12 +144,12 @@ export default function OrgDetailPage({
     }
   }
 
-  async function handleRemove(userId: number) {
-    if (!orgId) return;
+  async function handleRemove(userUuid: string) {
+    if (!orgUuid) return;
     if (!confirm(t('orgs.remove') + '?')) return;
     try {
-      await api.removeMember(orgId, userId);
-      setMembers((prev) => prev.filter((m) => m.user_id !== userId));
+      await api.removeMember(orgUuid, userUuid);
+      setMembers((prev) => prev.filter((m) => m.user?.uuid !== userUuid));
     } catch (err) {
       alert(err instanceof ApiError ? err.message : 'Failed to remove member');
     }
@@ -168,11 +166,11 @@ export default function OrgDetailPage({
   const canManageBilling = isSystemOrRoot || myOrgRole === 'owner';
 
   async function handleUpgradeToPro() {
-    if (!orgId) return;
+    if (!orgUuid) return;
     setCheckingOut(true);
     setBillingError('');
     try {
-      const { url } = await api.createCheckoutSession(orgId, locale);
+      const { url } = await api.createCheckoutSession(orgUuid, locale);
       window.location.href = url;
     } catch (err) {
       setBillingError(err instanceof ApiError ? err.message : t('billing.checkoutFailed'));
@@ -181,11 +179,11 @@ export default function OrgDetailPage({
   }
 
   async function handleActivateEnterprise() {
-    if (!orgId) return;
+    if (!orgUuid) return;
     setActivatingEnterprise(true);
     setBillingError('');
     try {
-      const updated = await api.assignEnterprisePlan(orgId);
+      const updated = await api.assignEnterprisePlan(orgUuid);
       setOrg(updated);
     } catch (err) {
       setBillingError(err instanceof ApiError ? err.message : t('billing.activateEnterpriseFailed'));
@@ -196,11 +194,11 @@ export default function OrgDetailPage({
 
   async function handleCancelSubscription() {
     if (cancellingSubscription) return;
-    if (!orgId || !confirm(t('billing.cancelConfirm'))) return;
+    if (!orgUuid || !confirm(t('billing.cancelConfirm'))) return;
     setCancellingSubscription(true);
     setBillingError('');
     try {
-      await api.cancelSubscription(orgId);
+      await api.cancelSubscription(orgUuid);
     } catch (err) {
       setBillingError(err instanceof ApiError ? err.message : t('billing.cancelSubscriptionFailed'));
     } finally {
@@ -274,7 +272,7 @@ export default function OrgDetailPage({
                 )}
               </div>
             )}
-            <p className="mt-0.5 text-xs text-gray-400">#{org.id}</p>
+            <p className="mt-0.5 break-all text-xs text-gray-400">#{org.uuid}</p>
             {editError && <p className="mt-1 text-xs text-red-600">{editError}</p>}
           </div>
           <Link href={isSystemOrRoot ? '/orgs' : '/dashboard'} className="shrink-0 text-sm text-gray-500 hover:underline">
@@ -338,13 +336,14 @@ export default function OrgDetailPage({
           ) : (
             <ul className="divide-y divide-gray-100">
               {members.map((m) => {
-                const isMe = m.user_id === myUserId;
-                const manageable = canManageMember(m.role) && !isMe;
+                const memberUserUuid = m.user?.uuid;
+                const isMe = memberUserUuid !== undefined && memberUserUuid === myUserUuid;
+                const manageable = canManageMember(m.role) && !isMe && memberUserUuid !== undefined;
                 return (
-                  <li key={m.id} className="flex items-center justify-between gap-2 py-3">
+                  <li key={m.uuid} className="flex items-center justify-between gap-2 py-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-gray-800">
-                        {m.user?.name ?? `User #${m.user_id}`}
+                        {m.user?.name ?? `User ${memberUserUuid ?? ''}`}
                         {isMe && (
                           <span className="ml-2 text-xs text-gray-400">(you)</span>
                         )}
@@ -353,7 +352,7 @@ export default function OrgDetailPage({
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
-                      {changingRole === m.user_id ? (
+                      {changingRole === memberUserUuid ? (
                         <>
                           <select
                             value={pendingRole}
@@ -367,7 +366,7 @@ export default function OrgDetailPage({
                             ))}
                           </select>
                           <button
-                            onClick={() => handleUpdateRole(m.user_id, pendingRole)}
+                            onClick={() => memberUserUuid && handleUpdateRole(memberUserUuid, pendingRole)}
                             className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700"
                           >
                             {t('orgs.save')}
@@ -382,19 +381,19 @@ export default function OrgDetailPage({
                       ) : (
                         <>
                           <RoleBadge role={m.role} t={t} />
-                          {manageable && (
+                          {manageable && memberUserUuid && (
                             <>
                               <button
                                 onClick={() => {
                                   setPendingRole(assignableRoles[0]);
-                                  setChangingRole(m.user_id);
+                                  setChangingRole(memberUserUuid);
                                 }}
                                 className="rounded-md border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50"
                               >
                                 {t('orgs.updateRole')}
                               </button>
                               <button
-                                onClick={() => handleRemove(m.user_id)}
+                                onClick={() => handleRemove(memberUserUuid)}
                                 className="rounded-md border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50"
                               >
                                 {t('orgs.remove')}
@@ -417,10 +416,9 @@ export default function OrgDetailPage({
               <ErrorBanner message={addError} />
               <div className="flex gap-2">
                 <input
-                  type="number"
-                  min={1}
-                  value={newUserId}
-                  onChange={(e) => setNewUserId(e.target.value)}
+                  type="text"
+                  value={newUserUuid}
+                  onChange={(e) => setNewUserUuid(e.target.value)}
                   placeholder={t('orgs.userIdPlaceholder')}
                   required
                   className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-base text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
@@ -438,7 +436,7 @@ export default function OrgDetailPage({
                 </select>
                 <button
                   type="submit"
-                  disabled={adding || !newUserId}
+                  disabled={adding || !newUserUuid.trim()}
                   className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
                   {adding ? t('orgs.adding') : t('orgs.add')}

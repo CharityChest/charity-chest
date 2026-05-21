@@ -8,7 +8,7 @@ import { Link } from '@/i18n/navigation';
 function CancelContent() {
   const t = useTranslations('billing');
   const params = useSearchParams();
-  const orgId = params.get('org_id');
+  const orgUuid = params.get('org_uuid');
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
@@ -20,9 +20,9 @@ function CancelContent() {
         </div>
         <h1 className="text-xl font-bold text-gray-900">{t('cancelTitle')}</h1>
         <p className="text-sm text-gray-500">{t('cancelBody')}</p>
-        {orgId && (
+        {orgUuid && (
           <Link
-            href={`/orgs/${orgId}`}
+            href={`/orgs/${orgUuid}`}
             className="inline-block rounded-md border border-gray-200 px-4 py-3 text-sm text-gray-600 hover:bg-gray-50 sm:py-2"
           >
             ← {t('backToOrg')}
