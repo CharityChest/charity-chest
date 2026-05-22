@@ -746,8 +746,11 @@ func TestGetOrg_CacheHit(t *testing.T) {
 		t.Fatalf("GetOrg first call: %v", err)
 	}
 
-	// Delete from DB.
-	db.Unscoped().Delete(&org)
+	// Soft-delete from DB. (A hard delete would also remove the row from
+	// newOrgContext's Unscoped UUID lookup, breaking the test's middleware
+	// simulation — soft delete still proves the cache serves stale-after-DB
+	// rows, which is what this test exists to verify.)
+	db.Delete(&org)
 
 	// Second call: cache hit → still returns the org.
 	rec, err := callGetOrg()
