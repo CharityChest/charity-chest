@@ -97,7 +97,8 @@ reviews:
     - path: "server/internal/**/*_test.go"
       instructions: |
         Unit tests — black-box, package foo_test style.
-        - Each test must use a fresh in-memory SQLite DB via newTestDB(t).
+        - Each test must use a fresh per-test Postgres DB via newTestDB(t)
+          (wraps testdb.Open(t), backed by testcontainers-go).
         - No mocking of the database layer.
         - Cover both success and error branches for any security-relevant logic.
 
