@@ -227,12 +227,12 @@ func (h *OrgHandler) AddMember(c echo.Context) error {
 	if !model.ValidOrgRole(req.Role) {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidRole))
 	}
+	if err := h.enforceCanAssign(c, orgID, req.Role); err != nil {
+		return err
+	}
 	targetUserID, err := resolveUserIDByUUID(h.db, req.UserUUID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidUserUUID))
-	}
-	if err := h.enforceCanAssign(c, orgID, req.Role); err != nil {
-		return err
 	}
 
 	// Lock the org row, re-check the plan limit, verify no duplicate, and insert —
@@ -289,10 +289,6 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 	if orgID == 0 {
 		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
 	}
-	targetUserID, err := resolveUserIDFromUUIDParam(c, h.db)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
-	}
 	var req updateMemberRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidBody))
@@ -302,6 +298,10 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 	}
 	if err := h.enforceCanAssign(c, orgID, req.Role); err != nil {
 		return err
+	}
+	targetUserID, err := resolveUserIDFromUUIDParam(c, h.db)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
 	}
 
 	// Lock the org row, re-check the plan limit, and save — all in one transaction.
