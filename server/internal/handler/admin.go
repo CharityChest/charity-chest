@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"charity-chest/internal/cache"
+	"charity-chest/internal/i18n"
 	"charity-chest/internal/model"
 
 	"github.com/google/uuid"
@@ -76,6 +77,7 @@ func (h *AdminHandler) SearchUsers(c echo.Context) error {
 		size = 100
 	}
 	email := c.QueryParam("email")
+	loc := locale(c)
 	ctx := c.Request().Context()
 	key := cache.KeyAdminUsers(email, page, size)
 
@@ -111,11 +113,13 @@ func (h *AdminHandler) SearchUsers(c echo.Context) error {
 			ids[i] = u.ID
 		}
 		var rows []orgMemberRow
-		h.db.Table("org_members").
+		if err := h.db.Table("org_members").
 			Select("org_members.user_id, org_members.org_id, organizations.uuid as org_uuid, organizations.name as org_name, org_members.role").
 			Joins("JOIN organizations ON organizations.id = org_members.org_id").
 			Where("org_members.user_id IN ?", ids).
-			Scan(&rows)
+			Scan(&rows).Error; err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
 		for _, r := range rows {
 			orgsMap[r.UserID] = append(orgsMap[r.UserID], orgSummary{UUID: r.OrgUUID, Name: r.OrgName, Role: r.Role})
 		}
