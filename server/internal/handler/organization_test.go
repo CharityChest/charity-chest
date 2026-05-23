@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -26,15 +27,21 @@ func newOrgTestDB(t *testing.T) *gorm.DB {
 }
 
 // userUUIDByID looks up the user's public UUID by int id. Falls back to a
-// random UUID when no such user exists.
+// random UUID when no such user exists, so tests that pass a deliberately
+// missing id (e.g. 9999) exercise the handler's "user not found" path. Any
+// other DB error fails the test loudly rather than being masked.
 func userUUIDByID(t *testing.T, db *gorm.DB, id uint) string {
 	t.Helper()
 	if id == 0 {
 		return ""
 	}
 	var u model.User
-	if err := db.Unscoped().Select("uuid").First(&u, id).Error; err != nil {
+	err := db.Unscoped().Select("uuid").First(&u, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return uuid.New().String()
+	}
+	if err != nil {
+		t.Fatalf("userUUIDByID(%d): unexpected DB error: %v", id, err)
 	}
 	return u.UUID.String()
 }
