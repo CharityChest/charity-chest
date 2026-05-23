@@ -132,7 +132,14 @@ func (h *OrgHandler) UpdateOrg(c echo.Context) error {
 	loc := locale(c)
 	org, err := h.loadOrgByUUID(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		var he *echo.HTTPError
+		if errors.As(err, &he) {
+			return he
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 	var req updateOrgRequest
 	if err := c.Bind(&req); err != nil {
@@ -155,7 +162,14 @@ func (h *OrgHandler) DeleteOrg(c echo.Context) error {
 	loc := locale(c)
 	org, err := h.loadOrgByUUID(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		var he *echo.HTTPError
+		if errors.As(err, &he) {
+			return he
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 	if err := h.db.Delete(org).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete organization")
@@ -404,10 +418,14 @@ func (h *OrgHandler) enforceCanAssign(c echo.Context, orgID uint, targetRole mod
 // loadOrgByUUID parses :orgUUID from the route and fetches the organisation
 // from the database. Used by handlers that are NOT behind RequireOrgRole
 // (which would have resolved the UUID into OrgIDContextKey already).
+//
+// Returns a 400 *echo.HTTPError for a malformed UUID, gorm.ErrRecordNotFound
+// for a well-formed UUID that doesn't match any row, and the raw DB error
+// otherwise — letting callers translate each case into the right HTTP status.
 func (h *OrgHandler) loadOrgByUUID(c echo.Context) (*model.Organization, error) {
 	parsed, err := uuid.Parse(c.Param("orgUUID"))
 	if err != nil {
-		return nil, gorm.ErrRecordNotFound
+		return nil, echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyInvalidOrgUUID))
 	}
 	var org model.Organization
 	if err := h.db.Where("uuid = ?", parsed).First(&org).Error; err != nil {
