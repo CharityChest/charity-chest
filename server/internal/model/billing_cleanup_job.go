@@ -22,7 +22,7 @@ const (
 type BillingCleanupJob struct {
 	ID                      uint       `gorm:"primaryKey"                                               json:"-"`
 	UUID                    uuid.UUID  `gorm:"type:uuid;not null;uniqueIndex;default:gen_random_uuid()" json:"uuid"`
-	OrgID                   uint       `gorm:"not null;index"                                           json:"org_id"`
+	OrgID                   uint       `gorm:"not null;index"                                           json:"-"`
 	Reason                  string     `gorm:"not null"                                                 json:"reason"`
 	StripeSubscriptionID    *string    `gorm:"column:stripe_subscription_id"                            json:"stripe_subscription_id,omitempty"`
 	StripePaymentIntentID   *string    `gorm:"column:stripe_payment_intent_id"                          json:"stripe_payment_intent_id,omitempty"`
