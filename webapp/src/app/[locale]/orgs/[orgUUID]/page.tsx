@@ -350,7 +350,7 @@ export default function OrgDetailPage({
                       <p className="truncate text-sm font-medium text-gray-800">
                         {m.user?.name ?? t('orgs.memberFallback', { id: memberUserUuid ?? '' })}
                         {isMe && (
-                          <span className="ml-2 text-xs text-gray-400">(you)</span>
+                          <span className="ml-2 text-xs text-gray-400">{t('orgs.you')}</span>
                         )}
                       </p>
                       <p className="text-xs text-gray-400">{m.user?.email}</p>

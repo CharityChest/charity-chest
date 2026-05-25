@@ -127,6 +127,7 @@
     "updateRoleFailed": "Failed to update role",
     "noMembers": "No members yet.",
     "memberFallback": "User {id}",
+    "you": "(you)",
     "roleOwner": "Owner",
     "roleAdmin": "Admin",
     "roleOperational": "Operational",

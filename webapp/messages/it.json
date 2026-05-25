@@ -127,6 +127,7 @@
     "updateRoleFailed": "Impossibile aggiornare il ruolo",
     "noMembers": "Nessun membro ancora.",
     "memberFallback": "Utente {id}",
+    "you": "(tu)",
     "roleOwner": "Proprietario",
     "roleAdmin": "Amministratore",
     "roleOperational": "Operativo",
