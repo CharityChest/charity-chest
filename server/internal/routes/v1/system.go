@@ -27,6 +27,6 @@ func RegisterSystem(v1 *echo.Group, db *gorm.DB, c *cache.Cache, jwtSecret strin
 
 	// Protected — root only.
 	sys := v1.Group("/api/system")
-	sys.Use(middleware.JWT(jwtSecret))
+	sys.Use(middleware.JWT(db, jwtSecret))
 	sys.POST("/assign-role", h.AssignSystemRole, middleware.RequireSystemRole(model.RoleRoot))
 }

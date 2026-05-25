@@ -598,7 +598,7 @@ Response:
 }
 ```
 
-Entity identifiers across the API surface use UUID v4. Integer primary keys remain in the database (foreign keys, cache keys, JWT claims) but never appear in API responses, URL parameters, or request bodies — see the **Entity identifiers (UUID v4)** section in CLAUDE.md for the full convention.
+Entity identifiers across the API surface use UUID v4. Integer primary keys remain in the database (foreign keys, cache keys) but never appear in API responses, URL parameters, request bodies, or JWT claims — the JWT carries the user's `user_uuid`, which the auth middleware resolves back to the int id per request. See the **Entity identifiers (UUID v4)** section in CLAUDE.md for the full convention.
 
 Query parameters: `email` (optional, partial match), `page` (default 1), `size` (default 20, max 100).
 

@@ -26,7 +26,7 @@ func RegisterOrgs(v1 *echo.Group, db *gorm.DB, c *cache.Cache, jwtSecret string)
 	h := handler.NewOrgHandler(db, c)
 
 	orgs := v1.Group("/api/orgs")
-	orgs.Use(middleware.JWT(jwtSecret))
+	orgs.Use(middleware.JWT(db, jwtSecret))
 
 	systemOrRoot := middleware.RequireSystemRole(model.RoleSystem, model.RoleRoot)
 	orgs.GET("", h.ListOrgs, systemOrRoot)

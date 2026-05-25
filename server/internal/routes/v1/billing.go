@@ -44,13 +44,13 @@ func RegisterBilling(e *echo.Echo, v1 *echo.Group, db *gorm.DB, c *cache.Cache, 
 	// handlers can skip a second lookup.
 	ownerOrHigher := middleware.RequireOrgRole(db, model.OrgRoleOwner)
 	billing := v1.Group("/api/orgs/:orgUUID/billing")
-	billing.Use(middleware.JWT(jwtSecret))
+	billing.Use(middleware.JWT(db, jwtSecret))
 	billing.POST("/checkout", h.CreateCheckout, ownerOrHigher)
 	billing.DELETE("/subscription", h.CancelSubscription, ownerOrHigher)
 
 	// Enterprise activation — root/system only.
 	systemOrRoot := middleware.RequireSystemRole(model.RoleSystem, model.RoleRoot)
 	plan := v1.Group("/api/orgs/:orgUUID/plan")
-	plan.Use(middleware.JWT(jwtSecret))
+	plan.Use(middleware.JWT(db, jwtSecret))
 	plan.POST("/enterprise", h.AssignEnterprisePlan, systemOrRoot)
 }

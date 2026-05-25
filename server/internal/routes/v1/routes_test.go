@@ -100,7 +100,7 @@ func newServerFull(t *testing.T, gw handler.StripeGateway, mailer handler.Mailer
 
 	v1 := e.Group("/v1")
 	routesv1.RegisterAuth(v1, h)
-	routesv1.RegisterAPI(v1, h, cfg.JWTSecret)
+	routesv1.RegisterAPI(v1, h, db, cfg.JWTSecret)
 	routesv1.RegisterSystem(v1, db, noCache, cfg.JWTSecret)
 	routesv1.RegisterOrgs(v1, db, noCache, cfg.JWTSecret)
 	routesv1.RegisterProfile(v1, db, cfg, noCache, cfg.JWTSecret)
@@ -127,9 +127,9 @@ func makeUserWithRole(t *testing.T, db *gorm.DB, email, name string, role model.
 	}
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: user.ID,
-		Email:  user.Email,
-		Role:   user.Role,
+		UserUUID: user.UUID,
+		Email:    user.Email,
+		Role:     user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -927,8 +927,8 @@ func TestGetOrg_OrgMemberCanAccess(t *testing.T) {
 	// Re-sign token without role for this user.
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: ownerUser.ID,
-		Email:  ownerUser.Email,
+		UserUUID: ownerUser.UUID,
+		Email:    ownerUser.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -985,8 +985,8 @@ func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
 	// Sign a token without system role for the owner.
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: ownerUser.ID,
-		Email:  ownerUser.Email,
+		UserUUID: ownerUser.UUID,
+		Email:    ownerUser.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -1016,8 +1016,8 @@ func TestAddMember_AdminCanAddOperational(t *testing.T) {
 
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: adminUser.ID,
-		Email:  adminUser.Email,
+		UserUUID: adminUser.UUID,
+		Email:    adminUser.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -1046,8 +1046,8 @@ func TestAddMember_AdminCannotAddOwner(t *testing.T) {
 
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: adminUser.ID,
-		Email:  adminUser.Email,
+		UserUUID: adminUser.UUID,
+		Email:    adminUser.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -1076,8 +1076,8 @@ func TestAddMember_AdminCannotAddAdmin(t *testing.T) {
 
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: adminUser.ID,
-		Email:  adminUser.Email,
+		UserUUID: adminUser.UUID,
+		Email:    adminUser.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -1106,8 +1106,8 @@ func TestAddMember_OperationalCannotAddAnyone(t *testing.T) {
 
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: opUser.ID,
-		Email:  opUser.Email,
+		UserUUID: opUser.UUID,
+		Email:    opUser.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -1189,8 +1189,8 @@ func TestRemoveMember_OwnerCanRemoveAdmin(t *testing.T) {
 
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: ownerUser.ID,
-		Email:  ownerUser.Email,
+		UserUUID: ownerUser.UUID,
+		Email:    ownerUser.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -1220,8 +1220,8 @@ func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
 
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: adminUser.ID,
-		Email:  adminUser.Email,
+		UserUUID: adminUser.UUID,
+		Email:    adminUser.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -1250,8 +1250,8 @@ func TestListMembers_OrgMemberCanList(t *testing.T) {
 
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: opUser.ID,
-		Email:  opUser.Email,
+		UserUUID: opUser.UUID,
+		Email:    opUser.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -1427,7 +1427,7 @@ func TestMFAPendingToken_CannotAccessProtectedRoutes(t *testing.T) {
 	db2.Where("email = ?", "pending2@example.com").First(&user)
 
 	claims := middleware.Claims{
-		UserID:     user.ID,
+		UserUUID:   user.UUID,
 		Email:      user.Email,
 		MFAPending: &pending,
 		RegisteredClaims: jwt.RegisteredClaims{

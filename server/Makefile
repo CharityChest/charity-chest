@@ -59,9 +59,13 @@ test:
 # `-coverpkg=./...` cross-instruments every package so coverage triggered by
 # integration tests in routes/v1 counts against the file that owns the code.
 # The result is `coverage.business.out`; the raw report is `coverage.out`.
+# `-p 1` runs package test binaries serially: in parallel, the testcontainers
+# Postgres harness contends for resources and the merged coverage profile comes
+# out nondeterministic (the total swings by ~10 points run to run). Serial is
+# slower but gives a stable, reproducible coverage number.
 test-coverage:
 	@docker info >/dev/null 2>&1 || (echo "ERROR: Docker daemon required for tests (testcontainers boots a Postgres container)"; exit 1)
-	go test -race -coverpkg=./... -coverprofile=coverage.out ./...
+	go test -race -p 1 -coverpkg=./... -coverprofile=coverage.out ./...
 	@grep -v -E '(charity-chest/main\.go|charity-chest/cmd/|_templ\.go)' coverage.out > coverage.business.out
 	@echo "── full coverage ──"
 	@go tool cover -func=coverage.out | tail -1
