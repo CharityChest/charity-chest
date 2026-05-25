@@ -343,7 +343,7 @@ export default function OrgDetailPage({
                   <li key={m.uuid} className="flex items-center justify-between gap-2 py-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-gray-800">
-                        {m.user?.name ?? `User ${memberUserUuid ?? ''}`}
+                        {m.user?.name ?? t('orgs.memberFallback', { id: memberUserUuid ?? '' })}
                         {isMe && (
                           <span className="ml-2 text-xs text-gray-400">(you)</span>
                         )}

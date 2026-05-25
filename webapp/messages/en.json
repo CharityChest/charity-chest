@@ -124,6 +124,7 @@
     "remove": "Remove",
     "updateRole": "Change Role",
     "noMembers": "No members yet.",
+    "memberFallback": "User {id}",
     "roleOwner": "Owner",
     "roleAdmin": "Admin",
     "roleOperational": "Operational"
