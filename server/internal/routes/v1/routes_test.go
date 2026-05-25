@@ -20,7 +20,6 @@ import (
 	"charity-chest/internal/testdb"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
 	stripe "github.com/stripe/stripe-go/v82"
@@ -1155,9 +1154,11 @@ func TestAddMember_InvalidRole(t *testing.T) {
 	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
 	org := makeOrg(t, db, "Org")
 
-	// Body uses a random UUID — the handler validates the role first, so we
-	// reach the invalid-role branch regardless of whether the user exists.
-	body := fmt.Sprintf(`{"user_uuid":%q,"role":"superadmin"}`, uuid.New().String())
+	// Reference an existing user so the request fails solely on the invalid
+	// role, independent of whether the handler validates the role or the user
+	// first.
+	_, target := makeUserWithRole(t, db, "target@example.com", "Target", "")
+	body := fmt.Sprintf(`{"user_uuid":%q,"role":"superadmin"}`, target.UUID.String())
 	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, sysToken, "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
