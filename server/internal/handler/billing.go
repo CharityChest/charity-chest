@@ -359,7 +359,7 @@ func (h *BillingHandler) AssignEnterprisePlan(c echo.Context) error {
 	loc := locale(c)
 	parsed, err := uuid.Parse(c.Param("orgUUID"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidOrgUUID))
 	}
 	var org model.Organization
 	if err := h.db.Where("uuid = ?", parsed).First(&org).Error; err != nil {
