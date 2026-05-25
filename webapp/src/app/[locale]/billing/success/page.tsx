@@ -22,7 +22,7 @@ function SuccessContent() {
         <p className="text-sm text-gray-500">{t('successBody')}</p>
         {orgUuid && (
           <Link
-            href={`/orgs/${orgUuid}`}
+            href={`/orgs/${encodeURIComponent(orgUuid)}`}
             className="inline-block rounded-md bg-emerald-600 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-700 sm:py-2"
           >
             ← {t('backToOrg')}
