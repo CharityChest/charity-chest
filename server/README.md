@@ -624,6 +624,7 @@ curl -X DELETE http://localhost:8080/v1/api/orgs/8c9e0a1b-2d3f-4e5a-6b7c-8d9e0f1
 Stripe webhooks are received at `POST /stripe/webhook`. Signature verification is enforced when `APP_ENV=production`; outside production, raw unsigned payloads are accepted so local dev and automated tests can POST events without a real Stripe account.
 
 **Webhook behaviour notes:**
+- The checkout session is tagged with the org's public `org_uuid` in its Stripe metadata (never the internal int id — Stripe persists and can surface metadata). On `checkout.session.completed` the handler resolves `org_uuid` back to the org row, then uses the int id internally. A missing, malformed, or unknown `org_uuid` is acknowledged with 200 and leaves all plans untouched.
 - `checkout.session.completed` — if the org is already on the enterprise plan, the handler persists a `BillingCleanupJob` row (with the duplicate subscription ID and payment intent ID) **before** acknowledging the webhook, then attempts to cancel the new Stripe subscription and refund the initial payment in-line. The webhook is acknowledged with 200 once the cleanup job is durable; only DB persistence errors return 500 (so Stripe retries). Stripe call failures are recorded in `last_error` on the job row for an out-of-band retry worker. The org's plan is never changed.
 - `customer.subscription.deleted` — downgrades the org to `free` and clears `stripe_subscription_id`.
 

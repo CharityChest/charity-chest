@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	stripe "github.com/stripe/stripe-go/v82"
@@ -133,11 +132,11 @@ func (h *BillingHandler) CreateCheckout(c echo.Context) error {
 				Quantity: stripe.Int64(1),
 			},
 		},
-		// Stripe metadata is round-tripped to us in the webhook payload. It is
-		// not user-visible, so we keep the int id here — the webhook can use it
-		// directly without a UUID→id lookup.
+		// Round-tripped to us in the webhook. Stripe persists and can surface this
+		// metadata, so it carries the org's public UUID, never the internal int id;
+		// the webhook resolves it back to the int id with one lookup.
 		Metadata: map[string]string{
-			"org_id": strconv.FormatUint(uint64(orgID), 10),
+			"org_uuid": org.UUID.String(),
 		},
 		SuccessURL: stripe.String(successURL),
 		CancelURL:  stripe.String(cancelURL),
@@ -199,15 +198,23 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 			log.Printf("webhook: unmarshal checkout.session.completed: %v", err)
 			break
 		}
-		orgIDStr, ok := sess.Metadata["org_id"]
-		if !ok || orgIDStr == "" {
+		orgUUIDStr, ok := sess.Metadata["org_uuid"]
+		if !ok || orgUUIDStr == "" {
 			break
 		}
-		orgID64, err := strconv.ParseUint(orgIDStr, 10, 64)
+		orgUUID, err := uuid.Parse(orgUUIDStr)
 		if err != nil {
 			break
 		}
-		orgID := uint(orgID64)
+		var org model.Organization
+		if err := h.db.Where("uuid = ?", orgUUID).First(&org).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				break
+			}
+			log.Printf("webhook: lookup org by uuid %s: %v", orgUUID, err)
+			return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+		}
+		orgID := org.ID
 
 		// If the org is already on enterprise, the new subscription must be
 		// cancelled and the payment refunded rather than silently downgrading
@@ -216,8 +223,7 @@ func (h *BillingHandler) HandleWebhook(c echo.Context) error {
 		// inline cancel/refund fails the row stays in the DB for an
 		// out-of-band retry. Only DB persistence errors return 5xx (so Stripe
 		// retries the webhook); transient Stripe errors do not.
-		var existing model.Organization
-		if err := h.db.First(&existing, orgID).Error; err == nil && existing.Plan == model.PlanEnterprise {
+		if org.Plan == model.PlanEnterprise {
 			job := model.BillingCleanupJob{
 				OrgID:  orgID,
 				Reason: model.BillingCleanupReasonDuplicateEnterprise,

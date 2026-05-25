@@ -254,7 +254,7 @@ func TestHandleWebhook_CheckoutCompleted_UpgradesToPro(t *testing.T) {
 	h := handler.NewBillingHandler(db, cache.Disabled(), cfg)
 
 	body := stripeEventBody("checkout.session.completed", map[string]any{
-		"metadata":     map[string]string{"org_id": fmt.Sprintf("%d", org.ID)},
+		"metadata":     map[string]string{"org_uuid": org.UUID.String()},
 		"customer":     "cus_test123",
 		"subscription": "sub_test123",
 	})
@@ -279,6 +279,39 @@ func TestHandleWebhook_CheckoutCompleted_UpgradesToPro(t *testing.T) {
 	}
 }
 
+func TestHandleWebhook_CheckoutCompleted_UnknownOrgUUID_Returns200NoChange(t *testing.T) {
+	// A well-formed org_uuid that matches no org must be acknowledged (200) so
+	// Stripe stops retrying, but must not touch any plan.
+	db := newOrgTestDB(t)
+	org := model.Organization{Name: "Org", Plan: model.PlanFree}
+	db.Create(&org)
+
+	cfg := &config.Config{AppEnv: config.AppEnvLocal, StripeWebhookSecret: "whsec_test"}
+	h := handler.NewBillingHandler(db, cache.Disabled(), cfg)
+
+	body := stripeEventBody("checkout.session.completed", map[string]any{
+		"metadata":     map[string]string{"org_uuid": uuid.NewString()},
+		"customer":     "cus_test123",
+		"subscription": "sub_test123",
+	})
+	c, rec := newWebhookContext(t, body)
+	if err := h.HandleWebhook(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var unchanged model.Organization
+	db.First(&unchanged, org.ID)
+	if unchanged.Plan != model.PlanFree {
+		t.Errorf("plan = %q, want free (untouched)", unchanged.Plan)
+	}
+	if unchanged.StripeCustomerID != nil {
+		t.Errorf("stripe_customer_id = %v, want nil (untouched)", unchanged.StripeCustomerID)
+	}
+}
+
 func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelsAndRefundsReturns200(t *testing.T) {
 	db := newOrgTestDB(t)
 	org := model.Organization{Name: "Org", Plan: model.PlanEnterprise}
@@ -294,7 +327,7 @@ func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelsAndRefundsReturns2
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), cfg, mock)
 
 	body := stripeEventBody("checkout.session.completed", map[string]any{
-		"metadata":       map[string]string{"org_id": fmt.Sprintf("%d", org.ID)},
+		"metadata":       map[string]string{"org_uuid": org.UUID.String()},
 		"customer":       "cus_test",
 		"subscription":   "sub_test",
 		"payment_intent": "pi_test",
@@ -354,7 +387,7 @@ func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelFails_PersistsJobAn
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), cfg, mock)
 
 	body := stripeEventBody("checkout.session.completed", map[string]any{
-		"metadata":       map[string]string{"org_id": fmt.Sprintf("%d", org.ID)},
+		"metadata":       map[string]string{"org_uuid": org.UUID.String()},
 		"customer":       "cus_test",
 		"subscription":   "sub_test",
 		"payment_intent": "pi_test",
@@ -403,7 +436,7 @@ func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_RefundFails_PersistsJobAn
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), cfg, mock)
 
 	body := stripeEventBody("checkout.session.completed", map[string]any{
-		"metadata":       map[string]string{"org_id": fmt.Sprintf("%d", org.ID)},
+		"metadata":       map[string]string{"org_uuid": org.UUID.String()},
 		"customer":       "cus_test",
 		"subscription":   "sub_test",
 		"payment_intent": "pi_test",
@@ -456,7 +489,7 @@ func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_PersistFails_Returns500(t
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), cfg, mock)
 
 	body := stripeEventBody("checkout.session.completed", map[string]any{
-		"metadata":       map[string]string{"org_id": fmt.Sprintf("%d", org.ID)},
+		"metadata":       map[string]string{"org_uuid": org.UUID.String()},
 		"customer":       "cus_test",
 		"subscription":   "sub_test",
 		"payment_intent": "pi_test",
@@ -541,7 +574,7 @@ func TestHandleWebhook_ProductionWithoutSecret_Returns503(t *testing.T) {
 	h := handler.NewBillingHandler(db, cache.Disabled(), cfg)
 
 	body := stripeEventBody("checkout.session.completed", map[string]any{
-		"metadata": map[string]string{"org_id": "1"},
+		"metadata": map[string]string{"org_uuid": "00000000-0000-0000-0000-000000000001"},
 	})
 	c, _ := newWebhookContext(t, body)
 	err := h.HandleWebhook(c)
@@ -557,7 +590,7 @@ func TestHandleWebhook_NonProductionWithoutSecret_Returns503(t *testing.T) {
 	h := handler.NewBillingHandler(db, cache.Disabled(), cfg)
 
 	body := stripeEventBody("checkout.session.completed", map[string]any{
-		"metadata": map[string]string{"org_id": "1"},
+		"metadata": map[string]string{"org_uuid": "00000000-0000-0000-0000-000000000001"},
 	})
 	c, _ := newWebhookContext(t, body)
 	err := h.HandleWebhook(c)
