@@ -823,6 +823,18 @@ func TestAssignSystemRole_InvalidRole(t *testing.T) {
 	}
 }
 
+func TestAssignSystemRole_MalformedUserUUID(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+
+	// A malformed user_uuid is rejected with 400 before any user lookup.
+	body := `{"user_uuid":"not-a-uuid","role":"system"}`
+	rec := do(e, http.MethodPost, "/v1/api/system/assign-role", body, rootToken, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
 // --- Org CRUD ---
 
 func TestCreateOrg_SystemRole(t *testing.T) {
@@ -1146,6 +1158,20 @@ func TestAddMember_InvalidRole(t *testing.T) {
 	// Body uses a random UUID — the handler validates the role first, so we
 	// reach the invalid-role branch regardless of whether the user exists.
 	body := fmt.Sprintf(`{"user_uuid":%q,"role":"superadmin"}`, uuid.New().String())
+	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, sysToken, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestAddMember_MalformedUserUUID(t *testing.T) {
+	e, db := newServer(t)
+	sysToken, _ := makeUserWithRole(t, db, "sys@example.com", "System", model.RoleSystem)
+	org := makeOrg(t, db, "Org")
+
+	// Valid org path + role so the handler reaches user_uuid resolution; a
+	// malformed body UUID must short-circuit to 400.
+	body := `{"user_uuid":"not-a-uuid","role":"operational"}`
 	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, sysToken, "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
@@ -1594,6 +1620,18 @@ func TestAssignEnterprisePlan_ByNonSystem_Returns403(t *testing.T) {
 	rec := do(e, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/plan/enterprise", org.UUID), "", userToken, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestAssignEnterprisePlan_MalformedOrgUUID_Returns400(t *testing.T) {
+	e, db := newServer(t)
+	rootToken, _ := makeUserWithRole(t, db, "root@example.com", "Root", model.RoleRoot)
+
+	// plan/enterprise is RequireSystemRole-only and resolves :orgUUID via
+	// loadOrgByUUID, which rejects a malformed UUID with 400 before any lookup.
+	rec := do(e, http.MethodPost, "/v1/api/orgs/not-a-uuid/plan/enterprise", "", rootToken, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
 	}
 }
 
