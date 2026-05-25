@@ -18,6 +18,12 @@ import (
 
 const testSecret = "test-signing-secret-for-unit-tests"
 
+// newTestDB returns a fresh per-test Postgres database.
+func newTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	return testdb.Open(t)
+}
+
 // signedToken creates and signs a JWT with the given claims using testSecret.
 func signedToken(t *testing.T, claims middleware.Claims) string {
 	t.Helper()
@@ -85,7 +91,7 @@ func invoke(t *testing.T, db *gorm.DB, secret, authHeader string) (code int, use
 }
 
 func TestJWT_NoAuthorizationHeader(t *testing.T) {
-	db := testdb.Open(t)
+	db := newTestDB(t)
 	code, _, _, called := invoke(t, db, testSecret, "")
 	if code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", code)
@@ -96,7 +102,7 @@ func TestJWT_NoAuthorizationHeader(t *testing.T) {
 }
 
 func TestJWT_MissingBearerPrefix(t *testing.T) {
-	db := testdb.Open(t)
+	db := newTestDB(t)
 	tok := signedToken(t, validClaims(uuid.New(), "user@example.com"))
 	// Send token without the "Bearer " prefix
 	code, _, _, called := invoke(t, db, testSecret, tok)
@@ -109,7 +115,7 @@ func TestJWT_MissingBearerPrefix(t *testing.T) {
 }
 
 func TestJWT_GarbageToken(t *testing.T) {
-	db := testdb.Open(t)
+	db := newTestDB(t)
 	code, _, _, _ := invoke(t, db, testSecret, "Bearer this.is.not.a.jwt")
 	if code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", code)
@@ -117,7 +123,7 @@ func TestJWT_GarbageToken(t *testing.T) {
 }
 
 func TestJWT_WrongSecret(t *testing.T) {
-	db := testdb.Open(t)
+	db := newTestDB(t)
 	tok := signedToken(t, validClaims(uuid.New(), "user@example.com"))
 	code, _, _, _ := invoke(t, db, "a-completely-different-secret", "Bearer "+tok)
 	if code != http.StatusUnauthorized {
@@ -126,7 +132,7 @@ func TestJWT_WrongSecret(t *testing.T) {
 }
 
 func TestJWT_ExpiredToken(t *testing.T) {
-	db := testdb.Open(t)
+	db := newTestDB(t)
 	claims := middleware.Claims{
 		UserUUID: uuid.New(),
 		Email:    "user@example.com",
@@ -144,7 +150,7 @@ func TestJWT_ExpiredToken(t *testing.T) {
 // A correctly-signed, unexpired token whose UUID maps to no user is rejected as
 // an invalid token (e.g. the account was deleted after the token was issued).
 func TestJWT_UnknownUser_Returns401(t *testing.T) {
-	db := testdb.Open(t)
+	db := newTestDB(t)
 	tok := signedToken(t, validClaims(uuid.New(), "ghost@example.com"))
 	code, _, _, called := invoke(t, db, testSecret, "Bearer "+tok)
 	if code != http.StatusUnauthorized {
@@ -156,7 +162,7 @@ func TestJWT_UnknownUser_Returns401(t *testing.T) {
 }
 
 func TestJWT_ValidToken_PassesThrough(t *testing.T) {
-	db := testdb.Open(t)
+	db := newTestDB(t)
 	u := createUser(t, db, "alice@example.com")
 	tok := signedToken(t, validClaims(u.UUID, u.Email))
 	code, userID, email, called := invoke(t, db, testSecret, "Bearer "+tok)
@@ -177,7 +183,7 @@ func TestJWT_ValidToken_PassesThrough(t *testing.T) {
 }
 
 func TestJWT_ValidToken_ContextValues(t *testing.T) {
-	db := testdb.Open(t)
+	db := newTestDB(t)
 	// Verify that the resolved int user_id and email are independently set for
 	// different tokens.
 	cases := []struct {
