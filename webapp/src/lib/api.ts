@@ -87,6 +87,11 @@ function bearerHeader(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Encodes a value for safe use as a single URL path segment. */
+function encodePathSegment(value: string): string {
+  return encodeURIComponent(value);
+}
+
 /** Typed wrappers around every server endpoint. All methods throw {@link ApiError} on non-2xx responses. */
 export const api = {
   /** POST /v1/auth/register */
@@ -192,12 +197,12 @@ export const api = {
 
   /** GET /v1/api/orgs/:orgUUID */
   getOrg(orgUuid: string): Promise<Organization> {
-    return request(`/v1/api/orgs/${orgUuid}`, { headers: bearerHeader() });
+    return request(`/v1/api/orgs/${encodePathSegment(orgUuid)}`, { headers: bearerHeader() });
   },
 
   /** PUT /v1/api/orgs/:orgUUID */
   updateOrg(orgUuid: string, name: string): Promise<Organization> {
-    return request(`/v1/api/orgs/${orgUuid}`, {
+    return request(`/v1/api/orgs/${encodePathSegment(orgUuid)}`, {
       method: 'PUT',
       headers: bearerHeader(),
       body: JSON.stringify({ name }),
@@ -206,7 +211,7 @@ export const api = {
 
   /** DELETE /v1/api/orgs/:orgUUID */
   deleteOrg(orgUuid: string): Promise<void> {
-    return request(`/v1/api/orgs/${orgUuid}`, {
+    return request(`/v1/api/orgs/${encodePathSegment(orgUuid)}`, {
       method: 'DELETE',
       headers: bearerHeader(),
     });
@@ -216,12 +221,12 @@ export const api = {
 
   /** GET /v1/api/orgs/:orgUUID/members */
   listMembers(orgUuid: string): Promise<OrganizationMember[]> {
-    return request(`/v1/api/orgs/${orgUuid}/members`, { headers: bearerHeader() });
+    return request(`/v1/api/orgs/${encodePathSegment(orgUuid)}/members`, { headers: bearerHeader() });
   },
 
   /** POST /v1/api/orgs/:orgUUID/members */
   addMember(orgUuid: string, userUuid: string, role: string): Promise<OrganizationMember> {
-    return request(`/v1/api/orgs/${orgUuid}/members`, {
+    return request(`/v1/api/orgs/${encodePathSegment(orgUuid)}/members`, {
       method: 'POST',
       headers: bearerHeader(),
       body: JSON.stringify({ user_uuid: userUuid, role }),
@@ -230,7 +235,7 @@ export const api = {
 
   /** PUT /v1/api/orgs/:orgUUID/members/:userUUID */
   updateMember(orgUuid: string, userUuid: string, role: string): Promise<OrganizationMember> {
-    return request(`/v1/api/orgs/${orgUuid}/members/${userUuid}`, {
+    return request(`/v1/api/orgs/${encodePathSegment(orgUuid)}/members/${encodePathSegment(userUuid)}`, {
       method: 'PUT',
       headers: bearerHeader(),
       body: JSON.stringify({ role }),
@@ -239,7 +244,7 @@ export const api = {
 
   /** DELETE /v1/api/orgs/:orgUUID/members/:userUUID */
   removeMember(orgUuid: string, userUuid: string): Promise<void> {
-    return request(`/v1/api/orgs/${orgUuid}/members/${userUuid}`, {
+    return request(`/v1/api/orgs/${encodePathSegment(orgUuid)}/members/${encodePathSegment(userUuid)}`, {
       method: 'DELETE',
       headers: bearerHeader(),
     });
@@ -261,7 +266,7 @@ export const api = {
   /** POST /v1/api/orgs/:orgUUID/billing/checkout — returns a Stripe Checkout URL */
   createCheckoutSession(orgUuid: string, locale: string): Promise<BillingCheckoutResponse> {
     const qs = new URLSearchParams({ locale }).toString();
-    return request(`/v1/api/orgs/${orgUuid}/billing/checkout?${qs}`, {
+    return request(`/v1/api/orgs/${encodePathSegment(orgUuid)}/billing/checkout?${qs}`, {
       method: 'POST',
       headers: bearerHeader(),
     });
@@ -269,7 +274,7 @@ export const api = {
 
   /** DELETE /v1/api/orgs/:orgUUID/billing/subscription — cancel the Pro subscription */
   cancelSubscription(orgUuid: string): Promise<void> {
-    return request(`/v1/api/orgs/${orgUuid}/billing/subscription`, {
+    return request(`/v1/api/orgs/${encodePathSegment(orgUuid)}/billing/subscription`, {
       method: 'DELETE',
       headers: bearerHeader(),
     });
@@ -277,7 +282,7 @@ export const api = {
 
   /** POST /v1/api/orgs/:orgUUID/plan/enterprise — root/system only */
   assignEnterprisePlan(orgUuid: string): Promise<Organization> {
-    return request(`/v1/api/orgs/${orgUuid}/plan/enterprise`, {
+    return request(`/v1/api/orgs/${encodePathSegment(orgUuid)}/plan/enterprise`, {
       method: 'POST',
       headers: bearerHeader(),
     });
