@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"log"
 	"net/http"
 
@@ -91,7 +92,11 @@ func (h *SystemHandler) AssignSystemRole(c echo.Context) error {
 
 	var target model.User
 	if err := h.db.Where("uuid = ?", parsed).First(&target).Error; err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyUserNotFound))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyUserNotFound))
+		}
+		log.Printf("assign-role: look up user %s: %v", parsed, err)
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 
 	// Protect root accounts from being changed via API.
