@@ -42,7 +42,7 @@ export default function DashboardPage() {
   function handleGoToOrg(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = orgUuidInput.trim();
-    if (trimmed) router.push(`/orgs/${trimmed}`);
+    if (trimmed) router.push(`/orgs/${encodeURIComponent(trimmed)}`);
   }
 
   if (error) {
