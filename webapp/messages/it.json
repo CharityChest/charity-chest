@@ -129,7 +129,10 @@
     "memberFallback": "Utente {id}",
     "roleOwner": "Proprietario",
     "roleAdmin": "Amministratore",
-    "roleOperational": "Operativo"
+    "roleOperational": "Operativo",
+    "loadFailed": "Caricamento delle organizzazioni non riuscito.",
+    "createFailed": "Creazione dell'organizzazione non riuscita.",
+    "deleteFailed": "Eliminazione dell'organizzazione non riuscita."
   },
   "adminUsers": {
     "title": "Gestione ruoli utente",

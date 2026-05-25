@@ -19,6 +19,7 @@ export default function OrgsPage() {
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -36,10 +37,10 @@ export default function OrgsPage() {
         clearToken();
         router.replace('/login');
       } else {
-        setLoadError(err instanceof ApiError ? err.message : 'Failed to load');
+        setLoadError(err instanceof ApiError ? err.message : t('orgs.loadFailed'));
       }
     });
-  }, [router]);
+  }, [router, t]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -51,7 +52,7 @@ export default function OrgsPage() {
       setOrgs((prev) => [...prev, org]);
       setNewName('');
     } catch (err) {
-      setCreateError(err instanceof ApiError ? err.message : 'Failed to create');
+      setCreateError(err instanceof ApiError ? err.message : t('orgs.createFailed'));
     } finally {
       setCreating(false);
     }
@@ -59,11 +60,12 @@ export default function OrgsPage() {
 
   async function handleDelete(orgUuid: string) {
     if (!confirm(t('orgs.deleteOrg') + '?')) return;
+    setDeleteError('');
     try {
       await api.deleteOrg(orgUuid);
       setOrgs((prev) => prev.filter((o) => o.uuid !== orgUuid));
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to delete');
+      setDeleteError(err instanceof ApiError ? err.message : t('orgs.deleteFailed'));
     }
   }
 
@@ -106,6 +108,7 @@ export default function OrgsPage() {
         </form>
         <ErrorBanner message={createError} />
         <ErrorBanner message={loadError} />
+        <ErrorBanner message={deleteError} />
 
         {/* Org list */}
         {orgs.length === 0 ? (

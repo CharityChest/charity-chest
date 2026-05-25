@@ -129,7 +129,10 @@
     "memberFallback": "User {id}",
     "roleOwner": "Owner",
     "roleAdmin": "Admin",
-    "roleOperational": "Operational"
+    "roleOperational": "Operational",
+    "loadFailed": "Failed to load organizations.",
+    "createFailed": "Failed to create organization.",
+    "deleteFailed": "Failed to delete organization."
   },
   "adminUsers": {
     "title": "User Role Management",
