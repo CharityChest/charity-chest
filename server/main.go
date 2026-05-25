@@ -69,7 +69,7 @@ func main() {
 
 	v1 := e.Group("/v1")
 	routesv1.RegisterAuth(v1, authHandler)
-	routesv1.RegisterAPI(v1, authHandler, cfg.JWTSecret)
+	routesv1.RegisterAPI(v1, authHandler, db, cfg.JWTSecret)
 	routesv1.RegisterSystem(v1, db, appCache, cfg.JWTSecret)
 	routesv1.RegisterOrgs(v1, db, appCache, cfg.JWTSecret)
 	routesv1.RegisterProfile(v1, db, cfg, appCache, cfg.JWTSecret)

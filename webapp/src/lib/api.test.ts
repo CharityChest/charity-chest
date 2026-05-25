@@ -70,7 +70,7 @@ describe('api — locale headers', () => {
           Promise.resolve({
             data: {
               token: 'tok',
-              user: { id: 1, email: 'a@b.com', name: 'A', created_at: '', updated_at: '' },
+              user: { uuid: '00000000-0000-0000-0000-000000000001', email: 'a@b.com', name: 'A', created_at: '', updated_at: '' },
             },
           }),
       }),
@@ -180,14 +180,14 @@ describe('api — assignSystemRole', () => {
     localStorage.setItem('cc_token', 'root-jwt');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ data: { id: 5, email: 'u@u.com', name: 'U', role: 'system', created_at: '', updated_at: '' } }),
+      json: () => Promise.resolve({ data: { uuid: '00000000-0000-0000-0000-000000000005', email: 'u@u.com', name: 'U', role: 'system', created_at: '', updated_at: '' } }),
     }));
-    await api.assignSystemRole(5, 'system');
+    await api.assignSystemRole('00000000-0000-0000-0000-000000000005', 'system');
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/v1/api/system/assign-role');
     expect(opts.method).toBe('POST');
     expect((opts.headers as Record<string, string>)['Authorization']).toBe('Bearer root-jwt');
-    expect(JSON.parse(opts.body as string)).toEqual({ user_id: 5, role: 'system' });
+    expect(JSON.parse(opts.body as string)).toEqual({ user_uuid: '00000000-0000-0000-0000-000000000005', role: 'system' });
     localStorage.clear();
   });
 });
@@ -216,7 +216,7 @@ describe('api — org CRUD', () => {
   });
 
   it('createOrg calls POST /v1/api/orgs with name', async () => {
-    mockFetch({ id: 1, name: 'Org A', created_at: '', updated_at: '' });
+    mockFetch({ uuid: '00000000-0000-0000-0000-000000000001', name: 'Org A', created_at: '', updated_at: '' });
     await api.createOrg('Org A');
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/v1/api/orgs');
@@ -224,27 +224,29 @@ describe('api — org CRUD', () => {
     expect(JSON.parse(opts.body as string)).toEqual({ name: 'Org A' });
   });
 
-  it('getOrg calls GET /v1/api/orgs/3', async () => {
-    mockFetch({ id: 3, name: 'Org C', created_at: '', updated_at: '' });
-    await api.getOrg(3);
+  const ORG_UUID = '00000000-0000-0000-0000-000000000003';
+
+  it('getOrg calls GET /v1/api/orgs/:uuid', async () => {
+    mockFetch({ uuid: ORG_UUID, name: 'Org C', created_at: '', updated_at: '' });
+    await api.getOrg(ORG_UUID);
     const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/v1/api/orgs/3');
+    expect(url).toContain(`/v1/api/orgs/${ORG_UUID}`);
   });
 
-  it('updateOrg calls PUT /v1/api/orgs/3 with name', async () => {
-    mockFetch({ id: 3, name: 'New Name', created_at: '', updated_at: '' });
-    await api.updateOrg(3, 'New Name');
+  it('updateOrg calls PUT /v1/api/orgs/:uuid with name', async () => {
+    mockFetch({ uuid: ORG_UUID, name: 'New Name', created_at: '', updated_at: '' });
+    await api.updateOrg(ORG_UUID, 'New Name');
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/v1/api/orgs/3');
+    expect(url).toContain(`/v1/api/orgs/${ORG_UUID}`);
     expect(opts.method).toBe('PUT');
     expect(JSON.parse(opts.body as string)).toEqual({ name: 'New Name' });
   });
 
-  it('deleteOrg calls DELETE /v1/api/orgs/3', async () => {
+  it('deleteOrg calls DELETE /v1/api/orgs/:uuid', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.resolve(null) }));
-    await api.deleteOrg(3);
+    await api.deleteOrg(ORG_UUID);
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/v1/api/orgs/3');
+    expect(url).toContain(`/v1/api/orgs/${ORG_UUID}`);
     expect(opts.method).toBe('DELETE');
   });
 });
@@ -263,36 +265,39 @@ describe('api — member management', () => {
     }));
   }
 
-  it('listMembers calls GET /v1/api/orgs/7/members', async () => {
+  const ORG_UUID = '00000000-0000-0000-0000-000000000007';
+  const USER_UUID = '00000000-0000-0000-0000-000000000009';
+
+  it('listMembers calls GET /v1/api/orgs/:orgUuid/members', async () => {
     mockFetch([]);
-    await api.listMembers(7);
+    await api.listMembers(ORG_UUID);
     const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/v1/api/orgs/7/members');
+    expect(url).toContain(`/v1/api/orgs/${ORG_UUID}/members`);
   });
 
-  it('addMember calls POST /v1/api/orgs/7/members with user_id and role', async () => {
-    mockFetch({ id: 1, org_id: 7, user_id: 9, role: 'operational', created_at: '', updated_at: '' });
-    await api.addMember(7, 9, 'operational');
+  it('addMember calls POST /v1/api/orgs/:orgUuid/members with user_uuid and role', async () => {
+    mockFetch({ uuid: '00000000-0000-0000-0000-000000000001', role: 'operational', created_at: '', updated_at: '' });
+    await api.addMember(ORG_UUID, USER_UUID, 'operational');
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/v1/api/orgs/7/members');
+    expect(url).toContain(`/v1/api/orgs/${ORG_UUID}/members`);
     expect(opts.method).toBe('POST');
-    expect(JSON.parse(opts.body as string)).toEqual({ user_id: 9, role: 'operational' });
+    expect(JSON.parse(opts.body as string)).toEqual({ user_uuid: USER_UUID, role: 'operational' });
   });
 
-  it('updateMember calls PUT /v1/api/orgs/7/members/9 with role', async () => {
-    mockFetch({ id: 1, org_id: 7, user_id: 9, role: 'admin', created_at: '', updated_at: '' });
-    await api.updateMember(7, 9, 'admin');
+  it('updateMember calls PUT /v1/api/orgs/:orgUuid/members/:userUuid with role', async () => {
+    mockFetch({ uuid: '00000000-0000-0000-0000-000000000001', role: 'admin', created_at: '', updated_at: '' });
+    await api.updateMember(ORG_UUID, USER_UUID, 'admin');
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/v1/api/orgs/7/members/9');
+    expect(url).toContain(`/v1/api/orgs/${ORG_UUID}/members/${USER_UUID}`);
     expect(opts.method).toBe('PUT');
     expect(JSON.parse(opts.body as string)).toEqual({ role: 'admin' });
   });
 
-  it('removeMember calls DELETE /v1/api/orgs/7/members/9', async () => {
+  it('removeMember calls DELETE /v1/api/orgs/:orgUuid/members/:userUuid', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.resolve(null) }));
-    await api.removeMember(7, 9);
+    await api.removeMember(ORG_UUID, USER_UUID);
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/v1/api/orgs/7/members/9');
+    expect(url).toContain(`/v1/api/orgs/${ORG_UUID}/members/${USER_UUID}`);
     expect(opts.method).toBe('DELETE');
   });
 });
@@ -306,7 +311,7 @@ describe('api — searchUsers', () => {
 
   const paginatedResponse = {
     data: [
-      { id: 1, email: 'alice@example.com', name: 'Alice', role: null, mfa_enabled: false, created_at: '', updated_at: '', organizations: [] },
+      { uuid: '00000000-0000-0000-0000-000000000001', email: 'alice@example.com', name: 'Alice', role: null, mfa_enabled: false, created_at: '', updated_at: '', organizations: [] },
     ],
     metadata: { page: 1, size: 20, total: 1, total_pages: 1 },
   };
@@ -374,7 +379,7 @@ describe('api — register', () => {
   it('calls POST /v1/auth/register with email, password, and name', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ data: { token: 'tok', user: { id: 1, email: 'a@b.com', name: 'A', created_at: '', updated_at: '' } } }),
+      json: () => Promise.resolve({ data: { token: 'tok', user: { uuid: '00000000-0000-0000-0000-000000000001', email: 'a@b.com', name: 'A', created_at: '', updated_at: '' } } }),
     }));
     await api.register('a@b.com', 'pass', 'Alice');
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
@@ -415,7 +420,7 @@ describe('api — me', () => {
     localStorage.setItem('cc_token', 'user-jwt');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ data: { id: 1, email: 'u@u.com', name: 'U', created_at: '', updated_at: '' } }),
+      json: () => Promise.resolve({ data: { uuid: '00000000-0000-0000-0000-000000000001', email: 'u@u.com', name: 'U', created_at: '', updated_at: '' } }),
     }));
     await api.me();
     const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];

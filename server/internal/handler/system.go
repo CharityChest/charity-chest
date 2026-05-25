@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"log"
 	"net/http"
 
@@ -8,6 +9,7 @@ import (
 	"charity-chest/internal/i18n"
 	"charity-chest/internal/model"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
@@ -60,9 +62,10 @@ func (h *SystemHandler) SystemStatus(c echo.Context) error {
 }
 
 // assignSystemRoleRequest is the JSON body for POST /v1/api/system/assign-role.
+// The target user is identified by their public UUID.
 type assignSystemRoleRequest struct {
-	UserID uint                     `json:"user_id"`
-	Role   model.AdministrativeRole `json:"role"`
+	UserUUID string                   `json:"user_uuid"`
+	Role     model.AdministrativeRole `json:"role"`
 }
 
 // AssignSystemRole godoc
@@ -82,9 +85,18 @@ func (h *SystemHandler) AssignSystemRole(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidRole))
 	}
 
+	parsed, err := uuid.Parse(req.UserUUID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(loc, i18n.KeyInvalidUserUUID))
+	}
+
 	var target model.User
-	if err := h.db.First(&target, req.UserID).Error; err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyUserNotFound))
+	if err := h.db.Where("uuid = ?", parsed).First(&target).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyUserNotFound))
+		}
+		log.Printf("assign-role: look up user %s: %v", parsed, err)
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 
 	// Protect root accounts from being changed via API.
@@ -101,7 +113,7 @@ func (h *SystemHandler) AssignSystemRole(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-	if err := h.cache.Del(ctx, cache.KeyUser(req.UserID)); err != nil {
+	if err := h.cache.Del(ctx, cache.KeyUser(target.ID)); err != nil {
 		log.Printf("cache: invalidate user after assign-role: %v", err)
 	}
 	if err := h.cache.DelPattern(ctx, cache.KeyAdminUsersGlob); err != nil {

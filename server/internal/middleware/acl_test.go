@@ -1,7 +1,6 @@
 package middleware_test
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	"charity-chest/internal/model"
 	"charity-chest/internal/testdb"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
@@ -92,15 +92,20 @@ func TestRequireSystemRole_RoleNotInAllowedSet_Forbidden(t *testing.T) {
 
 // --- RequireOrgRole ---
 
-// invokeOrgRole runs RequireOrgRole(db, allowed...) with the given caller context.
-func invokeOrgRole(t *testing.T, db *gorm.DB, callerSysRole *model.AdministrativeRole, userID, orgID uint, allowed ...model.MemberRole) (int, bool) {
+// invokeOrgRole runs RequireOrgRole(db, allowed...) with the given caller
+// context. orgUUID is what the middleware reads from :orgUUID; pass an empty
+// string to omit the param (covers the bypass paths where the middleware
+// short-circuits before any DB lookup needs to succeed — but in practice the
+// middleware still parses the param first, so the bypass tests use a stored
+// org's UUID anyway).
+func invokeOrgRole(t *testing.T, db *gorm.DB, callerSysRole *model.AdministrativeRole, userID uint, orgUUID string, allowed ...model.MemberRole) (int, bool) {
 	t.Helper()
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	c.SetParamNames("orgID")
-	c.SetParamValues(fmt.Sprintf("%d", orgID))
+	c.SetParamNames("orgUUID")
+	c.SetParamValues(orgUUID)
 	c.Set(middleware.UserIDContextKey, userID)
 	c.Set(middleware.RoleContextKey, callerSysRole)
 
@@ -120,8 +125,11 @@ func invokeOrgRole(t *testing.T, db *gorm.DB, callerSysRole *model.Administrativ
 
 func TestRequireOrgRole_RootBypasses(t *testing.T) {
 	db := newACLTestDB(t)
+	org := model.Organization{Name: "Org"}
+	db.Create(&org)
+
 	root := model.RoleRoot
-	code, called := invokeOrgRole(t, db, &root, 0, 0, model.OrgRoleOwner)
+	code, called := invokeOrgRole(t, db, &root, 0, org.UUID.String(), model.OrgRoleOwner)
 	if code != http.StatusOK || !called {
 		t.Errorf("root bypass: code = %d, called = %v; want 200, true", code, called)
 	}
@@ -129,8 +137,11 @@ func TestRequireOrgRole_RootBypasses(t *testing.T) {
 
 func TestRequireOrgRole_SystemBypasses(t *testing.T) {
 	db := newACLTestDB(t)
+	org := model.Organization{Name: "Org"}
+	db.Create(&org)
+
 	sys := model.RoleSystem
-	code, called := invokeOrgRole(t, db, &sys, 0, 0, model.OrgRoleOwner)
+	code, called := invokeOrgRole(t, db, &sys, 0, org.UUID.String(), model.OrgRoleOwner)
 	if code != http.StatusOK || !called {
 		t.Errorf("system bypass: code = %d, called = %v; want 200, true", code, called)
 	}
@@ -144,7 +155,7 @@ func TestRequireOrgRole_Member_AllowedRole_Passes(t *testing.T) {
 	db.Create(&org)
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOwner})
 
-	code, called := invokeOrgRole(t, db, nil, user.ID, org.ID, model.OrgRoleOwner)
+	code, called := invokeOrgRole(t, db, nil, user.ID, org.UUID.String(), model.OrgRoleOwner)
 	if code != http.StatusOK || !called {
 		t.Errorf("code = %d, called = %v; want 200, true", code, called)
 	}
@@ -159,7 +170,7 @@ func TestRequireOrgRole_Member_WrongRole_Forbidden(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOperational})
 
 	// Endpoint requires owner; caller is only operational.
-	code, called := invokeOrgRole(t, db, nil, user.ID, org.ID, model.OrgRoleOwner)
+	code, called := invokeOrgRole(t, db, nil, user.ID, org.UUID.String(), model.OrgRoleOwner)
 	if code != http.StatusForbidden || called {
 		t.Errorf("code = %d, called = %v; want 403, false", code, called)
 	}
@@ -173,7 +184,7 @@ func TestRequireOrgRole_NonMember_Forbidden(t *testing.T) {
 	db.Create(&org)
 	// No OrgMember row for this user+org.
 
-	code, called := invokeOrgRole(t, db, nil, user.ID, org.ID, model.OrgRoleOwner)
+	code, called := invokeOrgRole(t, db, nil, user.ID, org.UUID.String(), model.OrgRoleOwner)
 	if code != http.StatusForbidden || called {
 		t.Errorf("code = %d, called = %v; want 403, false", code, called)
 	}
@@ -188,9 +199,37 @@ func TestRequireOrgRole_Member_MultipleAllowedRoles(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleAdmin})
 
 	// Admin is in the allowed set [owner, admin].
-	code, called := invokeOrgRole(t, db, nil, user.ID, org.ID, model.OrgRoleOwner, model.OrgRoleAdmin)
+	code, called := invokeOrgRole(t, db, nil, user.ID, org.UUID.String(), model.OrgRoleOwner, model.OrgRoleAdmin)
 	if code != http.StatusOK || !called {
 		t.Errorf("code = %d, called = %v; want 200, true", code, called)
+	}
+}
+
+// TestRequireOrgRole_OrgUUIDNotFound covers the new UUID→id resolution path:
+// when the :orgUUID param is well-formed but no row matches, the middleware
+// must return 404, not 403.
+func TestRequireOrgRole_OrgUUIDNotFound_Returns404(t *testing.T) {
+	db := newACLTestDB(t)
+	user := model.User{Email: "u@example.com", Name: "U"}
+	db.Create(&user)
+
+	// Random UUID — parses cleanly but no organisations row matches.
+	code, called := invokeOrgRole(t, db, nil, user.ID, uuid.New().String(), model.OrgRoleOwner)
+	if code != http.StatusNotFound || called {
+		t.Errorf("code = %d, called = %v; want 404, false", code, called)
+	}
+}
+
+// TestRequireOrgRole_OrgUUIDMalformed covers the parse-failure branch: an
+// unparseable :orgUUID returns 404 (treated as "org not found").
+func TestRequireOrgRole_OrgUUIDMalformed_Returns404(t *testing.T) {
+	db := newACLTestDB(t)
+	user := model.User{Email: "u@example.com", Name: "U"}
+	db.Create(&user)
+
+	code, called := invokeOrgRole(t, db, nil, user.ID, "not-a-uuid", model.OrgRoleOwner)
+	if code != http.StatusNotFound || called {
+		t.Errorf("code = %d, called = %v; want 404, false", code, called)
 	}
 }
 
@@ -224,14 +263,16 @@ func TestRequireOrgRole_InjectsOrgMemberRole(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	c.SetParamNames("orgID")
-	c.SetParamValues(fmt.Sprintf("%d", org.ID))
+	c.SetParamNames("orgUUID")
+	c.SetParamValues(org.UUID.String())
 	c.Set(middleware.UserIDContextKey, user.ID)
 	c.Set(middleware.RoleContextKey, (*model.AdministrativeRole)(nil))
 
 	var injectedRole model.MemberRole
+	var resolvedOrgID uint
 	h := middleware.RequireOrgRole(db, model.OrgRoleAdmin)(func(c echo.Context) error {
 		injectedRole, _ = c.Get("org_member_role").(model.MemberRole)
+		resolvedOrgID, _ = c.Get(middleware.OrgIDContextKey).(uint)
 		return c.String(http.StatusOK, "ok")
 	})
 	if err := h(c); err != nil {
@@ -239,5 +280,8 @@ func TestRequireOrgRole_InjectsOrgMemberRole(t *testing.T) {
 	}
 	if injectedRole != model.OrgRoleAdmin {
 		t.Errorf("org_member_role = %q, want %q", injectedRole, model.OrgRoleAdmin)
+	}
+	if resolvedOrgID != org.ID {
+		t.Errorf("OrgIDContextKey = %d, want %d (middleware should resolve UUID→id)", resolvedOrgID, org.ID)
 	}
 }

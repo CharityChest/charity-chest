@@ -42,6 +42,11 @@ vi.mock('@/lib/api', () => {
 import { isAuthenticated, getRole, clearToken } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
 
+const ALICE_UUID = '00000000-0000-0000-0000-000000000003';
+const BOB_UUID = '00000000-0000-0000-0000-000000000007';
+const CAROL_UUID = '00000000-0000-0000-0000-000000000099';
+const ACME_UUID = '00000000-0000-0000-0000-0000000000a1';
+
 const emptyResult = {
   data: [],
   metadata: { page: 1, size: 20, total: 0, total_pages: 1 },
@@ -50,17 +55,17 @@ const emptyResult = {
 const sampleResult = {
   data: [
     {
-      id: 3,
+      uuid: ALICE_UUID,
       email: 'alice@example.com',
       name: 'Alice',
       role: 'system',
       mfa_enabled: false,
       created_at: '',
       updated_at: '',
-      organizations: [{ id: 1, name: 'Acme', role: 'owner' }],
+      organizations: [{ uuid: ACME_UUID, name: 'Acme', role: 'owner' }],
     },
     {
-      id: 7,
+      uuid: BOB_UUID,
       email: 'bob@example.com',
       name: 'Bob',
       role: null,
@@ -128,7 +133,7 @@ describe('AdminUsersPage — role assignment', () => {
 
   async function fillAndSubmit(value: string, role?: string) {
     await act(async () => {
-      fireEvent.change(screen.getByRole('spinbutton'), { target: { value } });
+      fireEvent.change(screen.getByPlaceholderText('adminUsers.userIdPlaceholder'), { target: { value } });
       if (role) {
         fireEvent.change(screen.getByRole('combobox'), { target: { value: role } });
       }
@@ -139,31 +144,31 @@ describe('AdminUsersPage — role assignment', () => {
   }
 
   it('calls assignSystemRole and shows result on success', async () => {
-    const user = { id: 5, email: 'u@u.com', name: 'U', role: 'system', mfa_enabled: false, created_at: '', updated_at: '' };
+    const user = { uuid: ALICE_UUID, email: 'u@u.com', name: 'U', role: 'system', mfa_enabled: false, created_at: '', updated_at: '' };
     vi.mocked(api.assignSystemRole).mockResolvedValue(user);
 
     render(<AdminUsersPage />);
     await waitFor(() => expect(screen.getByText('adminUsers.title')).toBeTruthy());
 
-    await fillAndSubmit('5');
+    await fillAndSubmit(ALICE_UUID);
 
     await waitFor(() => {
-      expect(api.assignSystemRole).toHaveBeenCalledWith(5, 'system');
+      expect(api.assignSystemRole).toHaveBeenCalledWith(ALICE_UUID, 'system');
       expect(screen.getByText('adminUsers.result')).toBeTruthy();
     });
   });
 
   it('sends empty string for role="none"', async () => {
-    const user = { id: 7, email: 'u@u.com', name: 'U', role: null, mfa_enabled: false, created_at: '', updated_at: '' };
+    const user = { uuid: BOB_UUID, email: 'u@u.com', name: 'U', role: null, mfa_enabled: false, created_at: '', updated_at: '' };
     vi.mocked(api.assignSystemRole).mockResolvedValue(user);
 
     render(<AdminUsersPage />);
     await waitFor(() => expect(screen.getByText('adminUsers.title')).toBeTruthy());
 
-    await fillAndSubmit('7', 'none');
+    await fillAndSubmit(BOB_UUID, 'none');
 
     await waitFor(() => {
-      expect(api.assignSystemRole).toHaveBeenCalledWith(7, '');
+      expect(api.assignSystemRole).toHaveBeenCalledWith(BOB_UUID, '');
     });
   });
 
@@ -173,7 +178,7 @@ describe('AdminUsersPage — role assignment', () => {
     render(<AdminUsersPage />);
     await waitFor(() => expect(screen.getByText('adminUsers.title')).toBeTruthy());
 
-    await fillAndSubmit('9');
+    await fillAndSubmit(CAROL_UUID);
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeTruthy();
@@ -187,7 +192,7 @@ describe('AdminUsersPage — role assignment', () => {
     render(<AdminUsersPage />);
     await waitFor(() => expect(screen.getByText('adminUsers.title')).toBeTruthy());
 
-    await fillAndSubmit('9');
+    await fillAndSubmit(CAROL_UUID);
 
     await waitFor(() => {
       expect(mockRouter.replace).toHaveBeenCalledWith('/login');
@@ -263,8 +268,8 @@ describe('AdminUsersPage — user search', () => {
       fireEvent.click(screen.getByText('alice@example.com'));
     });
 
-    const idInput = screen.getByRole('spinbutton') as HTMLInputElement;
-    expect(idInput.value).toBe('3');
+    const idInput = screen.getByPlaceholderText('adminUsers.userIdPlaceholder') as HTMLInputElement;
+    expect(idInput.value).toBe(ALICE_UUID);
   });
 
   it('shows empty-state message when results are empty', async () => {
@@ -286,7 +291,7 @@ describe('AdminUsersPage — user search', () => {
       metadata: { page: 1, size: 20, total: 40, total_pages: 2 },
     };
     const page2 = {
-      data: [{ ...sampleResult.data[0], id: 99, email: 'carol@example.com' }],
+      data: [{ ...sampleResult.data[0], uuid: CAROL_UUID, email: 'carol@example.com' }],
       metadata: { page: 2, size: 20, total: 40, total_pages: 2 },
     };
     vi.mocked(api.searchUsers).mockResolvedValueOnce(page1).mockResolvedValueOnce(page2);
@@ -312,7 +317,7 @@ describe('AdminUsersPage — user search', () => {
       metadata: { page: 1, size: 20, total: 40, total_pages: 2 },
     };
     const page2 = {
-      data: [{ ...sampleResult.data[0], id: 99, email: 'carol@example.com', organizations: [] }],
+      data: [{ ...sampleResult.data[0], uuid: CAROL_UUID, email: 'carol@example.com', organizations: [] }],
       metadata: { page: 2, size: 20, total: 40, total_pages: 2 },
     };
 

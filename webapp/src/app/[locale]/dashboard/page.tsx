@@ -16,7 +16,7 @@ export default function DashboardPage() {
   const role = getRole(); // read once — stable for the page lifetime
 
   // Org quick-access state (for users with no system role)
-  const [orgIdInput, setOrgIdInput] = useState('');
+  const [orgUuidInput, setOrgUuidInput] = useState('');
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -41,8 +41,8 @@ export default function DashboardPage() {
 
   function handleGoToOrg(e: React.FormEvent) {
     e.preventDefault();
-    const id = parseInt(orgIdInput, 10);
-    if (!isNaN(id) && id > 0) router.push(`/orgs/${id}`);
+    const trimmed = orgUuidInput.trim();
+    if (trimmed) router.push(`/orgs/${encodeURIComponent(trimmed)}`);
   }
 
   if (error) {
@@ -85,7 +85,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="space-y-1 text-sm">
-            <ProfileRow label={t('dashboard.id')} value={String(user.id)} />
+            <ProfileRow label={t('dashboard.id')} value={user.uuid} />
             <ProfileRow label={t('dashboard.name')} value={user.name} />
             <ProfileRow label={t('dashboard.email')} value={user.email} />
             <ProfileRow
@@ -124,16 +124,15 @@ export default function DashboardPage() {
             <p className="mb-3 text-xs text-gray-400">{t('dashboard.orgAccessHint')}</p>
             <form onSubmit={handleGoToOrg} className="flex gap-2">
               <input
-                type="number"
-                min={1}
-                value={orgIdInput}
-                onChange={(e) => setOrgIdInput(e.target.value)}
+                type="text"
+                value={orgUuidInput}
+                onChange={(e) => setOrgUuidInput(e.target.value)}
                 placeholder={t('dashboard.orgIdPlaceholder')}
                 className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-base text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
               />
               <button
                 type="submit"
-                disabled={!orgIdInput}
+                disabled={!orgUuidInput.trim()}
                 className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 {t('dashboard.goToOrg')}

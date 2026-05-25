@@ -19,6 +19,6 @@ func RegisterAdmin(v1 *echo.Group, db *gorm.DB, c *cache.Cache, jwtSecret string
 	h := handler.NewAdminHandler(db, c)
 
 	admin := v1.Group("/api/admin")
-	admin.Use(middleware.JWT(jwtSecret))
+	admin.Use(middleware.JWT(db, jwtSecret))
 	admin.GET("/users", h.SearchUsers, middleware.RequireSystemRole(model.RoleRoot))
 }

@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"charity-chest/internal/model"
 	"charity-chest/internal/testdb"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
@@ -24,9 +26,37 @@ func newOrgTestDB(t *testing.T) *gorm.DB {
 	return testdb.Open(t)
 }
 
+// userUUIDByID looks up the user's public UUID by int id. Falls back to a
+// random UUID when no such user exists, so tests that pass a deliberately
+// missing id (e.g. 9999) exercise the handler's "user not found" path. Any
+// other DB error fails the test loudly rather than being masked.
+func userUUIDByID(t *testing.T, db *gorm.DB, id uint) string {
+	t.Helper()
+	if id == 0 {
+		return ""
+	}
+	var u model.User
+	err := db.Unscoped().Select("uuid").First(&u, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return uuid.New().String()
+	}
+	if err != nil {
+		t.Fatalf("userUUIDByID(%d): unexpected DB error: %v", id, err)
+	}
+	return u.UUID.String()
+}
+
 // newOrgContext creates an Echo context for org handler unit tests.
-// orgID is set as the ":orgID" path parameter when non-zero.
-func newOrgContext(t *testing.T, method, path, body string, orgID uint, userID uint, sysRole *model.AdministrativeRole, orgRole model.MemberRole) (echo.Context, *httptest.ResponseRecorder) {
+//
+// When orgID != 0 the handler expects RequireOrgRole to have resolved the
+// :orgUUID path param into middleware.OrgIDContextKey. We mirror that here by
+// (a) looking up the org's UUID and setting it as the :orgUUID path param and
+// (b) seeding middleware.OrgIDContextKey with the int id directly. Tests that
+// pass a non-zero orgID for a row that doesn't actually exist (e.g. 9999) get
+// a random UUID as :orgUUID and no OrgIDContextKey — which is exactly what the
+// real middleware would produce for an unknown UUID, so the not-found tests
+// still exercise the handler's "orgID == 0" guard.
+func newOrgContext(t *testing.T, db *gorm.DB, method, path, body string, orgID uint, userID uint, sysRole *model.AdministrativeRole, orgRole model.MemberRole) (echo.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	var req *http.Request
 	if body != "" {
@@ -39,8 +69,19 @@ func newOrgContext(t *testing.T, method, path, body string, orgID uint, userID u
 	c := echo.New().NewContext(req, rec)
 
 	if orgID != 0 {
-		c.SetParamNames("orgID")
-		c.SetParamValues(fmt.Sprintf("%d", orgID))
+		var org model.Organization
+		err := db.Unscoped().Select("id", "uuid").First(&org, orgID).Error
+		if err == nil {
+			c.SetParamNames("orgUUID")
+			c.SetParamValues(org.UUID.String())
+			c.Set(middleware.OrgIDContextKey, org.ID)
+		} else {
+			// Org doesn't exist — simulate the middleware not finding it. Set a
+			// random UUID as the path param so handlers that resolve it
+			// themselves (UpdateOrg, DeleteOrg) get a clean ErrRecordNotFound.
+			c.SetParamNames("orgUUID")
+			c.SetParamValues(uuid.New().String())
+		}
 	}
 	c.Set(middleware.UserIDContextKey, userID)
 	if sysRole != nil {
@@ -52,14 +93,20 @@ func newOrgContext(t *testing.T, method, path, body string, orgID uint, userID u
 	return c, rec
 }
 
-// newOrgContextWithUserID creates a context with orgID and userID params for member endpoints.
-func newOrgContextWithUserID(t *testing.T, method, path, body string, orgID, targetUserID, callerUserID uint, sysRole *model.AdministrativeRole, orgRole model.MemberRole) (echo.Context, *httptest.ResponseRecorder) {
+// newOrgContextWithUserID creates a context with the :userUUID path param set
+// for member endpoints. When targetUserID refers to a real row we use that
+// user's UUID; otherwise we substitute a random UUID so the handler observes
+// the equivalent of "no such user".
+func newOrgContextWithUserID(t *testing.T, db *gorm.DB, method, path, body string, orgID, targetUserID, callerUserID uint, sysRole *model.AdministrativeRole, orgRole model.MemberRole) (echo.Context, *httptest.ResponseRecorder) {
 	t.Helper()
-	c, rec := newOrgContext(t, method, path, body, orgID, callerUserID, sysRole, orgRole)
-	names := c.ParamNames()
-	values := c.ParamValues()
-	c.SetParamNames(append(names, "userID")...)
-	c.SetParamValues(append(values, fmt.Sprintf("%d", targetUserID))...)
+	c, rec := newOrgContext(t, db, method, path, body, orgID, callerUserID, sysRole, orgRole)
+
+	userUUID := userUUIDByID(t, db, targetUserID)
+
+	names := append(c.ParamNames(), "userUUID")
+	values := append(c.ParamValues(), userUUID)
+	c.SetParamNames(names...)
+	c.SetParamValues(values...)
 	return c, rec
 }
 
@@ -69,6 +116,12 @@ func decodeOrgBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any 
 	return decodeBody(t, rec) // reuse auth_test.go helper
 }
 
+// memberAddBody builds the JSON body used by AddMember tests. Pass a real
+// user's UUID (or a random one for not-found cases).
+func memberAddBody(userUUID, role string) string {
+	return fmt.Sprintf(`{"user_uuid":%q,"role":%q}`, userUUID, role)
+}
+
 // --- ListOrgs ---
 
 func TestListOrgs_Empty(t *testing.T) {
@@ -76,7 +129,7 @@ func TestListOrgs_Empty(t *testing.T) {
 	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
-	c, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
+	c, rec := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
 	if err := h.ListOrgs(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +153,7 @@ func TestListOrgs_ReturnsAll(t *testing.T) {
 	db.Create(&model.Organization{Name: "Org B"})
 
 	root := model.RoleRoot
-	c, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
+	c, rec := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
 	if err := h.ListOrgs(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -118,7 +171,7 @@ func TestCreateOrg_Success(t *testing.T) {
 	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
-	c, rec := newOrgContext(t, http.MethodPost, "/v1/api/orgs", `{"name":"New Org"}`, 0, 1, &root, "")
+	c, rec := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs", `{"name":"New Org"}`, 0, 1, &root, "")
 	if err := h.CreateOrg(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -130,8 +183,8 @@ func TestCreateOrg_Success(t *testing.T) {
 	if data["name"] != "New Org" {
 		t.Errorf("name = %v, want New Org", data["name"])
 	}
-	if data["id"] == nil {
-		t.Error("response missing id")
+	if data["uuid"] == nil || data["uuid"] == "" {
+		t.Error("response missing uuid")
 	}
 
 	var org model.Organization
@@ -146,7 +199,7 @@ func TestCreateOrg_EmptyName_Returns400(t *testing.T) {
 	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
-	c, _ := newOrgContext(t, http.MethodPost, "/v1/api/orgs", `{"name":""}`, 0, 1, &root, "")
+	c, _ := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs", `{"name":""}`, 0, 1, &root, "")
 	err := h.CreateOrg(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 HTTPError, got %v", err)
@@ -162,7 +215,7 @@ func TestGetOrg_Found(t *testing.T) {
 	db.Create(&org)
 
 	root := model.RoleRoot
-	c, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID), "", org.ID, 1, &root, "")
+	c, rec := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs/"+org.UUID.String(), "", org.ID, 1, &root, "")
 	if err := h.GetOrg(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,7 +234,9 @@ func TestGetOrg_NotFound_Returns404(t *testing.T) {
 	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
-	c, _ := newOrgContext(t, http.MethodGet, "/v1/api/orgs/9999", "", 9999, 1, &root, "")
+	// orgID 9999 doesn't exist → newOrgContext leaves OrgIDContextKey unset, the
+	// handler observes orgID == 0 and returns 404.
+	c, _ := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs/missing", "", 9999, 1, &root, "")
 	err := h.GetOrg(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusNotFound {
 		t.Errorf("expected 404 HTTPError, got %v", err)
@@ -197,7 +252,7 @@ func TestUpdateOrg_UpdatesName(t *testing.T) {
 	db.Create(&org)
 
 	root := model.RoleRoot
-	c, rec := newOrgContext(t, http.MethodPut, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID),
+	c, rec := newOrgContext(t, db, http.MethodPut, "/v1/api/orgs/"+org.UUID.String(),
 		`{"name":"New Name"}`, org.ID, 1, &root, "")
 	if err := h.UpdateOrg(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -223,7 +278,7 @@ func TestUpdateOrg_NotFound_Returns404(t *testing.T) {
 	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
-	c, _ := newOrgContext(t, http.MethodPut, "/v1/api/orgs/9999", `{"name":"X"}`, 9999, 1, &root, "")
+	c, _ := newOrgContext(t, db, http.MethodPut, "/v1/api/orgs/missing", `{"name":"X"}`, 9999, 1, &root, "")
 	err := h.UpdateOrg(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusNotFound {
 		t.Errorf("expected 404 HTTPError, got %v", err)
@@ -239,7 +294,7 @@ func TestDeleteOrg_Success(t *testing.T) {
 	db.Create(&org)
 
 	root := model.RoleRoot
-	c, rec := newOrgContext(t, http.MethodDelete, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID), "", org.ID, 1, &root, "")
+	c, rec := newOrgContext(t, db, http.MethodDelete, "/v1/api/orgs/"+org.UUID.String(), "", org.ID, 1, &root, "")
 	if err := h.DeleteOrg(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -259,7 +314,7 @@ func TestDeleteOrg_NotFound_Returns404(t *testing.T) {
 	h := handler.NewOrgHandler(db, cache.Disabled())
 
 	root := model.RoleRoot
-	c, _ := newOrgContext(t, http.MethodDelete, "/v1/api/orgs/9999", "", 9999, 1, &root, "")
+	c, _ := newOrgContext(t, db, http.MethodDelete, "/v1/api/orgs/missing", "", 9999, 1, &root, "")
 	err := h.DeleteOrg(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusNotFound {
 		t.Errorf("expected 404 HTTPError, got %v", err)
@@ -275,7 +330,7 @@ func TestListMembers_Empty(t *testing.T) {
 	db.Create(&org)
 
 	root := model.RoleRoot
-	c, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID)+"/members", "", org.ID, 1, &root, "")
+	c, rec := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs/"+org.UUID.String()+"/members", "", org.ID, 1, &root, "")
 	if err := h.ListMembers(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -299,7 +354,7 @@ func TestListMembers_ReturnsMembersWithUser(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOwner})
 
 	root := model.RoleRoot
-	c, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID)+"/members", "", org.ID, 1, &root, "")
+	c, rec := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs/"+org.UUID.String()+"/members", "", org.ID, 1, &root, "")
 	if err := h.ListMembers(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -332,8 +387,8 @@ func TestAddMember_SystemRole_Success(t *testing.T) {
 	db.Create(&org)
 
 	sys := model.RoleSystem
-	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, user.ID)
-	c, rec := newOrgContext(t, http.MethodPost, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID)+"/members",
+	body := memberAddBody(user.UUID.String(), "operational")
+	c, rec := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs/"+org.UUID.String()+"/members",
 		body, org.ID, 1, &sys, "")
 	if err := h.AddMember(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -360,9 +415,9 @@ func TestAddMember_OwnerCanAddAdmin(t *testing.T) {
 	db.Create(&org)
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: ownerUser.ID, Role: model.OrgRoleOwner})
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"admin"}`, targetUser.ID)
+	body := memberAddBody(targetUser.UUID.String(), "admin")
 	// No system role; org_member_role = owner (injected by RequireOrgRole middleware in real flow).
-	c, rec := newOrgContext(t, http.MethodPost, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID)+"/members",
+	c, rec := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs/"+org.UUID.String()+"/members",
 		body, org.ID, ownerUser.ID, nil, model.OrgRoleOwner)
 	if err := h.AddMember(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -383,8 +438,8 @@ func TestAddMember_AdminCannotAddOwner_Returns403(t *testing.T) {
 	db.Create(&org)
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: adminUser.ID, Role: model.OrgRoleAdmin})
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"owner"}`, targetUser.ID)
-	c, _ := newOrgContext(t, http.MethodPost, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID)+"/members",
+	body := memberAddBody(targetUser.UUID.String(), "owner")
+	c, _ := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs/"+org.UUID.String()+"/members",
 		body, org.ID, adminUser.ID, nil, model.OrgRoleAdmin)
 	err := h.AddMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusForbidden {
@@ -395,12 +450,15 @@ func TestAddMember_AdminCannotAddOwner_Returns403(t *testing.T) {
 func TestAddMember_InvalidRole_Returns400(t *testing.T) {
 	db := newOrgTestDB(t)
 	h := handler.NewOrgHandler(db, cache.Disabled())
+	user := model.User{Email: "u@example.com", Name: "U"}
+	db.Create(&user)
 	org := model.Organization{Name: "Org"}
 	db.Create(&org)
 
 	sys := model.RoleSystem
-	c, _ := newOrgContext(t, http.MethodPost, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID)+"/members",
-		`{"user_id":1,"role":"superadmin"}`, org.ID, 1, &sys, "")
+	body := memberAddBody(user.UUID.String(), "superadmin")
+	c, _ := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs/"+org.UUID.String()+"/members",
+		body, org.ID, 1, &sys, "")
 	err := h.AddMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 HTTPError, got %v", err)
@@ -417,8 +475,8 @@ func TestAddMember_DuplicateMember_Returns409(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOperational})
 
 	sys := model.RoleSystem
-	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, user.ID)
-	c, _ := newOrgContext(t, http.MethodPost, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID)+"/members",
+	body := memberAddBody(user.UUID.String(), "operational")
+	c, _ := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs/"+org.UUID.String()+"/members",
 		body, org.ID, 1, &sys, "")
 	err := h.AddMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusConflict {
@@ -438,8 +496,8 @@ func TestUpdateMember_Success(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOperational})
 
 	sys := model.RoleSystem
-	c, rec := newOrgContextWithUserID(t, http.MethodPut,
-		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, user.ID),
+	c, rec := newOrgContextWithUserID(t, db, http.MethodPut,
+		fmt.Sprintf("/v1/api/orgs/%s/members/%s", org.UUID, user.UUID),
 		`{"role":"admin"}`, org.ID, user.ID, 1, &sys, "")
 	if err := h.UpdateMember(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -462,8 +520,11 @@ func TestUpdateMember_NotFound_Returns404(t *testing.T) {
 	db.Create(&org)
 
 	sys := model.RoleSystem
-	c, _ := newOrgContextWithUserID(t, http.MethodPut,
-		fmt.Sprintf("/v1/api/orgs/%d/members/9999", org.ID),
+	// targetUserID 9999 doesn't exist → newOrgContextWithUserID substitutes a
+	// random UUID, which the handler's resolveUserIDFromUUIDParam reports as
+	// ErrRecordNotFound, yielding 404 KeyMemberNotFound.
+	c, _ := newOrgContextWithUserID(t, db, http.MethodPut,
+		fmt.Sprintf("/v1/api/orgs/%s/members/missing", org.UUID),
 		`{"role":"admin"}`, org.ID, 9999, 1, &sys, "")
 	err := h.UpdateMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusNotFound {
@@ -481,8 +542,8 @@ func TestUpdateMember_InvalidRole_Returns400(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOperational})
 
 	sys := model.RoleSystem
-	c, _ := newOrgContextWithUserID(t, http.MethodPut,
-		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, user.ID),
+	c, _ := newOrgContextWithUserID(t, db, http.MethodPut,
+		fmt.Sprintf("/v1/api/orgs/%s/members/%s", org.UUID, user.UUID),
 		`{"role":"superadmin"}`, org.ID, user.ID, 1, &sys, "")
 	err := h.UpdateMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusBadRequest {
@@ -502,8 +563,8 @@ func TestRemoveMember_Success(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOperational})
 
 	sys := model.RoleSystem
-	c, rec := newOrgContextWithUserID(t, http.MethodDelete,
-		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, user.ID),
+	c, rec := newOrgContextWithUserID(t, db, http.MethodDelete,
+		fmt.Sprintf("/v1/api/orgs/%s/members/%s", org.UUID, user.UUID),
 		"", org.ID, user.ID, 1, &sys, "")
 	if err := h.RemoveMember(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -526,8 +587,8 @@ func TestRemoveMember_NotFound_Returns404(t *testing.T) {
 	db.Create(&org)
 
 	sys := model.RoleSystem
-	c, _ := newOrgContextWithUserID(t, http.MethodDelete,
-		fmt.Sprintf("/v1/api/orgs/%d/members/9999", org.ID),
+	c, _ := newOrgContextWithUserID(t, db, http.MethodDelete,
+		fmt.Sprintf("/v1/api/orgs/%s/members/missing", org.UUID),
 		"", org.ID, 9999, 1, &sys, "")
 	err := h.RemoveMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusNotFound {
@@ -549,8 +610,8 @@ func TestAddMember_FallbackDBQuery_MemberFound_Allowed(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: ownerUser.ID, Role: model.OrgRoleOwner})
 
 	// No org_member_role in context — handler must fall back to DB query.
-	body := fmt.Sprintf(`{"user_id":%d,"role":"admin"}`, targetUser.ID)
-	c, rec := newOrgContext(t, http.MethodPost, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID)+"/members",
+	body := memberAddBody(targetUser.UUID.String(), "admin")
+	c, rec := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs/"+org.UUID.String()+"/members",
 		body, org.ID, ownerUser.ID, nil, "") // orgRole = "" triggers fallback
 	if err := h.AddMember(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -571,8 +632,8 @@ func TestAddMember_FallbackDBQuery_NotMember_Returns403(t *testing.T) {
 	db.Create(&org)
 	// outsider is NOT in the org.
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, targetUser.ID)
-	c, _ := newOrgContext(t, http.MethodPost, "/v1/api/orgs/"+fmt.Sprintf("%d", org.ID)+"/members",
+	body := memberAddBody(targetUser.UUID.String(), "operational")
+	c, _ := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs/"+org.UUID.String()+"/members",
 		body, org.ID, outsider.ID, nil, "") // orgRole = "" triggers fallback, DB finds no member
 	err := h.AddMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusForbidden {
@@ -593,8 +654,8 @@ func TestRemoveMember_AdminCannotRemoveOwner_Returns403(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: ownerUser.ID, Role: model.OrgRoleOwner})
 
 	// Admin caller (no system role), targeting an owner.
-	c, _ := newOrgContextWithUserID(t, http.MethodDelete,
-		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, ownerUser.ID),
+	c, _ := newOrgContextWithUserID(t, db, http.MethodDelete,
+		fmt.Sprintf("/v1/api/orgs/%s/members/%s", org.UUID, ownerUser.UUID),
 		"", org.ID, ownerUser.ID, adminUser.ID, nil, model.OrgRoleAdmin)
 	err := h.RemoveMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusForbidden {
@@ -614,7 +675,7 @@ func TestListOrgs_CacheHit(t *testing.T) {
 
 	root := model.RoleRoot
 	callListOrgs := func() *httptest.ResponseRecorder {
-		ctx, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
+		ctx, rec := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
 		if err := h.ListOrgs(ctx); err != nil {
 			t.Fatalf("ListOrgs: %v", err)
 		}
@@ -647,7 +708,7 @@ func TestListOrgs_CacheInvalidatedOnCreate(t *testing.T) {
 
 	root := model.RoleRoot
 	callListOrgs := func() []any {
-		ctx, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
+		ctx, rec := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
 		if err := h.ListOrgs(ctx); err != nil {
 			t.Fatalf("ListOrgs: %v", err)
 		}
@@ -660,7 +721,7 @@ func TestListOrgs_CacheInvalidatedOnCreate(t *testing.T) {
 	}
 
 	// Create an org (should invalidate orgs:list).
-	ctx, _ := newOrgContext(t, http.MethodPost, "/v1/api/orgs", `{"name":"New Org"}`, 0, 1, &root, "")
+	ctx, _ := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs", `{"name":"New Org"}`, 0, 1, &root, "")
 	if err := h.CreateOrg(ctx); err != nil {
 		t.Fatalf("CreateOrg: %v", err)
 	}
@@ -682,7 +743,7 @@ func TestGetOrg_CacheHit(t *testing.T) {
 
 	root := model.RoleRoot
 	callGetOrg := func() (*httptest.ResponseRecorder, error) {
-		ctx, rec := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+		ctx, rec := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs/"+org.UUID.String(), "", org.ID, 1, &root, "")
 		err := h.GetOrg(ctx)
 		return rec, err
 	}
@@ -692,8 +753,11 @@ func TestGetOrg_CacheHit(t *testing.T) {
 		t.Fatalf("GetOrg first call: %v", err)
 	}
 
-	// Delete from DB.
-	db.Unscoped().Delete(&org)
+	// Soft-delete from DB. (A hard delete would also remove the row from
+	// newOrgContext's Unscoped UUID lookup, breaking the test's middleware
+	// simulation — soft delete still proves the cache serves stale-after-DB
+	// rows, which is what this test exists to verify.)
+	db.Delete(&org)
 
 	// Second call: cache hit → still returns the org.
 	rec, err := callGetOrg()
@@ -724,7 +788,7 @@ func TestListMembers_CacheHit(t *testing.T) {
 
 	root := model.RoleRoot
 	callList := func() []any {
-		ctx, rec := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+		ctx, rec := newOrgContext(t, db, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), "", org.ID, 1, &root, "")
 		if err := h.ListMembers(ctx); err != nil {
 			t.Fatalf("ListMembers: %v", err)
 		}
@@ -756,7 +820,7 @@ func TestListOrgs_BrokenCache_FallsThroughToDB(t *testing.T) {
 	mr.Close() // break the cache — all operations will fail
 
 	root := model.RoleRoot
-	ctx, rec := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
+	ctx, rec := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
 	if err := h.ListOrgs(ctx); err != nil {
 		t.Fatalf("ListOrgs with broken cache: %v", err)
 	}
@@ -778,7 +842,7 @@ func TestGetOrg_BrokenCache_FallsThroughToDB(t *testing.T) {
 	mr.Close()
 
 	root := model.RoleRoot
-	ctx, rec := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+	ctx, rec := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs/"+org.UUID.String(), "", org.ID, 1, &root, "")
 	if err := h.GetOrg(ctx); err != nil {
 		t.Fatalf("GetOrg with broken cache: %v", err)
 	}
@@ -802,7 +866,7 @@ func TestListMembers_BrokenCache_FallsThroughToDB(t *testing.T) {
 	mr.Close()
 
 	root := model.RoleRoot
-	ctx, rec := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+	ctx, rec := newOrgContext(t, db, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), "", org.ID, 1, &root, "")
 	if err := h.ListMembers(ctx); err != nil {
 		t.Fatalf("ListMembers with broken cache: %v", err)
 	}
@@ -821,13 +885,13 @@ func TestCreateOrg_BrokenCacheInvalidation(t *testing.T) {
 
 	// Populate the list cache so there's something to invalidate.
 	root := model.RoleRoot
-	listCtx, _ := newOrgContext(t, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
+	listCtx, _ := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs", "", 0, 1, &root, "")
 	_ = h.ListOrgs(listCtx)
 
 	// Kill cache — the Del call after CreateOrg will fail.
 	mr.Close()
 
-	createCtx, rec := newOrgContext(t, http.MethodPost, "/v1/api/orgs", `{"name":"New"}`, 0, 1, &root, "")
+	createCtx, rec := newOrgContext(t, db, http.MethodPost, "/v1/api/orgs", `{"name":"New"}`, 0, 1, &root, "")
 	if err := h.CreateOrg(createCtx); err != nil {
 		t.Fatalf("CreateOrg with broken cache invalidation: %v", err)
 	}
@@ -852,11 +916,11 @@ func TestUpdateOrg_BrokenCacheInvalidation(t *testing.T) {
 
 	// Populate the cache.
 	root := model.RoleRoot
-	getCtx, _ := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+	getCtx, _ := newOrgContext(t, db, http.MethodGet, "/v1/api/orgs/"+org.UUID.String(), "", org.ID, 1, &root, "")
 	_ = h.GetOrg(getCtx)
 	mr.Close()
 
-	updateCtx, rec := newOrgContext(t, http.MethodPut, fmt.Sprintf("/v1/api/orgs/%d", org.ID), `{"name":"Updated"}`, org.ID, 1, &root, "")
+	updateCtx, rec := newOrgContext(t, db, http.MethodPut, "/v1/api/orgs/"+org.UUID.String(), `{"name":"Updated"}`, org.ID, 1, &root, "")
 	if err := h.UpdateOrg(updateCtx); err != nil {
 		t.Fatalf("UpdateOrg with broken cache: %v", err)
 	}
@@ -884,7 +948,7 @@ func TestDeleteOrg_BrokenCacheInvalidation(t *testing.T) {
 	mr.Close()
 
 	root := model.RoleRoot
-	ctx, rec := newOrgContext(t, http.MethodDelete, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+	ctx, rec := newOrgContext(t, db, http.MethodDelete, "/v1/api/orgs/"+org.UUID.String(), "", org.ID, 1, &root, "")
 	if err := h.DeleteOrg(ctx); err != nil {
 		t.Fatalf("DeleteOrg with broken cache: %v", err)
 	}
@@ -911,12 +975,12 @@ func TestAddMember_BrokenCacheInvalidation(t *testing.T) {
 
 	// Populate member cache then break cache.
 	root := model.RoleRoot
-	listCtx, _ := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+	listCtx, _ := newOrgContext(t, db, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), "", org.ID, 1, &root, "")
 	_ = h.ListMembers(listCtx)
 	mr.Close()
 
-	body := fmt.Sprintf(`{"user_id":%d,"role":"owner"}`, user.ID)
-	ctx, rec := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &root, "")
+	body := memberAddBody(user.UUID.String(), "owner")
+	ctx, rec := newOrgContext(t, db, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, org.ID, 1, &root, "")
 	if err := h.AddMember(ctx); err != nil {
 		t.Fatalf("AddMember with broken cache: %v", err)
 	}
@@ -944,13 +1008,13 @@ func TestUpdateMember_BrokenCacheInvalidation(t *testing.T) {
 
 	root := model.RoleRoot
 	// Populate member cache then break cache.
-	listCtx, _ := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+	listCtx, _ := newOrgContext(t, db, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), "", org.ID, 1, &root, "")
 	_ = h.ListMembers(listCtx)
 	mr.Close()
 
 	body := `{"role":"admin"}`
-	path := fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, user.ID)
-	ctx, rec := newOrgContextWithUserID(t, http.MethodPut, path, body, org.ID, user.ID, 1, &root, "")
+	path := fmt.Sprintf("/v1/api/orgs/%s/members/%s", org.UUID, user.UUID)
+	ctx, rec := newOrgContextWithUserID(t, db, http.MethodPut, path, body, org.ID, user.ID, 1, &root, "")
 	if err := h.UpdateMember(ctx); err != nil {
 		t.Fatalf("UpdateMember with broken cache: %v", err)
 	}
@@ -984,12 +1048,12 @@ func TestRemoveMember_BrokenCacheInvalidation(t *testing.T) {
 
 	// Populate member cache then break cache.
 	root := model.RoleRoot
-	listCtx, _ := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+	listCtx, _ := newOrgContext(t, db, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), "", org.ID, 1, &root, "")
 	_ = h.ListMembers(listCtx)
 	mr.Close()
 
-	path := fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, target.ID)
-	ctx, rec := newOrgContextWithUserID(t, http.MethodDelete, path, "", org.ID, target.ID, caller.ID, &root, "")
+	path := fmt.Sprintf("/v1/api/orgs/%s/members/%s", org.UUID, target.UUID)
+	ctx, rec := newOrgContextWithUserID(t, db, http.MethodDelete, path, "", org.ID, target.ID, caller.ID, &root, "")
 	if err := h.RemoveMember(ctx); err != nil {
 		t.Fatalf("RemoveMember with broken cache: %v", err)
 	}
@@ -1019,7 +1083,7 @@ func TestListMembers_CacheInvalidatedOnAdd(t *testing.T) {
 
 	root := model.RoleRoot
 	callList := func() []any {
-		ctx, rec := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), "", org.ID, 1, &root, "")
+		ctx, rec := newOrgContext(t, db, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), "", org.ID, 1, &root, "")
 		if err := h.ListMembers(ctx); err != nil {
 			t.Fatalf("ListMembers: %v", err)
 		}
@@ -1032,8 +1096,8 @@ func TestListMembers_CacheInvalidatedOnAdd(t *testing.T) {
 	}
 
 	// Add a new member (should invalidate org:{id}:members).
-	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, newUser.ID)
-	ctx, _ := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &root, "")
+	body := memberAddBody(newUser.UUID.String(), "operational")
+	ctx, _ := newOrgContext(t, db, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, org.ID, 1, &root, "")
 	if err := h.AddMember(ctx); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
@@ -1058,8 +1122,8 @@ func TestAddMember_FreeOwnerLimit_Returns422(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: existing.ID, Role: model.OrgRoleOwner})
 
 	sys := model.RoleSystem
-	body := fmt.Sprintf(`{"user_id":%d,"role":"owner"}`, newUser.ID)
-	c, _ := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &sys, "")
+	body := memberAddBody(newUser.UUID.String(), "owner")
+	c, _ := newOrgContext(t, db, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, org.ID, 1, &sys, "")
 	err := h.AddMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
 		t.Errorf("expected 422 HTTPError, got %v", err)
@@ -1075,8 +1139,8 @@ func TestAddMember_FreeAdminNotAllowed_Returns422(t *testing.T) {
 	db.Create(&org)
 
 	sys := model.RoleSystem
-	body := fmt.Sprintf(`{"user_id":%d,"role":"admin"}`, newUser.ID)
-	c, _ := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &sys, "")
+	body := memberAddBody(newUser.UUID.String(), "admin")
+	c, _ := newOrgContext(t, db, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, org.ID, 1, &sys, "")
 	err := h.AddMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
 		t.Errorf("expected 422 HTTPError, got %v", err)
@@ -1098,8 +1162,8 @@ func TestAddMember_FreeOperationalLimit_Returns422(t *testing.T) {
 	}
 
 	sys := model.RoleSystem
-	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, newUser.ID)
-	c, _ := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &sys, "")
+	body := memberAddBody(newUser.UUID.String(), "operational")
+	c, _ := newOrgContext(t, db, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, org.ID, 1, &sys, "")
 	err := h.AddMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
 		t.Errorf("expected 422 HTTPError, got %v", err)
@@ -1121,8 +1185,8 @@ func TestAddMember_ProAdminLimit_Returns422(t *testing.T) {
 	}
 
 	sys := model.RoleSystem
-	body := fmt.Sprintf(`{"user_id":%d,"role":"admin"}`, newUser.ID)
-	c, _ := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &sys, "")
+	body := memberAddBody(newUser.UUID.String(), "admin")
+	c, _ := newOrgContext(t, db, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, org.ID, 1, &sys, "")
 	err := h.AddMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
 		t.Errorf("expected 422 HTTPError, got %v", err)
@@ -1144,8 +1208,8 @@ func TestAddMember_EnterpriseUnlimited_Success(t *testing.T) {
 	db.Create(&extra)
 
 	sys := model.RoleSystem
-	body := fmt.Sprintf(`{"user_id":%d,"role":"operational"}`, extra.ID)
-	c, rec := newOrgContext(t, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%d/members", org.ID), body, org.ID, 1, &sys, "")
+	body := memberAddBody(extra.UUID.String(), "operational")
+	c, rec := newOrgContext(t, db, http.MethodPost, fmt.Sprintf("/v1/api/orgs/%s/members", org.UUID), body, org.ID, 1, &sys, "")
 	if err := h.AddMember(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1164,8 +1228,8 @@ func TestUpdateMember_FreeAdminNotAllowed_Returns422(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: user.ID, Role: model.OrgRoleOperational})
 
 	sys := model.RoleSystem
-	c, _ := newOrgContextWithUserID(t, http.MethodPut,
-		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, user.ID),
+	c, _ := newOrgContextWithUserID(t, db, http.MethodPut,
+		fmt.Sprintf("/v1/api/orgs/%s/members/%s", org.UUID, user.UUID),
 		`{"role":"admin"}`, org.ID, user.ID, 1, &sys, "")
 	err := h.UpdateMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
@@ -1189,8 +1253,8 @@ func TestUpdateMember_ProLimitReached_Returns422(t *testing.T) {
 	db.Create(&model.OrgMember{OrgID: org.ID, UserID: op.ID, Role: model.OrgRoleOperational})
 
 	sys := model.RoleSystem
-	c, _ := newOrgContextWithUserID(t, http.MethodPut,
-		fmt.Sprintf("/v1/api/orgs/%d/members/%d", org.ID, op.ID),
+	c, _ := newOrgContextWithUserID(t, db, http.MethodPut,
+		fmt.Sprintf("/v1/api/orgs/%s/members/%s", org.UUID, op.UUID),
 		`{"role":"admin"}`, org.ID, op.ID, 1, &sys, "")
 	err := h.UpdateMember(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {

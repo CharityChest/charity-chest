@@ -19,6 +19,7 @@ export default function OrgsPage() {
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -36,9 +37,12 @@ export default function OrgsPage() {
         clearToken();
         router.replace('/login');
       } else {
-        setLoadError(err instanceof ApiError ? err.message : 'Failed to load');
+        setLoadError(err instanceof ApiError ? err.message : t('orgs.loadFailed'));
       }
     });
+    // Mount-only: `t` is intentionally excluded so a re-render (e.g. after
+    // creating an org) doesn't re-fetch and clobber local list state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   async function handleCreate(e: React.FormEvent) {
@@ -51,19 +55,20 @@ export default function OrgsPage() {
       setOrgs((prev) => [...prev, org]);
       setNewName('');
     } catch (err) {
-      setCreateError(err instanceof ApiError ? err.message : 'Failed to create');
+      setCreateError(err instanceof ApiError ? err.message : t('orgs.createFailed'));
     } finally {
       setCreating(false);
     }
   }
 
-  async function handleDelete(orgId: number) {
+  async function handleDelete(orgUuid: string) {
     if (!confirm(t('orgs.deleteOrg') + '?')) return;
+    setDeleteError('');
     try {
-      await api.deleteOrg(orgId);
-      setOrgs((prev) => prev.filter((o) => o.id !== orgId));
+      await api.deleteOrg(orgUuid);
+      setOrgs((prev) => prev.filter((o) => o.uuid !== orgUuid));
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to delete');
+      setDeleteError(err instanceof ApiError ? err.message : t('orgs.deleteFailed'));
     }
   }
 
@@ -106,6 +111,7 @@ export default function OrgsPage() {
         </form>
         <ErrorBanner message={createError} />
         <ErrorBanner message={loadError} />
+        <ErrorBanner message={deleteError} />
 
         {/* Org list */}
         {orgs.length === 0 ? (
@@ -114,27 +120,27 @@ export default function OrgsPage() {
           <ul className="space-y-2">
             {orgs.map((org) => (
               <li
-                key={org.id}
+                key={org.uuid}
                 className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm"
               >
-                <div>
+                <div className="min-w-0">
                   <Link
-                    href={`/orgs/${org.id}`}
+                    href={`/orgs/${org.uuid}`}
                     className="font-medium text-emerald-700 hover:underline"
                   >
                     {org.name}
                   </Link>
-                  <p className="text-xs text-gray-400">#{org.id}</p>
+                  <p className="break-all text-xs text-gray-400">#{org.uuid}</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex shrink-0 gap-2">
                   <Link
-                    href={`/orgs/${org.id}`}
+                    href={`/orgs/${org.uuid}`}
                     className="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
                   >
                     {t('orgs.members')}
                   </Link>
                   <button
-                    onClick={() => handleDelete(org.id)}
+                    onClick={() => handleDelete(org.uuid)}
                     className="rounded-md border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
                   >
                     {t('orgs.deleteOrg')}

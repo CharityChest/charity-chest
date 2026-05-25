@@ -17,6 +17,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
 	"gorm.io/gorm"
@@ -70,12 +71,12 @@ func newServer(t *testing.T) (*echo.Echo, *handler.AuthHandler, *gorm.DB) {
 }
 
 // makeMFAPendingToken creates a valid MFA-pending JWT for the given user.
-func makeMFAPendingToken(t *testing.T, userID uint, email string) string {
+func makeMFAPendingToken(t *testing.T, userUUID uuid.UUID, email string) string {
 	t.Helper()
 	cfg := testCfg()
 	pending := true
 	claims := middleware.Claims{
-		UserID:     userID,
+		UserUUID:   userUUID,
 		Email:      email,
 		MFAPending: &pending,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -416,7 +417,7 @@ func TestVerifyMFA_ValidCode_ReturnsToken(t *testing.T) {
 	}
 	db.Create(user)
 
-	mfaToken := makeMFAPendingToken(t, user.ID, user.Email)
+	mfaToken := makeMFAPendingToken(t, user.UUID, user.Email)
 	code, err := totp.GenerateCode(secret, time.Now())
 	if err != nil {
 		t.Fatalf("generate totp code: %v", err)
@@ -452,7 +453,7 @@ func TestVerifyMFA_InvalidCode_Returns401(t *testing.T) {
 	}
 	db.Create(user)
 
-	mfaToken := makeMFAPendingToken(t, user.ID, user.Email)
+	mfaToken := makeMFAPendingToken(t, user.UUID, user.Email)
 	body := `{"mfa_token":"` + mfaToken + `","code":"000000"}`
 	rec := postJSON(e, "/v1/auth/mfa/verify", body)
 	if rec.Code != http.StatusUnauthorized {
@@ -469,8 +470,8 @@ func TestVerifyMFA_NonPendingToken_Returns401(t *testing.T) {
 	// Issue a full JWT (not pending).
 	cfg := testCfg()
 	claims := middleware.Claims{
-		UserID: user.ID,
-		Email:  user.Email,
+		UserUUID: user.UUID,
+		Email:    user.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -489,7 +490,7 @@ func TestVerifyMFA_MissingCode_Returns400(t *testing.T) {
 	e, _, db := newServer(t)
 	user := &model.User{Email: "u@example.com", Name: "U"}
 	db.Create(user)
-	mfaToken := makeMFAPendingToken(t, user.ID, user.Email)
+	mfaToken := makeMFAPendingToken(t, user.UUID, user.Email)
 
 	body := `{"mfa_token":"` + mfaToken + `"}`
 	rec := postJSON(e, "/v1/auth/mfa/verify", body)
@@ -507,7 +508,7 @@ func TestVerifyMFA_ExpiredPendingToken_Returns401(t *testing.T) {
 	cfg := testCfg()
 	pending := true
 	claims := middleware.Claims{
-		UserID:     user.ID,
+		UserUUID:   user.UUID,
 		Email:      user.Email,
 		MFAPending: &pending,
 		RegisteredClaims: jwt.RegisteredClaims{

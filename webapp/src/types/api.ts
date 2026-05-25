@@ -3,7 +3,7 @@
  * Fields tagged `json:"-"` on the server (PasswordHash, GoogleID, TOTPSecret) are never present here.
  */
 export interface User {
-  id: number;
+  uuid: string;
   email: string;
   name: string;
   role?: string | null;
@@ -45,9 +45,9 @@ export interface SystemStatus {
 /** Subscription plan for an organisation. */
 export type Plan = 'free' | 'pro' | 'enterprise';
 
-/** Returned by GET /v1/api/orgs and GET /v1/api/orgs/:orgID. */
+/** Returned by GET /v1/api/orgs and GET /v1/api/orgs/:orgUUID. */
 export interface Organization {
-  id: number;
+  uuid: string;
   name: string;
   plan: Plan;
   created_at: string;
@@ -55,16 +55,14 @@ export interface Organization {
   members?: OrganizationMember[];
 }
 
-/** Returned by POST /v1/api/orgs/:orgID/billing/checkout. */
+/** Returned by POST /v1/api/orgs/:orgUUID/billing/checkout. */
 export interface BillingCheckoutResponse {
   url: string;
 }
 
-/** A single row from GET /v1/api/orgs/:orgID/members. */
+/** A single row from GET /v1/api/orgs/:orgUUID/members. */
 export interface OrganizationMember {
-  id: number;
-  org_id: number;
-  user_id: number;
+  uuid: string;
   role: string;
   created_at: string;
   updated_at: string;
@@ -87,7 +85,7 @@ export interface PaginatedResult<T> {
 
 /** Organisation summary embedded in admin user-search results. */
 export interface OrgSummary {
-  id: number;
+  uuid: string;
   name: string;
   role: string;
 }

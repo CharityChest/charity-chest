@@ -122,11 +122,18 @@
     "add": "Aggiungi",
     "adding": "Aggiunta…",
     "remove": "Rimuovi",
+    "removeFailed": "Impossibile rimuovere il membro",
     "updateRole": "Cambia ruolo",
+    "updateRoleFailed": "Impossibile aggiornare il ruolo",
     "noMembers": "Nessun membro ancora.",
+    "memberFallback": "Utente {id}",
+    "you": "(tu)",
     "roleOwner": "Proprietario",
     "roleAdmin": "Amministratore",
-    "roleOperational": "Operativo"
+    "roleOperational": "Operativo",
+    "loadFailed": "Caricamento delle organizzazioni non riuscito.",
+    "createFailed": "Creazione dell'organizzazione non riuscita.",
+    "deleteFailed": "Eliminazione dell'organizzazione non riuscita."
   },
   "adminUsers": {
     "title": "Gestione ruoli utente",

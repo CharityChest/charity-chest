@@ -17,7 +17,9 @@ import (
 	"charity-chest/internal/middleware"
 	"charity-chest/internal/model"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
 
 // --- Mock Stripe gateway ---
@@ -65,7 +67,15 @@ func newBillingCfgWithStripe() *config.Config {
 	return cfg
 }
 
-func newBillingContext(t *testing.T, method, query, body string, orgID uint, userID uint, sysRole *model.AdministrativeRole) (echo.Context, *httptest.ResponseRecorder) {
+// newBillingContext mirrors what RequireOrgRole / RequireSystemRole would do
+// for the routes the billing handler is mounted on. For real orgs we set both
+// the :orgUUID path param (used by AssignEnterprisePlan which resolves the UUID
+// itself) and middleware.OrgIDContextKey (used by CreateCheckout and
+// CancelSubscription which read the resolved int id from context). For
+// not-found tests (orgID != 0 but no matching row) we set a random UUID and
+// leave OrgIDContextKey unset — the handler's "orgID == 0" guard then yields
+// a 404 just as the real middleware would.
+func newBillingContext(t *testing.T, db *gorm.DB, method, query, body string, orgID uint, userID uint, sysRole *model.AdministrativeRole) (echo.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	path := "/"
 	if query != "" {
@@ -81,8 +91,17 @@ func newBillingContext(t *testing.T, method, query, body string, orgID uint, use
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
 	if orgID != 0 {
-		c.SetParamNames("orgID")
-		c.SetParamValues(fmt.Sprintf("%d", orgID))
+		var org model.Organization
+		if err := db.Unscoped().Select("id", "uuid").First(&org, orgID).Error; err == nil {
+			c.SetParamNames("orgUUID")
+			c.SetParamValues(org.UUID.String())
+			c.Set(middleware.OrgIDContextKey, org.ID)
+		} else {
+			// Synthesise a random UUID so handlers that resolve it themselves
+			// see a clean ErrRecordNotFound, mirroring the middleware path.
+			c.SetParamNames("orgUUID")
+			c.SetParamValues(uuid.New().String())
+		}
 	}
 	c.Set(middleware.UserIDContextKey, userID)
 	if sysRole != nil {
@@ -114,7 +133,7 @@ func TestCreateCheckout_StripeNotConfigured_Returns503(t *testing.T) {
 
 	h := handler.NewBillingHandler(db, cache.Disabled(), newBillingCfg())
 	root := model.RoleRoot
-	c, _ := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	c, _ := newBillingContext(t, db, http.MethodPost, "", "", org.ID, 1, &root)
 	err := h.CreateCheckout(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503 HTTPError, got %v", err)
@@ -127,7 +146,7 @@ func TestCreateCheckout_OrgNotFound_Returns404(t *testing.T) {
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), newBillingCfgWithStripe(), mock)
 
 	root := model.RoleRoot
-	c, _ := newBillingContext(t, http.MethodPost, "", "", 9999, 1, &root)
+	c, _ := newBillingContext(t, db, http.MethodPost, "", "", 9999, 1, &root)
 	err := h.CreateCheckout(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusNotFound {
 		t.Errorf("expected 404 HTTPError, got %v", err)
@@ -143,7 +162,7 @@ func TestCreateCheckout_AlreadyPro_Returns409(t *testing.T) {
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), newBillingCfgWithStripe(), mock)
 
 	root := model.RoleRoot
-	c, _ := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	c, _ := newBillingContext(t, db, http.MethodPost, "", "", org.ID, 1, &root)
 	err := h.CreateCheckout(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusConflict {
 		t.Errorf("expected 409 HTTPError, got %v", err)
@@ -159,7 +178,7 @@ func TestCreateCheckout_AlreadyEnterprise_Returns409(t *testing.T) {
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), newBillingCfgWithStripe(), mock)
 
 	root := model.RoleRoot
-	c, _ := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	c, _ := newBillingContext(t, db, http.MethodPost, "", "", org.ID, 1, &root)
 	err := h.CreateCheckout(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusConflict {
 		t.Errorf("expected 409 HTTPError, got %v", err)
@@ -179,7 +198,7 @@ func TestCreateCheckout_Success_ReturnsURL(t *testing.T) {
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), newBillingCfgWithStripe(), mock)
 
 	root := model.RoleRoot
-	c, rec := newBillingContext(t, http.MethodPost, "locale=en", "", org.ID, 1, &root)
+	c, rec := newBillingContext(t, db, http.MethodPost, "locale=en", "", org.ID, 1, &root)
 	if err := h.CreateCheckout(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -212,7 +231,7 @@ func TestCreateCheckout_ReuseExistingCustomer(t *testing.T) {
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), newBillingCfgWithStripe(), mock)
 
 	root := model.RoleRoot
-	c, _ := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	c, _ := newBillingContext(t, db, http.MethodPost, "", "", org.ID, 1, &root)
 	if err := h.CreateCheckout(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -556,7 +575,7 @@ func TestCancelSubscription_StripeNotConfigured_Returns503(t *testing.T) {
 
 	h := handler.NewBillingHandler(db, cache.Disabled(), newBillingCfg())
 	root := model.RoleRoot
-	c, _ := newBillingContext(t, http.MethodDelete, "", "", org.ID, 1, &root)
+	c, _ := newBillingContext(t, db, http.MethodDelete, "", "", org.ID, 1, &root)
 	err := h.CancelSubscription(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503 HTTPError, got %v", err)
@@ -572,7 +591,7 @@ func TestCancelSubscription_NotPro_Returns422(t *testing.T) {
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), newBillingCfgWithStripe(), mock)
 
 	root := model.RoleRoot
-	c, _ := newBillingContext(t, http.MethodDelete, "", "", org.ID, 1, &root)
+	c, _ := newBillingContext(t, db, http.MethodDelete, "", "", org.ID, 1, &root)
 	err := h.CancelSubscription(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusUnprocessableEntity {
 		t.Errorf("expected 422 HTTPError, got %v", err)
@@ -595,7 +614,7 @@ func TestCancelSubscription_Success_Returns204(t *testing.T) {
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), newBillingCfgWithStripe(), mock)
 
 	root := model.RoleRoot
-	c, rec := newBillingContext(t, http.MethodDelete, "", "", org.ID, 1, &root)
+	c, rec := newBillingContext(t, db, http.MethodDelete, "", "", org.ID, 1, &root)
 	if err := h.CancelSubscription(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -616,7 +635,7 @@ func TestAssignEnterprisePlan_Success(t *testing.T) {
 
 	root := model.RoleRoot
 	h := handler.NewBillingHandler(db, cache.Disabled(), newBillingCfg())
-	c, rec := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	c, rec := newBillingContext(t, db, http.MethodPost, "", "", org.ID, 1, &root)
 	if err := h.AssignEnterprisePlan(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -638,7 +657,7 @@ func TestAssignEnterprisePlan_AlreadyEnterprise_Returns409(t *testing.T) {
 
 	root := model.RoleRoot
 	h := handler.NewBillingHandler(db, cache.Disabled(), newBillingCfg())
-	c, _ := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	c, _ := newBillingContext(t, db, http.MethodPost, "", "", org.ID, 1, &root)
 	err := h.AssignEnterprisePlan(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusConflict {
 		t.Errorf("expected 409 HTTPError, got %v", err)
@@ -660,7 +679,7 @@ func TestAssignEnterprisePlan_CancelsStripeSubscription(t *testing.T) {
 	}
 	root := model.RoleRoot
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), newBillingCfgWithStripe(), mock)
-	c, _ := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	c, _ := newBillingContext(t, db, http.MethodPost, "", "", org.ID, 1, &root)
 	if err := h.AssignEnterprisePlan(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -687,7 +706,7 @@ func TestAssignEnterprisePlan_CancelFails_Returns500(t *testing.T) {
 	}
 	root := model.RoleRoot
 	h := handler.NewBillingHandlerWithGateway(db, cache.Disabled(), newBillingCfgWithStripe(), mock)
-	c, _ := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	c, _ := newBillingContext(t, db, http.MethodPost, "", "", org.ID, 1, &root)
 	err := h.AssignEnterprisePlan(c)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -716,28 +735,28 @@ func TestAssignEnterprisePlan_CacheInvalidated(t *testing.T) {
 	// Populate cache.
 	orgH := handler.NewOrgHandler(db, c)
 	root := model.RoleRoot
-	getCtx, _ := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+	getCtx, _ := newOrgContext(t, db, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s", org.UUID), "", org.ID, 1, &root, "")
 	_ = orgH.GetOrg(getCtx)
 
 	// Delete from DB to confirm cache was set.
 	db.Exec("DELETE FROM organizations")
-	getCtx2, rec2 := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+	getCtx2, rec2 := newOrgContext(t, db, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s", org.UUID), "", org.ID, 1, &root, "")
 	_ = orgH.GetOrg(getCtx2)
 	if rec2.Code != http.StatusOK {
 		t.Fatal("expected cache hit before enterprise assignment")
 	}
 
-	// Restore org in DB and assign enterprise.
+	// Restore org in DB (preserving the same UUID so the cache key matches) and assign enterprise.
 	db.Create(&org)
 	bilH := handler.NewBillingHandler(db, c, newBillingCfg())
-	enterpriseCtx, _ := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	enterpriseCtx, _ := newBillingContext(t, db, http.MethodPost, "", "", org.ID, 1, &root)
 	if err := bilH.AssignEnterprisePlan(enterpriseCtx); err != nil {
 		t.Fatalf("AssignEnterprisePlan: %v", err)
 	}
 
 	// Cache should be cleared — next GetOrg reads from DB.
 	db.Exec("DELETE FROM organizations WHERE id = ?", org.ID)
-	getCtx3, rec3 := newOrgContext(t, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%d", org.ID), "", org.ID, 1, &root, "")
+	getCtx3, rec3 := newOrgContext(t, db, http.MethodGet, fmt.Sprintf("/v1/api/orgs/%s", org.UUID), "", org.ID, 1, &root, "")
 	err := orgH.GetOrg(getCtx3)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusNotFound {
 		_ = rec3
@@ -754,7 +773,7 @@ func TestAssignEnterprisePlan_BrokenCache_Succeeds(t *testing.T) {
 
 	root := model.RoleRoot
 	h := handler.NewBillingHandler(db, c, newBillingCfg())
-	ctx, rec := newBillingContext(t, http.MethodPost, "", "", org.ID, 1, &root)
+	ctx, rec := newBillingContext(t, db, http.MethodPost, "", "", org.ID, 1, &root)
 	if err := h.AssignEnterprisePlan(ctx); err != nil {
 		t.Fatalf("AssignEnterprisePlan with broken cache: %v", err)
 	}

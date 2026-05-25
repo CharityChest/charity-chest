@@ -228,7 +228,7 @@ func (h *AuthHandler) VerifyMFA(c echo.Context) error {
 	}
 
 	var user model.User
-	if err := h.db.First(&user, claims.UserID).Error; err != nil {
+	if err := h.db.Where("uuid = ?", claims.UserUUID).First(&user).Error; err != nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyMFAInvalidPendingToken))
 	}
 
@@ -451,9 +451,9 @@ func (h *AuthHandler) findOrCreateGoogleUser(gUser *googleUserInfo) (*model.User
 // generateJWT creates a signed HS256 token valid for 24 hours.
 func (h *AuthHandler) generateJWT(user *model.User) (string, error) {
 	claims := middleware.Claims{
-		UserID: user.ID,
-		Email:  user.Email,
-		Role:   user.Role,
+		UserUUID: user.UUID,
+		Email:    user.Email,
+		Role:     user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -466,7 +466,7 @@ func (h *AuthHandler) generateJWT(user *model.User) (string, error) {
 // The JWT middleware rejects these tokens, preventing them from being used as full auth tokens.
 func (h *AuthHandler) generateMFAPendingJWT(user *model.User) (string, error) {
 	claims := middleware.Claims{
-		UserID:     user.ID,
+		UserUUID:   user.UUID,
 		Email:      user.Email,
 		MFAPending: new(true),
 		RegisteredClaims: jwt.RegisteredClaims{

@@ -466,7 +466,7 @@ Response:
 ```json
 {
   "token": "<jwt>",
-  "user": { "id": 1, "email": "you@example.com", "name": "Your Name", ... }
+  "user": { "uuid": "3f2504e0-4f89-41d3-9a0c-0305e82c3301", "email": "you@example.com", "name": "Your Name", ... }
 }
 ```
 
@@ -555,7 +555,7 @@ curl -X DELETE http://localhost:8080/v1/api/profile/mfa \
 curl -X POST http://localhost:8080/v1/api/system/assign-role \
   -H "Authorization: Bearer <root-token>" \
   -H "Content-Type: application/json" \
-  -d '{"user_id": 2, "role": "system"}'
+  -d '{"user_uuid": "0d5ab2f4-3c4f-4c8a-9f31-9b1f7c3a4d56", "role": "system"}'
 # Pass "role": "" to remove the system role
 ```
 
@@ -578,14 +578,14 @@ Response:
 {
   "data": [
     {
-      "id": 3,
+      "uuid": "0d5ab2f4-3c4f-4c8a-9f31-9b1f7c3a4d56",
       "email": "alice@example.com",
       "name": "Alice",
       "role": "system",
       "mfa_enabled": false,
       "created_at": "...",
       "organizations": [
-        { "id": 1, "name": "Acme NGO", "role": "owner" }
+        { "uuid": "8c9e0a1b-2d3f-4e5a-6b7c-8d9e0f1a2b3c", "name": "Acme NGO", "role": "owner" }
       ]
     }
   ],
@@ -598,24 +598,26 @@ Response:
 }
 ```
 
+Entity identifiers across the API surface use UUID v4. Integer primary keys remain in the database (foreign keys, cache keys) but never appear in API responses, URL parameters, request bodies, or JWT claims — the JWT carries the user's `user_uuid`, which the auth middleware resolves back to the int id per request. See the **Entity identifiers (UUID v4)** section in CLAUDE.md for the full convention.
+
 Query parameters: `email` (optional, partial match), `page` (default 1), `size` (default 20, max 100).
 
 ### Plans & billing
 
 ```bash
 # Activate enterprise plan (root/system only)
-curl -X POST http://localhost:8080/v1/api/orgs/1/plan/enterprise \
+curl -X POST http://localhost:8080/v1/api/orgs/8c9e0a1b-2d3f-4e5a-6b7c-8d9e0f1a2b3c/plan/enterprise \
   -H "Authorization: Bearer <root-token>"
 
 # Create Stripe Checkout session (org owner, root, or system)
 # Redirect the user to the returned URL to complete payment.
-curl -X POST "http://localhost:8080/v1/api/orgs/1/billing/checkout?locale=en" \
+curl -X POST "http://localhost:8080/v1/api/orgs/8c9e0a1b-2d3f-4e5a-6b7c-8d9e0f1a2b3c/billing/checkout?locale=en" \
   -H "Authorization: Bearer <token>"
 # Returns: {"data":{"url":"https://checkout.stripe.com/..."}}
 
 # Cancel Pro subscription (org owner, root, or system)
 # Plan reverts to free when the webhook fires.
-curl -X DELETE http://localhost:8080/v1/api/orgs/1/billing/subscription \
+curl -X DELETE http://localhost:8080/v1/api/orgs/8c9e0a1b-2d3f-4e5a-6b7c-8d9e0f1a2b3c/billing/subscription \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -625,7 +627,7 @@ Stripe webhooks are received at `POST /stripe/webhook`. Signature verification i
 - `checkout.session.completed` — if the org is already on the enterprise plan, the handler persists a `BillingCleanupJob` row (with the duplicate subscription ID and payment intent ID) **before** acknowledging the webhook, then attempts to cancel the new Stripe subscription and refund the initial payment in-line. The webhook is acknowledged with 200 once the cleanup job is durable; only DB persistence errors return 500 (so Stripe retries). Stripe call failures are recorded in `last_error` on the job row for an out-of-band retry worker. The org's plan is never changed.
 - `customer.subscription.deleted` — downgrades the org to `free` and clears `stripe_subscription_id`.
 
-**`POST /v1/api/orgs/:orgID/plan/enterprise` behaviour note:** if the org has an active Stripe subscription, it is cancelled before the plan is promoted. If cancellation fails the request returns 500 and the org is not promoted — `stripe_subscription_id` is preserved for manual reconciliation.
+**`POST /v1/api/orgs/:orgUUID/plan/enterprise` behaviour note:** if the org has an active Stripe subscription, it is cancelled before the plan is promoted. If cancellation fails the request returns 500 and the org is not promoted — `stripe_subscription_id` is preserved for manual reconciliation.
 
 To test locally with the Stripe CLI:
 
@@ -648,10 +650,10 @@ curl http://localhost:8080/v1/api/orgs \
   -H "Authorization: Bearer <system-token>"
 
 # Add a member
-curl -X POST http://localhost:8080/v1/api/orgs/1/members \
+curl -X POST http://localhost:8080/v1/api/orgs/8c9e0a1b-2d3f-4e5a-6b7c-8d9e0f1a2b3c/members \
   -H "Authorization: Bearer <system-token>" \
   -H "Content-Type: application/json" \
-  -d '{"user_id": 3, "role": "owner"}'
+  -d '{"user_uuid": "0d5ab2f4-3c4f-4c8a-9f31-9b1f7c3a4d56", "role": "owner"}'
 ```
 
 Role hierarchy for member assignment: `owner` → can assign `admin`, `operational`; `admin` → can assign `operational`; `operational` → no assignment rights. Root and system bypass the check.
@@ -752,8 +754,8 @@ The server supports an optional Valkey (Redis-compatible) cache layer to reduce 
 | `system:status` | `GET /v1/system/status` | Only `configured=true` is cached; `configured=false` is never stored (avoids stale response after `seed-root` runs) |
 | `user:{id}` | `GET /v1/api/me` | MFA enable/disable, `assign-role`, Google account link |
 | `orgs:list` | `GET /v1/api/orgs` | Create / update / delete org |
-| `org:{id}` | `GET /v1/api/orgs/:orgID` | Update / delete org |
-| `org:{id}:members` | `GET /v1/api/orgs/:orgID/members` | Add / update / remove member, delete org |
+| `org:{id}` | `GET /v1/api/orgs/:orgUUID` | Update / delete org |
+| `org:{id}:members` | `GET /v1/api/orgs/:orgUUID/members` | Add / update / remove member, delete org |
 | `admin:users:{email}:{page}:{size}` | `GET /v1/api/admin/users` | Register, assign-role, any member change |
 
 ### Run locally with cache enabled

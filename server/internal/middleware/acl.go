@@ -1,11 +1,13 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 
 	"charity-chest/internal/i18n"
 	"charity-chest/internal/model"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
@@ -33,11 +35,17 @@ func RequireSystemRole(allowed ...model.AdministrativeRole) echo.MiddlewareFunc 
 }
 
 // RequireOrgRole returns middleware that verifies the caller is a member of the
-// organisation identified by the ":orgID" path parameter with one of the allowed roles.
+// organisation identified by the ":orgUUID" path parameter with one of the allowed roles.
 //
-// Root and system users bypass the org membership check entirely.
+// It first resolves the UUID path parameter to the organisation's internal int id
+// via a single SELECT and stashes the int id under OrgIDContextKey so that handlers
+// downstream can use it for foreign-key queries and cache keys without a second
+// lookup.
 //
-// On success, injects "org_member_role" (string) into the Echo context so handlers
+// Root and system users bypass the org membership check entirely (but still benefit
+// from the resolved OrgIDContextKey).
+//
+// On success, also injects "org_member_role" (string) into the Echo context so handlers
 // can reuse it for hierarchy checks without an additional DB query.
 func RequireOrgRole(db *gorm.DB, allowed ...model.MemberRole) echo.MiddlewareFunc {
 	set := make(map[model.MemberRole]struct{}, len(allowed))
@@ -48,6 +56,20 @@ func RequireOrgRole(db *gorm.DB, allowed ...model.MemberRole) echo.MiddlewareFun
 		return func(c echo.Context) error {
 			loc := localeFrom(c)
 
+			parsed, err := uuid.Parse(c.Param("orgUUID"))
+			if err != nil {
+				return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+			}
+
+			var org model.Organization
+			if err := db.Select("id").Where("uuid = ?", parsed).First(&org).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyOrgNotFound))
+				}
+				return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
+			}
+			c.Set(OrgIDContextKey, org.ID)
+
 			// System-level users bypass org membership.
 			rolePtr, _ := c.Get(RoleContextKey).(*model.AdministrativeRole)
 			if rolePtr != nil && (*rolePtr == model.RoleRoot || *rolePtr == model.RoleSystem) {
@@ -57,8 +79,11 @@ func RequireOrgRole(db *gorm.DB, allowed ...model.MemberRole) echo.MiddlewareFun
 			userID, _ := c.Get(UserIDContextKey).(uint)
 
 			var member model.OrgMember
-			if err := db.Where("org_id = ? AND user_id = ?", c.Param("orgID"), userID).First(&member).Error; err != nil {
-				return echo.NewHTTPError(http.StatusForbidden, i18n.T(loc, i18n.KeyForbidden))
+			if err := db.Where("org_id = ? AND user_id = ?", org.ID, userID).First(&member).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return echo.NewHTTPError(http.StatusForbidden, i18n.T(loc, i18n.KeyForbidden))
+				}
+				return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 			}
 			if _, ok := set[member.Role]; !ok {
 				return echo.NewHTTPError(http.StatusForbidden, i18n.T(loc, i18n.KeyForbidden))

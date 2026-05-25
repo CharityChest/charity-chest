@@ -122,11 +122,18 @@
     "add": "Add",
     "adding": "Adding…",
     "remove": "Remove",
+    "removeFailed": "Failed to remove member",
     "updateRole": "Change Role",
+    "updateRoleFailed": "Failed to update role",
     "noMembers": "No members yet.",
+    "memberFallback": "User {id}",
+    "you": "(you)",
     "roleOwner": "Owner",
     "roleAdmin": "Admin",
-    "roleOperational": "Operational"
+    "roleOperational": "Operational",
+    "loadFailed": "Failed to load organizations.",
+    "createFailed": "Failed to create organization.",
+    "deleteFailed": "Failed to delete organization."
   },
   "adminUsers": {
     "title": "User Role Management",
