@@ -22,7 +22,7 @@ function CancelContent() {
         <p className="text-sm text-gray-500">{t('cancelBody')}</p>
         {orgUuid && (
           <Link
-            href={`/orgs/${orgUuid}`}
+            href={`/orgs/${encodeURIComponent(orgUuid)}`}
             className="inline-block rounded-md border border-gray-200 px-4 py-3 text-sm text-gray-600 hover:bg-gray-50 sm:py-2"
           >
             ← {t('backToOrg')}
