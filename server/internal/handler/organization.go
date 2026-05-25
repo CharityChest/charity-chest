@@ -301,7 +301,11 @@ func (h *OrgHandler) UpdateMember(c echo.Context) error {
 	}
 	targetUserID, err := resolveUserIDFromUUIDParam(c, h.db)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, i18n.T(loc, i18n.KeyMemberNotFound))
+		}
+		log.Printf("update member: resolve user uuid: %v", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 	}
 
 	// Lock the org row, re-check the plan limit, and save — all in one transaction.
