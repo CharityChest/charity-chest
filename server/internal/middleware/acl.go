@@ -80,7 +80,10 @@ func RequireOrgRole(db *gorm.DB, allowed ...model.MemberRole) echo.MiddlewareFun
 
 			var member model.OrgMember
 			if err := db.Where("org_id = ? AND user_id = ?", org.ID, userID).First(&member).Error; err != nil {
-				return echo.NewHTTPError(http.StatusForbidden, i18n.T(loc, i18n.KeyForbidden))
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return echo.NewHTTPError(http.StatusForbidden, i18n.T(loc, i18n.KeyForbidden))
+				}
+				return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(loc, i18n.KeyDatabaseError))
 			}
 			if _, ok := set[member.Role]; !ok {
 				return echo.NewHTTPError(http.StatusForbidden, i18n.T(loc, i18n.KeyForbidden))
