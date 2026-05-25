@@ -40,7 +40,10 @@ export default function OrgsPage() {
         setLoadError(err instanceof ApiError ? err.message : t('orgs.loadFailed'));
       }
     });
-  }, [router, t]);
+    // Mount-only: `t` is intentionally excluded so a re-render (e.g. after
+    // creating an org) doesn't re-fetch and clobber local list state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
