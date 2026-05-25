@@ -466,7 +466,7 @@ Response:
 ```json
 {
   "token": "<jwt>",
-  "user": { "id": 1, "email": "you@example.com", "name": "Your Name", ... }
+  "user": { "uuid": "3f2504e0-4f89-41d3-9a0c-0305e82c3301", "email": "you@example.com", "name": "Your Name", ... }
 }
 ```
 
