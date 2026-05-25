@@ -52,6 +52,7 @@ export default function OrgDetailPage({
   // Change-role state (per member)
   const [changingRole, setChangingRole] = useState<string | null>(null);
   const [pendingRole, setPendingRole] = useState('');
+  const [memberError, setMemberError] = useState('');
 
   // Billing state
   const [checkingOut, setCheckingOut] = useState(false);
@@ -139,8 +140,9 @@ export default function OrgDetailPage({
         prev.map((m) => (m.user?.uuid === userUuid ? { ...m, role: updated.role } : m)),
       );
       setChangingRole(null);
+      setMemberError('');
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to update role');
+      setMemberError(err instanceof ApiError ? err.message : t('orgs.updateRoleFailed'));
     }
   }
 
@@ -150,8 +152,9 @@ export default function OrgDetailPage({
     try {
       await api.removeMember(orgUuid, userUuid);
       setMembers((prev) => prev.filter((m) => m.user?.uuid !== userUuid));
+      setMemberError('');
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to remove member');
+      setMemberError(err instanceof ApiError ? err.message : t('orgs.removeFailed'));
     }
   }
 
@@ -330,6 +333,8 @@ export default function OrgDetailPage({
         {/* Members section */}
         <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
           <h2 className="font-semibold text-gray-800">{t('orgs.members')}</h2>
+
+          <ErrorBanner message={memberError} />
 
           {members.length === 0 ? (
             <p className="text-sm text-gray-400">{t('orgs.noMembers')}</p>
