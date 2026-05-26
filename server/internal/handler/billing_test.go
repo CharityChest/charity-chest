@@ -310,6 +310,9 @@ func TestHandleWebhook_CheckoutCompleted_UnknownOrgUUID_Returns200NoChange(t *te
 	if unchanged.StripeCustomerID != nil {
 		t.Errorf("stripe_customer_id = %v, want nil (untouched)", unchanged.StripeCustomerID)
 	}
+	if unchanged.StripeSubscriptionID != nil {
+		t.Errorf("stripe_subscription_id = %v, want nil (untouched)", unchanged.StripeSubscriptionID)
+	}
 }
 
 func TestHandleWebhook_CheckoutCompleted_EnterpriseOrg_CancelsAndRefundsReturns200(t *testing.T) {
