@@ -1,4 +1,15 @@
 #!/bin/sh
+
+if git diff --cached --name-only | grep -q "services/admin/frontend/next-env.d.ts"; then
+    echo "Error: services/admin/frontend/next-env.d.ts is read-only, changes are not allowed" >&2
+    exit 1
+fi
+
+if git diff --cached --name-only | grep -q "services/admin/frontend/tsconfig.json"; then
+    echo "Error: services/admin/frontend/tsconfig.json is read-only, changes are not allowed" >&2
+    exit 1
+fi
+
 # Run golangci-lint on staged Go files before allowing the commit.
 
 STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
@@ -6,5 +17,5 @@ if [ -z "$STAGED" ]; then
   exit 0
 fi
 
-cd server || exit 1
+cd services/admin/backend || exit 1
 golangci-lint run ./...
