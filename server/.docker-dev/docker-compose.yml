@@ -83,6 +83,15 @@ services:
       CACHE_TTL: 5m
       APP_ENV: local
 
+      # Stripe (billing) — optional. Leave unset to run without billing
+      # (endpoints return 503). To exercise checkout/webhooks locally, set these
+      # in .docker-dev/.env (use Stripe test-mode keys and `stripe listen` for
+      # the webhook secret). When STRIPE_SECRET_KEY is set, the other two are
+      # required by config.Load().
+      STRIPE_SECRET_KEY:     ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRO_PRICE_ID:   ${STRIPE_PRO_PRICE_ID:-}
+
       # SMTP (Mailpit) — unauthenticated; SMTP_USERNAME / SMTP_PASSWORD are
       # intentionally omitted so the mailer skips the AUTH step.
       SMTP_HOST: mailpit
