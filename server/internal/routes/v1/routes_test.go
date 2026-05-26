@@ -1640,7 +1640,7 @@ func TestWebhook_CheckoutCompleted_FlipsToPro(t *testing.T) {
 	e, db := newServer(t)
 	org := makeFreeOrg(t, db, "Org")
 
-	body := fmt.Sprintf(`{"type":"checkout.session.completed","data":{"object":{"metadata":{"org_id":"%d"},"customer":"cus_test","subscription":"sub_test"}}}`, org.ID)
+	body := fmt.Sprintf(`{"type":"checkout.session.completed","data":{"object":{"metadata":{"org_uuid":"%s"},"customer":"cus_test","subscription":"sub_test"}}}`, org.UUID)
 	rec := do(e, http.MethodPost, "/stripe/webhook", body, "", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("webhook status = %d, want 200; body: %s", rec.Code, rec.Body.String())
