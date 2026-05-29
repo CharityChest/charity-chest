@@ -91,8 +91,14 @@ jobs:
       - name: Run tests with coverage
         run: |
           go test -race -coverprofile=coverage.out ./internal/...
-          COVERAGE=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
-          echo "Coverage: ${COVERAGE}%"
+          # internal/testdb is test-only scaffolding — never linked into the
+          # production binary and (until operational grows DB-backed tests) has
+          # no callers, so it sits at 0% and would otherwise drag the gated
+          # total below the threshold. Exclude it, mirroring the Makefile's
+          # business-coverage report.
+          grep -v 'charity-chest/services/operational/backend/internal/testdb/' coverage.out > coverage.business.out
+          COVERAGE=$(go tool cover -func=coverage.business.out | grep '^total:' | awk '{print $3}' | tr -d '%')
+          echo "Coverage (excluding test scaffolding): ${COVERAGE}%"
           awk -v c="$COVERAGE" 'BEGIN { if (c+0 < 80) { print "Coverage " c "% is below the 80% threshold"; exit 1 } }'
 
   lint-operational-app:

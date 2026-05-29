@@ -58,6 +58,8 @@ test-coverage:
 	@go tool cover -func=coverage.out | tail -1
 	@echo "── coverage excluding entry points and test scaffolding ──"
 	@go tool cover -func=coverage.business.out | tail -1
+	@COVERAGE=$$(go tool cover -func=coverage.business.out | grep '^total:' | awk '{print $$3}' | tr -d '%'); \
+	  awk -v c="$$COVERAGE" 'BEGIN { if (c+0 < 80) { print "Business coverage " c "% is below the 80% threshold"; exit 1 } }'
 
 lint:
 	$(GOLANGCI_LINT) run ./...
