@@ -27,55 +27,68 @@ Platform for managing charitable organisations. Handles user authentication, mul
 
 ```
 charity-chest/
+├── .compose/                  # unified dev stack — brings up every service at once
 └── services/
-    └── admin/                 # the "admin" microservice
-        ├── backend/   # Go HTTP API (Echo v4, GORM, PostgreSQL, JWT)
-        └── frontend/  # Next.js 15 frontend (TypeScript, Tailwind CSS, next-intl)
+    ├── admin/                 # the "admin" microservice (system + organisation management)
+    │   ├── backend/   # Go HTTP API (Echo v4, GORM, PostgreSQL, JWT)
+    │   └── frontend/  # Next.js 15 webapp (TypeScript, Tailwind CSS, next-intl)
+    └── operational/           # the "operational" microservice (end-user mobile surface)
+        ├── backend/   # Go HTTP gateway; stateless re: user data, delegates to admin via /v1/internal/*
+        └── app/       # Expo + React Native + TypeScript mobile app (iOS + Android)
 ```
 
-A microservices monorepo: each service lives under `services/<name>/` with an independent `backend/` and `frontend/` that communicate over HTTP and deploy separately. Today there is one service, **admin**.
+A microservices monorepo: each service lives under `services/<name>/` with an independent `backend/` and `frontend/` (or `app/` for mobile) that communicate over HTTP and deploy separately. There are two services today, **admin** and **operational** — admin owns identity and organisation state; operational is a thin authenticated gateway for the mobile app that delegates every user read/write to admin via a service-to-service API.
 
 | Component | Docs |
 |---|---|
 | Admin API | [services/admin/backend/README.md](services/admin/backend/README.md) |
 | Admin web application | [services/admin/frontend/README.md](services/admin/frontend/README.md) |
+| Operational API | [services/operational/backend/README.md](services/operational/backend/README.md) |
+| Operational mobile app | [services/operational/app/README.md](services/operational/app/README.md) |
+| Unified dev stack | [.compose/README.md](.compose/README.md) |
 
 ---
 
 ## Quick start
 
-The fastest way to run everything locally is Docker Compose:
+The fastest way to run everything locally is the **unified Docker Compose stack** in [`.compose/`](.compose/README.md). It brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Go API) on a single docker network, so the operational backend can reach admin in-cluster via `http://admin-backend:8080` without any external-network wiring.
 
 ```bash
-# 1. Server — copy secrets and add your Google OAuth credentials
-cp services/admin/backend/.docker-dev/.env.example services/admin/backend/.docker-dev/.env
+# 1. Copy the env template and fill in the secrets that have no safe default
+#    (Google OAuth, root user, SERVICE_API_KEY, GOOGLE_AUDIENCE — see comments in the file)
+cp .compose/.env.example .compose/.env
 
-# 2. Webapp — set the API URL
-cp services/admin/frontend/.docker-dev/.env.example services/admin/frontend/.docker-dev/.env
-
-# 3. Start the API (Postgres + server, migrations run automatically)
-docker compose -f services/admin/backend/.docker-dev/docker-compose.yml up --build
-
-# 4. In another terminal, start the webapp
-docker compose -f services/admin/frontend/.docker-dev/docker-compose.yml up --build
+# 2. Bring everything up
+docker compose -f .compose/docker-compose.yml up --build
 ```
 
 | Service | URL |
 |---|---|
-| Web application | http://localhost:3000 |
-| API server | http://localhost:8080 |
+| Admin web application | http://localhost:3000 |
+| Admin API | http://localhost:8080 |
+| Operational API | http://localhost:8081 |
 | Mailpit inbox (recovery emails) | http://localhost:8025 |
 
-**Bootstrap the first root user** (run once after the server is up):
+The root user is seeded automatically on first boot from `ROOT_USER` / `ROOT_PASSWORD` in `.compose/.env`. After that, `GET /v1/system/status` returns `{"configured":true}` and the webapp grants normal access.
+
+Full reference for the unified stack — every service, every env var, common `up` / `logs` / `down` recipes, and how it differs from the per-service composes — is in **[.compose/README.md](.compose/README.md)**.
+
+### Running a single service in isolation
+
+If you only need one service (e.g. iterating on the admin backend without the operational stack in the way), the original per-service compose files are still wired up and remain the right choice:
 
 ```bash
-docker compose -f services/admin/backend/.docker-dev/docker-compose.yml run --rm \
-  -e SEED_ROOT_EMAIL=admin@example.com \
-  -e SEED_ROOT_PASSWORD=secret \
-  server ./seed-root
+# Admin backend + its Postgres + Valkey + Mailpit
+docker compose -f services/admin/backend/.docker-dev/docker-compose.yml up --build
+
+# Admin frontend (expects the admin backend to be reachable at NEXT_PUBLIC_API_URL)
+docker compose -f services/admin/frontend/.docker-dev/docker-compose.yml up --build
+
+# Operational backend (expects the admin backend on the shared `charitychest_admin` network)
+docker compose -f services/operational/backend/.docker-dev/docker-compose.yml up --build
 ```
 
-After that, `GET /v1/system/status` returns `{"configured":true}` and the webapp grants normal access.
+Each of those has its own `.docker-dev/.env.example`. Don't mix the two modes — the unified stack and the per-service composes expose the same host ports and will collide.
 
 See the component READMEs for local (non-Docker) setup, environment variable reference, and deployment guides.
 

@@ -13,6 +13,8 @@ This repo is a microservices monorepo. Each service lives under `services/<name>
 - `services/operational/backend/` — Go HTTP gateway for the mobile app. Stateless re: user data — delegates every identity read/write to admin via the `/v1/internal/*` API (see "Service-to-service internal API"). Has its own DB scaffolding for future operational-only entities; today the DB has no entities.
 - `services/operational/app/` — Expo + React Native + TypeScript mobile app (iOS + Android).
 
+At the repo root, `.compose/` holds the **unified development stack** (`docker-compose.yml` + `.env.example` + `README.md`) — one compose that brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Go API) on a single docker network named `charitychest`. Services are renamed `admin-backend` / `op-backend` / `admin-frontend` / `admin-postgres` / `op-postgres` / `admin-valkey` / `op-valkey` / `mailpit` so they coexist; operational reaches admin in-cluster via `http://admin-backend:8080`. `SERVICE_API_KEY` is declared once in `.compose/.env` and passed to both backends. The per-service `.docker-dev/docker-compose.yml` files still work in isolation but expose the same host ports — never run both modes at once.
+
 Module paths: `charity-chest/services/admin/backend` and `charity-chest/services/operational/backend`; imports are `<module>/internal/...`.
 
 Inside `services/admin/backend/`:
@@ -268,7 +270,8 @@ See `services/admin/backend/Makefile` for the full set of targets. The non-obvio
 - `make test-coverage` enforces ≥ 80% on the **business** coverage (excludes `main.go`/`cmd/`/generated). Full coverage is reported but not gated.
 - `make templ` regenerates `*_templ.go` from `.templ` sources. `make build-*` invokes it automatically; both source and generated files are checked in so plain `go build` works.
 - `make seed-root EMAIL=... PASSWORD=...` seeds the first root user (needs `DATABASE_URL`).
-- Compose stack: `docker compose -f services/admin/backend/.docker-dev/docker-compose.yml up --build` brings up Postgres + Valkey + Mailpit + server.
+- **Unified compose stack (preferred)**: `docker compose -f .compose/docker-compose.yml up --build` brings up the whole topology — admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (Postgres + Valkey + Go API) on the shared `charitychest` network. Env lives in `.compose/.env` (copy from `.compose/.env.example`). The root user is seeded automatically from `ROOT_USER` / `ROOT_PASSWORD` on first boot — no separate `seed-root` step. See `.compose/README.md` for the full env reference and the synthesis caveats.
+- **Per-service compose (isolation)**: each service still has its own `.docker-dev/docker-compose.yml` for when you only want one service up. Don't mix the two modes — host ports collide.
 
 ---
 

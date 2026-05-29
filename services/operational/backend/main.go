@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"os"
 
 	"charity-chest/services/operational/backend/internal/adminclient"
 	"charity-chest/services/operational/backend/internal/cache"
@@ -34,16 +35,22 @@ func main() {
 	}
 
 	// Run SQL migrations from the ./migrations directory. The directory may
-	// be empty (no operational entities in v1); golang-migrate handles that
-	// by returning ErrNoFiles or ErrNoChange depending on the state, both
-	// of which we ignore.
+	// be empty (no operational entities in v1). golang-migrate's file source
+	// surfaces "no files" two different ways depending on which entry point
+	// you hit:
+	//   • migrate.New errors when the directory itself doesn't exist;
+	//   • m.Up returns os.ErrNotExist (wrapped as "first .: file does not
+	//     exist") when the directory is present but holds no .sql files.
+	// Both, plus migrate.ErrNoChange (nothing new to apply), are treated as
+	// "no migrations to run" and not fatal.
 	if m, err := migrate.New("file://migrations", cfg.DatabaseURL); err == nil {
-		if upErr := m.Up(); upErr != nil && !errors.Is(upErr, migrate.ErrNoChange) {
+		if upErr := m.Up(); upErr != nil &&
+			!errors.Is(upErr, migrate.ErrNoChange) &&
+			!errors.Is(upErr, os.ErrNotExist) {
 			log.Fatalf("migrate: up: %v", upErr)
 		}
 		_, _ = m.Close()
 	} else {
-		// "first .sql file does not exist" — fine, the dir is empty.
 		log.Printf("migrate: skipped (%v)", err)
 	}
 

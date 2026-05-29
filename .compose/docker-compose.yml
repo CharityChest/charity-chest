@@ -1,0 +1,239 @@
+# Unified Charity Chest development stack.
+#
+# Brings up every service in one go: admin (Postgres + Valkey + Mailpit + Go
+# backend + Next.js frontend) and operational (its own Postgres + Valkey + Go
+# backend). All services share a single docker network so the operational
+# backend reaches admin at `http://admin-backend:8080`.
+#
+# Synthesised from:
+#   services/admin/backend/.docker-dev/docker-compose.yml
+#   services/admin/frontend/.docker-dev/docker-compose.yml
+#   services/operational/backend/.docker-dev/docker-compose.yml
+#
+# Usage:
+#   cp .env.example .env       # fill in the secrets that don't have defaults
+#   docker compose -f .compose/docker-compose.yml up --build
+#
+# Ports exposed on the host:
+#   3000  admin frontend (Next.js)
+#   8080  admin backend (Go API)
+#   8081  operational backend (Go API)
+#   8025  Mailpit web UI
+#   1025  Mailpit SMTP
+#   5432  admin Postgres
+#   5433  operational Postgres
+#   6379  admin Valkey
+#   6380  operational Valkey
+
+services:
+
+  # ─── Admin: Valkey (Redis-compatible cache) ──────────────────────────────
+  admin-valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - admin_valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Admin: Mailpit (SMTP capture for password-recovery emails) ──────────
+  # Admin's password-recovery flow points its SMTP_* config at this container
+  # so recovery emails never leave the developer's machine. Open
+  # http://localhost:8025 to inspect the captured inbox.
+  mailpit:
+    image: axllent/mailpit:v1.21
+    restart: unless-stopped
+    environment:
+      MP_UI_AUTH: "charity-chest:Secret"
+    ports:
+      - "1025:1025"   # SMTP — admin backend dials this
+      - "8025:8025"   # Web UI
+
+  # ─── Admin: PostgreSQL ───────────────────────────────────────────────────
+  admin-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       charitychest
+      POSTGRES_USER:     charitychest
+      POSTGRES_PASSWORD: charitychest_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - admin_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U charitychest -d charitychest"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Admin: Go backend ────────────────────────────────────────────────────
+  admin-backend:
+    build:
+      context: ../services/admin/backend
+      dockerfile: .docker-dev/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: >-
+        postgres://charitychest:charitychest_dev@admin-postgres:5432/charitychest?sslmode=disable
+
+      # ⚠  Change this before any real deployment
+      JWT_SECRET: demo-jwt-secret-do-not-use-in-production
+
+      GOOGLE_CLIENT_ID:     ${GOOGLE_CLIENT_ID:?Set GOOGLE_CLIENT_ID in .compose/.env}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?Set GOOGLE_CLIENT_SECRET in .compose/.env}
+      ROOT_USER:            ${ROOT_USER:?Set ROOT_USER in .compose/.env}
+      ROOT_PASSWORD:        ${ROOT_PASSWORD:?Set ROOT_PASSWORD in .compose/.env}
+
+      GOOGLE_REDIRECT_URL: http://localhost:8080/v1/auth/google/callback
+
+      PORT: "8080"
+      APP_ENV: local
+
+      # Cache (Valkey)
+      CACHE_ENABLED: "true"
+      CACHE_URL: redis://admin-valkey:6379
+      CACHE_TTL: 5m
+
+      # Stripe (billing) — optional. Leave unset to run without billing
+      # (endpoints return 503).
+      STRIPE_SECRET_KEY:     ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRO_PRICE_ID:   ${STRIPE_PRO_PRICE_ID:-}
+
+      # SMTP (Mailpit) — unauthenticated; SMTP_USERNAME / SMTP_PASSWORD are
+      # intentionally omitted so the mailer skips the AUTH step.
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_FROM: no-reply@charitychest.local
+      SMTP_FROM_NAME: Charity Chest
+
+      # Shared with the operational backend for /v1/internal/* calls.
+      SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in .compose/.env}
+    depends_on:
+      admin-postgres:
+        condition: service_healthy
+      admin-valkey:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  # ─── Admin: Next.js frontend (dev server with hot reload) ─────────────────
+  admin-frontend:
+    build:
+      context: ../services/admin/frontend
+      dockerfile: .docker-dev/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Source mount for hot reload.
+      - ../services/admin/frontend:/app
+      # Named volumes shadow the source mount so the container's installed
+      # node_modules and .next cache are not clobbered by the host tree.
+      - admin_frontend_node_modules:/app/node_modules
+      - admin_frontend_next_cache:/app/.next
+    environment:
+      NODE_ENV: development
+      # Browser-facing; must be reachable from the host browser, not from the
+      # docker network. Defaults to localhost so the common case works without
+      # a .env edit.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    depends_on:
+      admin-backend:
+        condition: service_started
+
+  # ─── Operational: Valkey ──────────────────────────────────────────────────
+  # Wired up for future cached endpoints; v1 has none.
+  op-valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - op_valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Operational: PostgreSQL ──────────────────────────────────────────────
+  # Operational's own DB. Empty schema in v1.
+  op-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       charitychest_op
+      POSTGRES_USER:     charitychest_op
+      POSTGRES_PASSWORD: charitychest_op_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - op_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U charitychest_op -d charitychest_op"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Operational: Go backend ──────────────────────────────────────────────
+  op-backend:
+    build:
+      context: ../services/operational/backend
+      dockerfile: .docker-dev/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      DATABASE_URL: >-
+        postgres://charitychest_op:charitychest_op_dev@op-postgres:5432/charitychest_op?sslmode=disable
+
+      # Independent from admin's JWT_SECRET on purpose.
+      JWT_SECRET: demo-op-jwt-secret-do-not-use-in-production
+
+      # Admin lives on the same docker network in this unified stack.
+      ADMIN_BASE_URL: http://admin-backend:8080
+      ADMIN_TIMEOUT: 10s
+
+      # Same value as admin's SERVICE_API_KEY above.
+      SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in .compose/.env}
+
+      # Google Cloud Console OAuth Web Client ID — the audience the mobile
+      # app forwards in id_token.
+      GOOGLE_AUDIENCE: ${GOOGLE_AUDIENCE:?Set GOOGLE_AUDIENCE in .compose/.env}
+
+      PORT: "8081"
+      APP_ENV: local
+      REQUEST_LOG_ENABLED: "true"
+
+      # Cache (unused in v1).
+      CACHE_ENABLED: "false"
+      CACHE_URL: redis://op-valkey:6379
+      CACHE_TTL: 5m
+    depends_on:
+      op-postgres:
+        condition: service_healthy
+      op-valkey:
+        condition: service_healthy
+      admin-backend:
+        condition: service_started
+
+volumes:
+  admin_postgres_data:
+  admin_valkey_data:
+  admin_frontend_node_modules:
+  admin_frontend_next_cache:
+  op_postgres_data:
+  op_valkey_data:
+
+networks:
+  default:
+    name: charitychest
