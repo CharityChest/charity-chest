@@ -312,7 +312,7 @@ func (h *AuthHandler) GoogleCallback(c echo.Context) error {
 
 	}
 
-	user, err := h.findOrCreateGoogleUser(gUser)
+	user, err := findOrCreateGoogleUser(h.db, h.cache, gUser)
 	if err != nil {
 		log.Printf("invalid OAuth code (Find Or Create): query=%v, err=%v", c.QueryParam("code"), err)
 		return c.Redirect(http.StatusTemporaryRedirect, callbackBase+callbackErrorQuery)
@@ -400,13 +400,15 @@ func fetchGoogleUserInfo(client *http.Client, accessToken string) (*googleUserIn
 }
 
 // findOrCreateGoogleUser looks up the user by Google ID, then by email (linking the account),
-// and creates a new record if neither match is found.
-func (h *AuthHandler) findOrCreateGoogleUser(gUser *googleUserInfo) (*model.User, error) {
+// and creates a new record if neither match is found. It is a free function so
+// both the browser OAuth callback (AuthHandler) and the service-to-service
+// internal Google endpoint (InternalHandler) call the exact same code path.
+func findOrCreateGoogleUser(db *gorm.DB, c *cache.Cache, gUser *googleUserInfo) (*model.User, error) {
 	ctx := context.Background()
 	var user model.User
 
 	// Try by Google ID first
-	err := h.db.Where("google_id = ?", gUser.ID).First(&user).Error
+	err := db.Where("google_id = ?", gUser.ID).First(&user).Error
 	if err == nil {
 		return &user, nil
 	}
@@ -415,16 +417,16 @@ func (h *AuthHandler) findOrCreateGoogleUser(gUser *googleUserInfo) (*model.User
 	}
 
 	// Try by email — link Google ID to existing account
-	err = h.db.Where("email = ?", gUser.Email).First(&user).Error
+	err = db.Where("email = ?", gUser.Email).First(&user).Error
 	if err == nil {
 		user.GoogleID = &gUser.ID
-		if err := h.db.Save(&user).Error; err != nil {
+		if err := db.Save(&user).Error; err != nil {
 			return nil, err
 		}
-		if err := h.cache.Del(ctx, cache.KeyUser(user.ID)); err != nil {
+		if err := c.Del(ctx, cache.KeyUser(user.ID)); err != nil {
 			log.Printf("cache: invalidate user after google link: %v", err)
 		}
-		if err := h.cache.DelPattern(ctx, cache.KeyAdminUsersGlob); err != nil {
+		if err := c.DelPattern(ctx, cache.KeyAdminUsersGlob); err != nil {
 			log.Printf("cache: invalidate admin users after google link: %v", err)
 		}
 		return &user, nil
@@ -439,10 +441,10 @@ func (h *AuthHandler) findOrCreateGoogleUser(gUser *googleUserInfo) (*model.User
 		Name:     gUser.Name,
 		GoogleID: &gUser.ID,
 	}
-	if err := h.db.Create(&user).Error; err != nil {
+	if err := db.Create(&user).Error; err != nil {
 		return nil, err
 	}
-	if err := h.cache.DelPattern(ctx, cache.KeyAdminUsersGlob); err != nil {
+	if err := c.DelPattern(ctx, cache.KeyAdminUsersGlob); err != nil {
 		log.Printf("cache: invalidate admin users after google create: %v", err)
 	}
 	return &user, nil

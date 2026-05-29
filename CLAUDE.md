@@ -6,12 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository layout
 
-This repo is a microservices monorepo. Each service lives under `services/<name>/` with a `backend/` and `frontend/`. Today there is one service, **admin**:
+This repo is a microservices monorepo. Each service lives under `services/<name>/` with a `backend/` and either a `frontend/` (web) or `app/` (mobile). There are two services today:
 
-- `services/admin/backend/` — Go HTTP API.
-- `services/admin/frontend/` — Next.js 15 frontend.
+- `services/admin/backend/` — Go HTTP API (owns user identity, billing, orgs).
+- `services/admin/frontend/` — Next.js 15 webapp targeting admin users.
+- `services/operational/backend/` — Go HTTP gateway for the mobile app. Stateless re: user data — delegates every identity read/write to admin via the `/v1/internal/*` API (see "Service-to-service internal API"). Has its own DB scaffolding for future operational-only entities; today the DB has no entities.
+- `services/operational/app/` — Expo + React Native + TypeScript mobile app (iOS + Android).
 
-The Go module is `charity-chest/services/admin/backend`; imports are `charity-chest/services/admin/backend/internal/...`.
+Module paths: `charity-chest/services/admin/backend` and `charity-chest/services/operational/backend`; imports are `<module>/internal/...`.
 
 Inside `services/admin/backend/`:
 - `main.go` — entry point: config → migrations → routes → listen.
@@ -59,6 +61,22 @@ All application routes are prefixed `/v1/`. The `/health` probe is intentionally
 When a breaking change is needed, introduce `/v2/` alongside `/v1/` in `main.go`, add `RegisterFoo` functions under `internal/routes/v2/`, and keep both alive until clients migrate.
 
 The authoritative list of routes lives in `internal/routes/v1/*.go` — read those files rather than maintaining a duplicate table here.
+
+---
+
+## Service-to-service internal API
+
+Sibling backends in this monorepo (today: `services/operational/backend/`) call admin via a small **service-to-service** API mounted under `/v1/internal/*`. It exists so other services can validate credentials and look up users without holding their own copy of the identity tables.
+
+- **Auth**: every request must send `X-Service-Key: <shared-secret>`. The header is constant-time compared by the `middleware.ServiceKey(expected)` middleware. Missing header → 401; mismatch → 403.
+- **Env policy**: `SERVICE_API_KEY` is **optional**. When unset, `main.go` does not register the group at all (callers get 404, not 503). This matches the "feature absent" spirit of the Stripe/SMTP companion-group policy.
+- **No JWTs issued**: callers are responsible for signing their own tokens for end-users. Admin only returns a slim user DTO (`uuid`, `email`, `name`, `role`, `mfa_enabled`) — never `id`, `password_hash`, `totp_secret`, `google_id`.
+- **Endpoints** (`internal/routes/v1/internal.go`):
+  - `POST /v1/internal/auth/login` — `{email, password}` → slim DTO, generic 401 on every credential failure mode (no enumeration).
+  - `POST /v1/internal/auth/google` — `{google_sub, email, name}` (caller has already verified the Google ID token) → find-or-create user via the same `findOrCreateGoogleUser` helper used by the browser OAuth callback.
+  - `GET /v1/internal/users/:userUUID` — slim DTO for a public UUID; 404 if no row.
+
+When you add a new internal endpoint, mount it under the same group so the service-key check stays automatic, and return only the slim DTO (or define a similarly restricted one) — never `model.User` directly.
 
 ---
 

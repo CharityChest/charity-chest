@@ -1,0 +1,93 @@
+services:
+
+  # ── Valkey (Redis-compatible cache) ───────────────────────────────────────
+  # Wired up for future cached endpoints; v1 has none.
+  op_valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - op_valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────
+  # Operational's own DB. Empty schema in v1 — migrations run on startup but
+  # find nothing to apply.
+  op_postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       charitychest_op
+      POSTGRES_USER:     charitychest_op
+      POSTGRES_PASSWORD: charitychest_op_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - op_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U charitychest_op -d charitychest_op"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Operational API server ────────────────────────────────────────────────
+  server:
+    build:
+      context: ..                          # services/operational/backend/
+      dockerfile: .docker-dev/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      DATABASE_URL: >-
+        postgres://charitychest_op:charitychest_op_dev@op_postgres:5432/charitychest_op?sslmode=disable
+
+      # Independent from admin's JWT_SECRET on purpose.
+      JWT_SECRET: demo-op-jwt-secret-do-not-use-in-production
+
+      # Talk to the admin server on the shared `charitychest_admin` network.
+      ADMIN_BASE_URL: http://server:8080
+      ADMIN_TIMEOUT: 10s
+
+      # Must match SERVICE_API_KEY on the admin compose; set both in their
+      # respective .docker-dev/.env files (same value).
+      SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in .docker-dev/.env}
+
+      # Google Cloud Console OAuth Web Client ID — the audience the mobile app
+      # forwards in id_token. Set in .docker-dev/.env.
+      GOOGLE_AUDIENCE: ${GOOGLE_AUDIENCE:?Set GOOGLE_AUDIENCE in .docker-dev/.env}
+
+      PORT: "8081"
+      APP_ENV: local
+      REQUEST_LOG_ENABLED: "true"
+
+      # Cache (unused in v1 — Valkey container above is wired up for symmetry).
+      CACHE_ENABLED: "false"
+      CACHE_URL: redis://op_valkey:6379
+      CACHE_TTL: 5m
+    depends_on:
+      op_postgres:
+        condition: service_healthy
+      op_valkey:
+        condition: service_healthy
+    networks:
+      - default     # this compose's private network (Postgres + Valkey)
+      - admin       # shared network with the admin compose for cross-service calls
+
+volumes:
+  op_postgres_data:
+  op_valkey_data:
+
+# Bring up the admin compose first; this stack joins its `charitychest_admin`
+# network so `server:8080` resolves to admin's API container.
+networks:
+  default:
+    name: charitychest_op
+  admin:
+    name: charitychest_admin
+    external: true

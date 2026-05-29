@@ -1,0 +1,56 @@
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+
+import { clearToken, getToken, setToken } from "./secureStore";
+
+type AuthContextValue = {
+  token: string | null;
+  isLoading: boolean;
+  signIn: (token: string) => Promise<void>;
+  signOut: () => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+// AuthProvider hydrates the persisted token from SecureStore on mount and
+// exposes signIn/signOut helpers to every screen. The mobile equivalent of
+// admin webapp's localStorage-based session.
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [token, setTokenState] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const t = await getToken();
+      if (!cancelled) {
+        setTokenState(t);
+        setIsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const signIn = useCallback(async (newToken: string) => {
+    await setToken(newToken);
+    setTokenState(newToken);
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await clearToken();
+    setTokenState(null);
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ token, isLoading, signIn, signOut }}>{children}</AuthContext.Provider>
+  );
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth must be called inside <AuthProvider>");
+  }
+  return ctx;
+}
