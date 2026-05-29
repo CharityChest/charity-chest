@@ -44,16 +44,19 @@ test:
 	@docker info >/dev/null 2>&1 || (echo "ERROR: Docker daemon required for tests (testcontainers boots a Postgres container)"; exit 1)
 	go test -race ./internal/...
 
-# Report coverage across all production packages, excluding the entry point.
+# Report coverage across all production packages, excluding the entry point
+# (main.go) and the test-only Postgres harness (internal/testdb), which is
+# never linked into the production binary and only exercised once operational
+# grows DB-backed tests.
 # `-coverpkg=./...` cross-instruments every package so integration coverage in
 # routes/v1 counts against the file that owns the code.
 test-coverage:
 	@docker info >/dev/null 2>&1 || (echo "ERROR: Docker daemon required for tests (testcontainers boots a Postgres container)"; exit 1)
 	go test -race -coverpkg=./... -coverprofile=coverage.out ./...
-	@grep -v -E 'charity-chest/services/operational/backend/main\.go' coverage.out > coverage.business.out
+	@grep -v -E '(charity-chest/services/operational/backend/main\.go|charity-chest/services/operational/backend/internal/testdb/)' coverage.out > coverage.business.out
 	@echo "── full coverage ──"
 	@go tool cover -func=coverage.out | tail -1
-	@echo "── coverage excluding entry points ──"
+	@echo "── coverage excluding entry points and test scaffolding ──"
 	@go tool cover -func=coverage.business.out | tail -1
 
 lint:
