@@ -49,6 +49,20 @@ A microservices monorepo: each service lives under `services/<name>/` with an in
 
 ---
 
+## First-time setup (git hooks)
+
+The repo ships its git hooks in [`.githooks/`](.githooks/) (read-only guards on generated frontend files + `golangci-lint` on staged Go files). Git does not pick these up automatically, so each fresh clone must point git at the directory once:
+
+```bash
+git config core.hooksPath .githooks
+# or, equivalently:
+make -C services/admin/backend setup-hooks
+```
+
+This is repo-local (stored in `.git/config`) and only needs to be run a single time per clone.
+
+---
+
 ## Quick start
 
 The fastest way to run everything locally is the **unified Docker Compose stack** in [`.compose/`](.compose/README.md). It brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Go API) on a single docker network, so the operational backend can reach admin in-cluster via `http://admin-backend:8080` without any external-network wiring.

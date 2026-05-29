@@ -10,7 +10,7 @@ GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v
 TEMPL_VERSION := v0.3.1020
 TEMPL         := go run github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION)
 
-.PHONY: all build build-debug build-release test test-coverage lint fmt clean tidy seed-root migrate migrate-down migrate-version templ
+.PHONY: all build build-debug build-release test test-coverage lint fmt clean tidy seed-root migrate migrate-down migrate-version templ setup-hooks
 
 # ── Default ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +46,14 @@ build-release: templ
 	@echo "release binary → $(RELEASE)"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+# One-time per-clone bootstrap: point git at the in-repo hooks directory
+# (.githooks/ at the repo root) so the read-only guards and golangci-lint
+# pre-commit hook run. The relative path is resolved against the worktree root
+# at hook time, so it is correct regardless of where git is invoked from.
+setup-hooks:
+	git config core.hooksPath .githooks
+	@echo "git hooks enabled → .githooks (core.hooksPath)"
 
 test:
 	@docker info >/dev/null 2>&1 || (echo "ERROR: Docker daemon required for tests (testcontainers boots a Postgres container)"; exit 1)
