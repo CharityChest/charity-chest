@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
+import { ActivityIndicator } from "react-native";
 
 import { Button } from "./Button";
 
@@ -17,12 +18,9 @@ describe("<Button>", () => {
 
     // The label is replaced by ActivityIndicator while loading.
     expect(screen.queryByText("Sign in")).toBeNull();
-    // Still press the underlying pressable by walking up from the spinner.
-    const pressable = screen.UNSAFE_getByType(
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      require("react-native").Pressable
-    );
-    fireEvent.press(pressable);
+    // Press through the spinner so the event traverses up to the (disabled)
+    // Pressable and the disabled guard is honoured.
+    fireEvent.press(screen.UNSAFE_getByType(ActivityIndicator));
     expect(onPress).not.toHaveBeenCalled();
   });
 

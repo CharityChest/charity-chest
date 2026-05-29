@@ -90,6 +90,15 @@ Object.assign(NativeModules, {
   },
   I18nManager: {
     localeIdentifier: "en_US",
+    // React Native Testing Library's host-component detection reaches through
+    // the I18nManager TurboModule and calls getConstants(); the real native
+    // module provides it, so our override must too or rendering blows up with
+    // "_NativeI18nManager.default.getConstants is not a function".
+    getConstants: () => ({
+      isRTL: false,
+      doLeftAndRightSwapInRTL: true,
+      localeIdentifier: "en_US",
+    }),
   },
 });
 

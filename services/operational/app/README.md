@@ -64,12 +64,11 @@ npm run test:ci      # what CI runs: --coverage with thresholds (80% lines/funct
 The suite mocks Expo's native modules (`expo-secure-store`, `expo-constants`, `expo-web-browser`, `expo-auth-session/providers/google`) and `expo-router` in `jest.setup.ts`, so tests run in pure Node — no simulator or device required.
 
 Covered today:
-- **`src/lib`** — `api` (login, googleLogin, me) with mocked fetch and SecureStore; `secureStore` round-trips; `auth` provider hydration and signIn/signOut; `constants` env precedence; `ApiError`.
+- **`src/lib`** — `api` (login, googleLogin, me) with mocked fetch and SecureStore; `secureStore` round-trips; `auth` provider hydration and signIn/signOut; `constants` env precedence; `google` (`useGoogleSignIn` success/cancel/dismiss/error/missing-token/ready/prompt branches, driving the mocked `useIdTokenAuthRequest`); `ApiError`.
 - **`src/components`** — `Button`, `TextField`, `ErrorBanner` render + interaction.
 - **`app/`** — `login` (form submit, Google flow, error surfaces), `(app)/index` (`/me` load, logout, 401 handling), `index` splash redirect, `(app)/_layout` auth gate.
 
-Not covered yet:
-- `src/lib/google.ts` — the `useGoogleSignIn` hook is exercised indirectly through the login-screen test; an isolated unit test would need to drive `expo-auth-session/providers/google.useIdTokenAuthRequest` more invasively, which isn't worth the added mock surface for v1.
+> **`constants` env precedence note:** `babel-preset-expo` inlines `process.env.EXPO_PUBLIC_*` into literals at *transform* time, so the env-var-preference branch can't be flipped by mutating `process.env` at runtime. `constants.test.ts` tests the runtime fallback directly and verifies the build-time inlining by re-transforming the source with `@babel/core`.
 
 ## Known v1 limitations
 

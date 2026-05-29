@@ -21,13 +21,13 @@ jest.mock("@/lib/api", () => ({
 // Capture the onResult callback that login.tsx passes to useGoogleSignIn so
 // tests can simulate Google's response without going near the real provider.
 let capturedOnResult: ((r: google.GoogleSignInResult) => void) | null = null;
-const promptMock = jest.fn();
+const mockPrompt = jest.fn();
 
 jest.mock("@/lib/google", () => ({
   __esModule: true,
   useGoogleSignIn: (onResult: (r: google.GoogleSignInResult) => void) => {
     capturedOnResult = onResult;
-    return { prompt: promptMock, ready: true };
+    return { prompt: mockPrompt, ready: true };
   },
 }));
 
@@ -130,7 +130,7 @@ describe("<LoginScreen>", () => {
     await flushAuthHydration();
 
     fireEvent.press(screen.getByText("Continue with Google"));
-    expect(promptMock).toHaveBeenCalledTimes(1);
+    expect(mockPrompt).toHaveBeenCalledTimes(1);
 
     // Simulate Google returning successfully.
     expect(capturedOnResult).not.toBeNull();
