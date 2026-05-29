@@ -6,9 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository layout
 
-Two top-level projects: `server/` (Go HTTP API) and `webapp/` (Next.js 15 frontend).
+This repo is a microservices monorepo. Each service lives under `services/<name>/` with a `backend/` and `frontend/`. Today there is one service, **admin**:
 
-Inside `server/`:
+- `services/admin/backend/` — Go HTTP API.
+- `services/admin/frontend/` — Next.js 15 frontend.
+
+The Go module is `charity-chest/services/admin/backend`; imports are `charity-chest/services/admin/backend/internal/...`.
+
+Inside `services/admin/backend/`:
 - `main.go` — entry point: config → migrations → routes → listen.
 - `cmd/seed-root/` — CLI that creates the first root user. Accepts `-email`/`-password` flags or `SEED_ROOT_EMAIL`/`SEED_ROOT_PASSWORD` env vars; refuses to run when `APP_ENV=production` and a root user already exists.
 - `internal/` — all non-`main` code lives here (no `pkg/`).
@@ -18,7 +23,7 @@ Inside `server/`:
 - `.docker-staging/` — standalone server image (no compose).
 - `.docker-dbms-staging/` — standalone CloudBeaver image for the staging DB web UI.
 
-Inside `webapp/`:
+Inside `services/admin/frontend/`:
 - `src/app/[locale]/` — every page is under the locale prefix.
 - `src/components/`, `src/i18n/`, `src/lib/`, `src/types/`, `src/test/`.
 - `messages/{en,it}.json` — i18n strings.
@@ -81,7 +86,7 @@ New entities follow the same pattern: `ID uint` with `json:"-"`, `UUID uuid.UUID
 ## Secret management rules
 
 - Secrets live **only** in environment variables — never hardcoded, never committed.
-- `server/.env` and `server/.docker-dev/.env` are git-ignored. Copy from the matching `.env.example`.
+- `services/admin/backend/.env` and `services/admin/backend/.docker-dev/.env` are git-ignored. Copy from the matching `.env.example`.
 - `config.Load()` calls `godotenv.Load()` silently (ignored in production) then validates required vars, returning an error that names every missing variable.
 - **Required**: `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APP_ENV`.
 - `APP_ENV` must be one of `local`, `testing`, `staging`, `production`. Compare against the typed constants `config.AppEnv*` — never bare string literals.
@@ -100,7 +105,7 @@ New entities follow the same pattern: `ID uint` with `json:"-"`, `UUID uuid.UUID
 
 ## Database migrations
 
-- Plain SQL in `server/migrations/`, named `NNNNNN_<description>.{up,down}.sql`.
+- Plain SQL in `services/admin/backend/migrations/`, named `NNNNNN_<description>.{up,down}.sql`.
 - Run automatically on server start (`migrate.Up()` in `main.go`). `ErrNoChange` is ignored; any other error is fatal.
 - Never modify an already-applied migration — add a new one.
 - Always add a matching `.down.sql` for every `.up.sql`.
@@ -239,13 +244,13 @@ A user with a system role can also be an org member — the tiers are not mutual
 
 ## Development workflow
 
-See `server/Makefile` for the full set of targets. The non-obvious bits:
+See `services/admin/backend/Makefile` for the full set of targets. The non-obvious bits:
 
 - `make test` and `make test-coverage` require a running Docker daemon (testcontainers-go boots Postgres).
 - `make test-coverage` enforces ≥ 80% on the **business** coverage (excludes `main.go`/`cmd/`/generated). Full coverage is reported but not gated.
 - `make templ` regenerates `*_templ.go` from `.templ` sources. `make build-*` invokes it automatically; both source and generated files are checked in so plain `go build` works.
 - `make seed-root EMAIL=... PASSWORD=...` seeds the first root user (needs `DATABASE_URL`).
-- Compose stack: `docker compose -f server/.docker-dev/docker-compose.yml up --build` brings up Postgres + Valkey + Mailpit + server.
+- Compose stack: `docker compose -f services/admin/backend/.docker-dev/docker-compose.yml up --build` brings up Postgres + Valkey + Mailpit + server.
 
 ---
 
@@ -260,13 +265,13 @@ See `server/Makefile` for the full set of targets. The non-obvious bits:
 | QR code | `react-qr-code` (TOTP enrollment) |
 | Testing | Vitest + React Testing Library + jsdom |
 
-`NEXT_PUBLIC_API_URL` is the only env var. Copy `webapp/.env.example` to `.env.local` (git-ignored). No other secrets belong in the webapp.
+`NEXT_PUBLIC_API_URL` is the only env var. Copy `services/admin/frontend/.env.example` to `.env.local` (git-ignored). No other secrets belong in the webapp.
 
 ---
 
 ## Webapp code conventions
 
-- **API client**: all server calls go through `webapp/src/lib/api.ts`. No raw `fetch` in components. Every request includes `Accept-Language` derived from the URL locale via `getLocale()`.
+- **API client**: all server calls go through `services/admin/frontend/src/lib/api.ts`. No raw `fetch` in components. Every request includes `Accept-Language` derived from the URL locale via `getLocale()`.
 - **Paginated calls**: use `requestPaginated<T>` in `api.ts` — returns the full `PaginatedResult<T>` (both `data` and `metadata`) without unwrapping.
 - **Tests**: co-located `*.test.ts(x)`. Setup at `src/test/setup.ts`, config at `vitest.config.ts`.
 - **Error display**: `<ErrorBanner message={error} />` for all API error messages. Never a bare `<p>`.
@@ -289,7 +294,7 @@ See `server/Makefile` for the full set of targets. The non-obvious bits:
 
 ## Webapp i18n
 
-- Supported locales: `en` (default), `it`. Defined in `webapp/src/i18n/routing.ts`.
+- Supported locales: `en` (default), `it`. Defined in `services/admin/frontend/src/i18n/routing.ts`.
 - All UI strings in `messages/en.json` and `messages/it.json`. Both must stay in sync — every key in one exists in the other.
 - Namespaces: `common`, `home`, `login`, `register`, `dashboard`, `authCallback`, `setup`, `forgotPassword`, `resetPassword`. Add new namespaces as the app grows.
 - Adding a language: add the locale to `routing.ts`, create `messages/<code>.json`, add its label to `LanguageSwitcher.tsx`, extend the middleware matcher regex.
@@ -298,7 +303,7 @@ See `server/Makefile` for the full set of targets. The non-obvious bits:
 
 ## Adding a new webapp page
 
-1. Create `webapp/src/app/[locale]/<route>/page.tsx`. Add `'use client'` if browser APIs / state are needed.
+1. Create `services/admin/frontend/src/app/[locale]/<route>/page.tsx`. Add `'use client'` if browser APIs / state are needed.
 2. Import `Link` and `useRouter` from `@/i18n/navigation`.
 3. Add translations to both `messages/en.json` and `messages/it.json`.
 4. New API endpoint → add a typed wrapper in `src/lib/api.ts` and matching types in `src/types/api.ts`.

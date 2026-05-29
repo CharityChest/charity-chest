@@ -33,3 +33,5 @@ Session.vim
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+services/admin/frontend/tsconfig.tsbuildinfo

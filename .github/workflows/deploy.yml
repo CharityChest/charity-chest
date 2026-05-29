@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [server, webapp]
+        component: [admin-backend, admin-frontend]
         arch: [amd64, arm64]
         include:
           # Runner per arch — native build, no QEMU emulation.
@@ -43,17 +43,17 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
           # Component-specific build inputs.
-          - component: server
-            context: server
-            dockerfile: server/.docker-staging/Dockerfile
-            ecr_repo_var: ECR_REPOSITORY_SERVER
+          - component: admin-backend
+            context: services/admin/backend
+            dockerfile: services/admin/backend/.docker-staging/Dockerfile
+            ecr_repo_var: ECR_REPOSITORY_ADMIN_BACKEND
             build_args: ""
-          - component: webapp
-            context: webapp
-            dockerfile: webapp/.docker-staging/Dockerfile
-            ecr_repo_var: ECR_REPOSITORY_WEBAPP
+          - component: admin-frontend
+            context: services/admin/frontend
+            dockerfile: services/admin/frontend/.docker-staging/Dockerfile
+            ecr_repo_var: ECR_REPOSITORY_ADMIN_FRONTEND
             build_args: |
-              NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
+              NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL_ADMIN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -62,7 +62,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION_ADMIN }}
 
       - name: Login to Amazon ECR
         id: ecr
@@ -109,19 +109,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - component: server
-            ecr_repo_var: ECR_REPOSITORY_SERVER
-            ecs_service_var: ECS_SERVICE_SERVER
-          - component: webapp
-            ecr_repo_var: ECR_REPOSITORY_WEBAPP
-            ecs_service_var: ECS_SERVICE_WEBAPP
+          - component: admin-backend
+            ecr_repo_var: ECR_REPOSITORY_ADMIN_BACKEND
+            ecs_service_var: ECS_SERVICE_ADMIN_BACKEND
+          - component: admin-frontend
+            ecr_repo_var: ECR_REPOSITORY_ADMIN_FRONTEND
+            ecs_service_var: ECS_SERVICE_ADMIN_FRONTEND
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION_ADMIN }}
 
       - name: Login to Amazon ECR
         id: ecr
@@ -176,7 +176,7 @@ jobs:
       - name: Force ECS redeploy
         run: |
           aws ecs update-service \
-            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --cluster "${{ vars.ECS_CLUSTER_ADMIN }}" \
             --service "${{ vars[matrix.ecs_service_var] }}" \
             --force-new-deployment \
             --no-cli-pager > /dev/null

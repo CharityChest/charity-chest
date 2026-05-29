@@ -11,14 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: server
+        working-directory: services/admin/backend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
+          go-version-file: services/admin/backend/go.mod
+          cache-dependency-path: services/admin/backend/go.sum
 
       - name: Run golangci-lint
         run: make lint
@@ -28,14 +28,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: server
+        working-directory: services/admin/backend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
+          go-version-file: services/admin/backend/go.mod
+          cache-dependency-path: services/admin/backend/go.sum
 
       # testcontainers-go uses the Docker daemon to boot postgres:16-alpine on
       # demand. The ubuntu-latest runner ships with Docker preinstalled and
@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: webapp
+        working-directory: services/admin/frontend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -63,7 +63,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: webapp/package-lock.json
+          cache-dependency-path: services/admin/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: webapp
+        working-directory: services/admin/frontend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -84,7 +84,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: webapp/package-lock.json
+          cache-dependency-path: services/admin/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
