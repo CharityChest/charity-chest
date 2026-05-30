@@ -78,7 +78,7 @@ func (h *InternalHandler) InternalLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyInvalidBody))
 	}
 	if req.Email == "" || req.Password == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyFieldsRequired))
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyEmailPasswordRequired))
 	}
 
 	var user model.User
@@ -106,7 +106,7 @@ func (h *InternalHandler) InternalGoogleAuth(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyInvalidBody))
 	}
 	if req.GoogleSub == "" || req.Email == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyFieldsRequired))
+		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale(c), i18n.KeyGoogleSubEmailRequired))
 	}
 
 	gUser := &googleUserInfo{ID: req.GoogleSub, Email: req.Email, Name: req.Name}
