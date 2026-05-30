@@ -83,7 +83,10 @@ func (h *InternalHandler) InternalLogin(c echo.Context) error {
 
 	var user model.User
 	if err := h.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyInvalidCredentials))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyInvalidCredentials))
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if user.PasswordHash == nil {
 		// Generic 401 — surfacing "google-only" here would leak that the email
