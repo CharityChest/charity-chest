@@ -4,6 +4,13 @@
 // babel transform pipeline all wire up correctly. Tests live alongside the
 // source they cover (`*.test.ts(x)`).
 
+// `constants.ts` reads EXPO_PUBLIC_API_URL and throws when it's unset. Babel
+// inlines EXPO_PUBLIC_* at transform time, so the value must be present in the
+// environment before Jest transforms any module. Setting it here (evaluated by
+// Node before the transform pipeline runs) gives every suite a stable base URL;
+// `src/lib/api.test.ts` asserts against this exact value.
+process.env.EXPO_PUBLIC_API_URL ||= "http://test.local:8081";
+
 /** @type {import('jest').Config} */
 module.exports = {
   preset: "jest-expo",

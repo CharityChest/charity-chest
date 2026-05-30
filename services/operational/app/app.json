@@ -21,9 +21,6 @@
     ],
     "experiments": {
       "typedRoutes": true
-    },
-    "extra": {
-      "apiBaseUrl": "http://localhost:8081"
     }
   }
 }

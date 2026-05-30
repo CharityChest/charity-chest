@@ -22,20 +22,6 @@ jest.mock("expo-secure-store", () => {
   };
 });
 
-// ── expo-constants ────────────────────────────────────────────────────────
-// constants.ts reads `Constants.expoConfig.extra.apiBaseUrl` as a fallback
-// when EXPO_PUBLIC_API_URL isn't set.
-jest.mock("expo-constants", () => ({
-  __esModule: true,
-  default: {
-    expoConfig: {
-      extra: {
-        apiBaseUrl: "http://test.local:8081",
-      },
-    },
-  },
-}));
-
 // ── expo-web-browser ──────────────────────────────────────────────────────
 // `maybeCompleteAuthSession` runs at module load on the real implementation.
 jest.mock("expo-web-browser", () => ({

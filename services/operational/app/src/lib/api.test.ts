@@ -3,9 +3,8 @@ import * as SecureStore from "expo-secure-store";
 import { googleLogin, login, me } from "./api";
 import { ApiError } from "../types/api";
 
-// jest.setup.ts mocks expo-constants → Constants.expoConfig.extra.apiBaseUrl
-// = "http://test.local:8081", and we don't set EXPO_PUBLIC_API_URL during
-// tests, so every URL below should resolve against that base.
+// jest.config.js sets EXPO_PUBLIC_API_URL = "http://test.local:8081" before the
+// transform pipeline runs, so constants.ts inlines it as the base for every URL.
 const BASE = "http://test.local:8081";
 
 type MockResponseInit = {

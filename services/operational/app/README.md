@@ -46,7 +46,7 @@ src/
   lib/auth.tsx         <AuthProvider> + useAuth() (SecureStore-backed token)
   lib/google.ts        useGoogleSignIn() — wraps expo-auth-session/providers/google
   lib/secureStore.ts   typed expo-secure-store wrapper
-  lib/constants.ts     resolved EXPO_PUBLIC_API_URL
+  lib/constants.ts     resolved EXPO_PUBLIC_API_URL (throws if unset)
   types/api.ts         User, LoginResponse, ApiError
   components/          Button, TextField, ErrorBanner — minimal RN primitives
 ```
@@ -68,7 +68,7 @@ Covered today:
 - **`src/components`** — `Button`, `TextField`, `ErrorBanner` render + interaction.
 - **`app/`** — `login` (form submit, Google flow, error surfaces), `(app)/index` (`/me` load, logout, 401 handling), `index` splash redirect, `(app)/_layout` auth gate.
 
-> **`constants` env precedence note:** `babel-preset-expo` inlines `process.env.EXPO_PUBLIC_*` into literals at *transform* time, so the env-var-preference branch can't be flipped by mutating `process.env` at runtime. `constants.test.ts` tests the runtime fallback directly and verifies the build-time inlining by re-transforming the source with `@babel/core`.
+> **`constants` env note:** `babel-preset-expo` inlines `process.env.EXPO_PUBLIC_*` into literals at *transform* time, so `EXPO_PUBLIC_API_URL` is a build-time value — there's no committed default and a missing value makes `constants.ts` throw at module load. `jest.config.js` sets it before the transform pipeline runs; `constants.test.ts` covers the happy path and verifies the fail-fast throw by re-transforming the source with `@babel/core` with the env var unset.
 
 ## Known v1 limitations
 
