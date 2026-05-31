@@ -3,7 +3,9 @@ import jwt from "jsonwebtoken";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
+import { JwtAlgorithm } from "../constants";
 import { errorHandler } from "../http";
+import { HttpStatus } from "../http-status";
 import { locale } from "./locale";
 import { jwtAuth } from "./jwt";
 
@@ -22,7 +24,7 @@ function protectedApp() {
 }
 
 function sign(payload: object, secret = SECRET, options?: jwt.SignOptions): string {
-  return jwt.sign(payload, secret, { algorithm: "HS256", ...options });
+  return jwt.sign(payload, secret, { algorithm: JwtAlgorithm.HS256, ...options });
 }
 
 describe("jwtAuth middleware", () => {
@@ -31,19 +33,19 @@ describe("jwtAuth middleware", () => {
     const res = await request(protectedApp())
       .get("/probe")
       .set("Authorization", `Bearer ${token}`);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(HttpStatus.Ok);
     expect(res.body.userUuid).toBe(UUID);
     expect(res.body.email).toBe("a@b.c");
   });
 
   it("rejects a missing Authorization header", async () => {
     const res = await request(protectedApp()).get("/probe");
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("rejects a non-Bearer scheme", async () => {
     const res = await request(protectedApp()).get("/probe").set("Authorization", "Basic abc");
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("rejects a bad signature", async () => {
@@ -51,7 +53,7 @@ describe("jwtAuth middleware", () => {
     const res = await request(protectedApp())
       .get("/probe")
       .set("Authorization", `Bearer ${token}`);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("rejects an expired token", async () => {
@@ -59,7 +61,7 @@ describe("jwtAuth middleware", () => {
     const res = await request(protectedApp())
       .get("/probe")
       .set("Authorization", `Bearer ${token}`);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("rejects a token signed with a non-HMAC alg claim (none)", async () => {
@@ -69,7 +71,7 @@ describe("jwtAuth middleware", () => {
     const res = await request(protectedApp())
       .get("/probe")
       .set("Authorization", `Bearer ${unsigned}`);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("rejects a token with no user_uuid claim", async () => {
@@ -77,7 +79,7 @@ describe("jwtAuth middleware", () => {
     const res = await request(protectedApp())
       .get("/probe")
       .set("Authorization", `Bearer ${token}`);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("rejects the nil UUID", async () => {
@@ -85,6 +87,6 @@ describe("jwtAuth middleware", () => {
     const res = await request(protectedApp())
       .get("/probe")
       .set("Authorization", `Bearer ${token}`);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 });

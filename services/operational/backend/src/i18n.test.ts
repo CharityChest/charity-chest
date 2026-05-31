@@ -1,31 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { LocaleEN, LocaleIT, parseLocale, t, type MessageKey } from "./i18n";
+import { LocaleEN, LocaleIT, MessageKey, parseLocale, t } from "./i18n";
 
-const KEYS: MessageKey[] = [
-  "invalidBody",
-  "fieldsRequired",
-  "invalidCredentials",
-  "googleOnly",
-  "missingAuthHeader",
-  "unexpectedSigning",
-  "invalidToken",
-  "invalidClaims",
-  "generateToken",
-  "adminUnavailable",
-  "mfaNotSupported",
-  "googleVerifyFailed",
-  "userNotFound",
-];
+const KEYS = Object.values(MessageKey);
 
 describe("t", () => {
   it("returns English and Italian strings", () => {
-    expect(t("en", "invalidCredentials")).toBe("invalid credentials");
-    expect(t("it", "invalidCredentials")).toBe("Credenziali non valide");
+    expect(t("en", MessageKey.InvalidCredentials)).toBe("invalid credentials");
+    expect(t("it", MessageKey.InvalidCredentials)).toBe("Credenziali non valide");
   });
 
   it("falls back to English for an unknown locale", () => {
-    expect(t("fr", "userNotFound")).toBe(t("en", "userNotFound"));
+    expect(t("fr", MessageKey.UserNotFound)).toBe(t("en", MessageKey.UserNotFound));
   });
 
   it("translates every key in both locales (no fallthrough to the identifier)", () => {

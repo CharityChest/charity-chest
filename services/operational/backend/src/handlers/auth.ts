@@ -17,10 +17,12 @@ import {
   AdminUserNotFoundError,
 } from "../adminclient/errors";
 import type { AdminApi, UserDTO } from "../adminclient/types";
+import { JwtAlgorithm } from "../constants";
 import type { Config } from "../config";
 import type { GoogleValidator } from "../google";
 import { dataJson, HttpError } from "../http";
-import { t } from "../i18n";
+import { HttpStatus } from "../http-status";
+import { MessageKey, t } from "../i18n";
 
 export interface AuthDeps {
   config: Config;
@@ -36,16 +38,16 @@ export interface AuthHandlers {
 /** Maps an adminclient error to the matching localized HttpError. */
 export function mapAdminError(locale: string, err: unknown): HttpError {
   if (err instanceof AdminInvalidCredentialsError) {
-    return new HttpError(401, t(locale, "invalidCredentials"));
+    return new HttpError(HttpStatus.Unauthorized, t(locale, MessageKey.InvalidCredentials));
   }
   if (err instanceof AdminUserNotFoundError) {
-    return new HttpError(404, t(locale, "userNotFound"));
+    return new HttpError(HttpStatus.NotFound, t(locale, MessageKey.UserNotFound));
   }
   if (err instanceof AdminUnavailableError) {
-    return new HttpError(502, t(locale, "adminUnavailable"));
+    return new HttpError(HttpStatus.BadGateway, t(locale, MessageKey.AdminUnavailable));
   }
   // AdminBadResponseError and anything unexpected — treat as upstream failure.
-  return new HttpError(502, t(locale, "adminUnavailable"));
+  return new HttpError(HttpStatus.BadGateway, t(locale, MessageKey.AdminUnavailable));
 }
 
 export function createAuthHandlers(deps: AuthDeps): AuthHandlers {
@@ -61,11 +63,11 @@ export function createAuthHandlers(deps: AuthDeps): AuthHandlers {
     };
     let token: string;
     try {
-      token = jwt.sign(claims, config.jwtSecret, { algorithm: "HS256" });
+      token = jwt.sign(claims, config.jwtSecret, { algorithm: JwtAlgorithm.HS256 });
     } catch {
-      throw new HttpError(500, t(locale, "generateToken"));
+      throw new HttpError(HttpStatus.InternalServerError, t(locale, MessageKey.GenerateToken));
     }
-    dataJson(res, 200, { token, user });
+    dataJson(res, HttpStatus.Ok, { token, user });
   }
 
   const login: RequestHandler = async (req: Request, res: Response) => {
@@ -74,7 +76,7 @@ export function createAuthHandlers(deps: AuthDeps): AuthHandlers {
     const email = typeof body.email === "string" ? body.email : "";
     const password = typeof body.password === "string" ? body.password : "";
     if (email === "" || password === "") {
-      throw new HttpError(400, t(locale, "fieldsRequired"));
+      throw new HttpError(HttpStatus.BadRequest, t(locale, MessageKey.FieldsRequired));
     }
 
     let user: UserDTO;
@@ -85,7 +87,7 @@ export function createAuthHandlers(deps: AuthDeps): AuthHandlers {
     }
 
     if (user.mfa_enabled) {
-      throw new HttpError(409, t(locale, "mfaNotSupported"));
+      throw new HttpError(HttpStatus.Conflict, t(locale, MessageKey.MfaNotSupported));
     }
 
     issueToken(res, locale, user);
@@ -96,17 +98,17 @@ export function createAuthHandlers(deps: AuthDeps): AuthHandlers {
     const body = (req.body ?? {}) as { id_token?: unknown };
     const idToken = typeof body.id_token === "string" ? body.id_token : "";
     if (idToken === "") {
-      throw new HttpError(400, t(locale, "fieldsRequired"));
+      throw new HttpError(HttpStatus.BadRequest, t(locale, MessageKey.FieldsRequired));
     }
 
     let payload;
     try {
       payload = await google.validate(idToken, config.googleAudience);
     } catch {
-      throw new HttpError(401, t(locale, "googleVerifyFailed"));
+      throw new HttpError(HttpStatus.Unauthorized, t(locale, MessageKey.GoogleVerifyFailed));
     }
     if (payload.subject === "" || payload.email === "") {
-      throw new HttpError(401, t(locale, "googleVerifyFailed"));
+      throw new HttpError(HttpStatus.Unauthorized, t(locale, MessageKey.GoogleVerifyFailed));
     }
 
     let user: UserDTO;
@@ -117,7 +119,7 @@ export function createAuthHandlers(deps: AuthDeps): AuthHandlers {
     }
 
     if (user.mfa_enabled) {
-      throw new HttpError(409, t(locale, "mfaNotSupported"));
+      throw new HttpError(HttpStatus.Conflict, t(locale, MessageKey.MfaNotSupported));
     }
 
     issueToken(res, locale, user);

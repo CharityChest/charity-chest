@@ -13,6 +13,7 @@ import {
 import type { UserDTO } from "./adminclient/types";
 import { createApp } from "./app";
 import type { AppDeps } from "./app";
+import { HttpStatus } from "./http-status";
 import {
   FakeAdmin,
   FakeGoogle,
@@ -46,7 +47,7 @@ describe("GET /health", () => {
   it("returns 200 with an enveloped status", async () => {
     const { app } = buildApp();
     const res = await request(app).get("/health");
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(HttpStatus.Ok);
     expect(res.body).toEqual({ data: { status: "ok" } });
   });
 });
@@ -65,7 +66,7 @@ describe("POST /v1/auth/login", () => {
       .post("/v1/auth/login")
       .send({ email: "alice@example.com", password: "pw" });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(HttpStatus.Ok);
     expect(typeof res.body.data.token).toBe("string");
     expect(res.body.data.token.length).toBeGreaterThan(0);
     expect(res.body.data.user.email).toBe("alice@example.com");
@@ -81,7 +82,7 @@ describe("POST /v1/auth/login", () => {
     const res = await request(app)
       .post("/v1/auth/login")
       .send({ email: "x", password: "y" });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("returns 409 when the account has MFA enabled", async () => {
@@ -92,7 +93,7 @@ describe("POST /v1/auth/login", () => {
     const res = await request(app)
       .post("/v1/auth/login")
       .send({ email: "x", password: "y" });
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(HttpStatus.Conflict);
   });
 
   it("returns 502 when admin is unavailable", async () => {
@@ -105,7 +106,7 @@ describe("POST /v1/auth/login", () => {
     const res = await request(app)
       .post("/v1/auth/login")
       .send({ email: "x", password: "y" });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(HttpStatus.BadGateway);
   });
 
   it("returns 400 when fields are missing", async () => {
@@ -113,7 +114,7 @@ describe("POST /v1/auth/login", () => {
     const res = await request(app)
       .post("/v1/auth/login")
       .send({ email: "", password: "" });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(HttpStatus.BadRequest);
   });
 
   it("returns 400 on a malformed JSON body", async () => {
@@ -122,7 +123,7 @@ describe("POST /v1/auth/login", () => {
       .post("/v1/auth/login")
       .set("Content-Type", "application/json")
       .send("{not json");
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(HttpStatus.BadRequest);
   });
 });
 
@@ -143,7 +144,7 @@ describe("POST /v1/auth/google", () => {
     const res = await request(app)
       .post("/v1/auth/google")
       .send({ id_token: "some-valid-token" });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(HttpStatus.Ok);
     expect(res.body.data.token.length).toBeGreaterThan(0);
   });
 
@@ -152,7 +153,7 @@ describe("POST /v1/auth/google", () => {
     const { app } = buildApp({ google });
 
     const res = await request(app).post("/v1/auth/google").send({ id_token: "bad" });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("returns 401 when the verified payload is missing an email", async () => {
@@ -160,13 +161,13 @@ describe("POST /v1/auth/google", () => {
     const { app } = buildApp({ google });
 
     const res = await request(app).post("/v1/auth/google").send({ id_token: "tok" });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("returns 400 when id_token is missing", async () => {
     const { app } = buildApp();
     const res = await request(app).post("/v1/auth/google").send({ id_token: "" });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(HttpStatus.BadRequest);
   });
 });
 
@@ -183,21 +184,21 @@ describe("GET /v1/api/me", () => {
     const res = await request(app)
       .get("/v1/api/me")
       .set("Authorization", `Bearer ${signOpToken(id, "me@example.com")}`);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(HttpStatus.Ok);
     expect(res.body.data.email).toBe("me@example.com");
   });
 
   it("returns 401 without a token", async () => {
     const { app } = buildApp();
     const res = await request(app).get("/v1/api/me");
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("returns 401 with a token signed by a different secret", async () => {
     const { app } = buildApp();
     const token = signOpToken(testUuid(), "x@x", { secret: "wrong-secret" });
     const res = await request(app).get("/v1/api/me").set("Authorization", `Bearer ${token}`);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(HttpStatus.Unauthorized);
   });
 
   it("returns 404 when admin reports the user is gone", async () => {
@@ -210,7 +211,7 @@ describe("GET /v1/api/me", () => {
     const res = await request(app)
       .get("/v1/api/me")
       .set("Authorization", `Bearer ${signOpToken(testUuid(), "x@x")}`);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(HttpStatus.NotFound);
   });
 
   it("returns 502 when admin is unavailable", async () => {
@@ -223,7 +224,7 @@ describe("GET /v1/api/me", () => {
     const res = await request(app)
       .get("/v1/api/me")
       .set("Authorization", `Bearer ${signOpToken(testUuid(), "x@x")}`);
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(HttpStatus.BadGateway);
   });
 
   it("forwards the X-Locale header through to admin", async () => {

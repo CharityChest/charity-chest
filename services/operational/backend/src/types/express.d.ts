@@ -4,7 +4,6 @@
 import "express";
 
 declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Locals {
       /** Resolved request locale ("en" | "it"), set by the locale middleware. */

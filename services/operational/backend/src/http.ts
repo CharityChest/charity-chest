@@ -4,7 +4,9 @@
 
 import type { ErrorRequestHandler, Response } from "express";
 
-import { t } from "./i18n";
+import { BODY_PARSE_ERROR_TYPE } from "./constants";
+import { HttpStatus } from "./http-status";
+import { MessageKey, t } from "./i18n";
 
 /**
  * An HTTP error carrying a status code and an already-localized message.
@@ -13,7 +15,7 @@ import { t } from "./i18n";
  */
 export class HttpError extends Error {
   constructor(
-    public readonly status: number,
+    public readonly status: HttpStatus,
     message: string,
   ) {
     super(message);
@@ -22,7 +24,7 @@ export class HttpError extends Error {
 }
 
 /** Wraps a successful payload in the {"data": ...} envelope. */
-export function dataJson(res: Response, status: number, payload: unknown): void {
+export function dataJson(res: Response, status: HttpStatus, payload: unknown): void {
   res.status(status).json({ data: payload });
 }
 
@@ -32,7 +34,7 @@ function isBodyParseError(err: unknown): boolean {
     typeof err === "object" &&
     err !== null &&
     "type" in err &&
-    (err as { type?: unknown }).type === "entity.parse.failed"
+    (err as { type?: unknown }).type === BODY_PARSE_ERROR_TYPE
   );
 }
 
@@ -55,11 +57,12 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
   }
 
   if (isBodyParseError(err)) {
-    res.status(400).json({ message: t(locale, "invalidBody") });
+    res.status(HttpStatus.BadRequest).json({ message: t(locale, MessageKey.InvalidBody) });
     return;
   }
 
-  // eslint-disable-next-line no-console
   console.error("unhandled error:", err);
-  res.status(500).json({ message: "internal server error" });
+  res
+    .status(HttpStatus.InternalServerError)
+    .json({ message: t(locale, MessageKey.ServerError) });
 };

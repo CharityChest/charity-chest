@@ -5,11 +5,12 @@
 
 import type { RequestHandler } from "express";
 
+import { HttpHeader } from "../constants";
 import { parseLocale } from "../i18n";
 
 export function locale(): RequestHandler {
   return (req, res, next) => {
-    res.locals.locale = parseLocale(req.header("X-Locale") ?? "");
+    res.locals.locale = parseLocale(req.header(HttpHeader.XLocale) ?? "");
     next();
   };
 }

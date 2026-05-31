@@ -21,7 +21,6 @@ export async function runMigrations(
     files = (await readdir(dir)).filter((f) => f.endsWith(".up.sql")).sort();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      // eslint-disable-next-line no-console
       console.log("migrate: skipped (no migrations directory)");
       return;
     }
@@ -29,7 +28,6 @@ export async function runMigrations(
   }
 
   if (files.length === 0) {
-    // eslint-disable-next-line no-console
     console.log("migrate: skipped (no migration files)");
     return;
   }
@@ -66,7 +64,6 @@ export async function runMigrations(
         await client.query("ROLLBACK");
         throw err;
       }
-      // eslint-disable-next-line no-console
       console.log(`migrate: applied ${version}`);
     }
   } finally {

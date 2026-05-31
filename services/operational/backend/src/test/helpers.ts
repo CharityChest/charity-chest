@@ -6,6 +6,7 @@ import jwt from "jsonwebtoken";
 
 import type { AdminApi, UserDTO } from "../adminclient/types";
 import type { Config } from "../config";
+import { JwtAlgorithm } from "../constants";
 import type { GooglePayload, GoogleValidator } from "../google";
 
 export const TEST_JWT_SECRET = "op-routes-test-secret";
@@ -90,7 +91,7 @@ export function signOpToken(
   const nowSec = Math.floor(Date.now() / 1000);
   const exp = nowSec + (opts.expiresInSec ?? 3600);
   return jwt.sign({ user_uuid: userUuid, email, iat: nowSec, exp }, secret, {
-    algorithm: "HS256",
+    algorithm: JwtAlgorithm.HS256,
   });
 }
 

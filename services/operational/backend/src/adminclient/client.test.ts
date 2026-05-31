@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { HttpStatus } from "../http-status";
 import { AdminClient } from "./client";
 import {
   AdminBadResponseError,
@@ -43,7 +44,7 @@ function client(): AdminClient {
 
 describe("AdminClient.login", () => {
   it("sends the service key + content type and decodes the envelope", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { data: USER }));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.Ok, { data: USER }));
     const out = await client().login("a@b.c", "pw", "it");
 
     expect(out).toEqual(USER);
@@ -57,25 +58,25 @@ describe("AdminClient.login", () => {
   });
 
   it("omits X-Locale when no locale is given", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { data: USER }));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.Ok, { data: USER }));
     await client().login("a@b.c", "pw");
     expect(fetchMock.mock.calls[0][1].headers["X-Locale"]).toBeUndefined();
   });
 
   it("maps 401 to AdminInvalidCredentialsError", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(401, { message: "no" }));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.Unauthorized, { message: "no" }));
     await expect(client().login("a", "b")).rejects.toBeInstanceOf(
       AdminInvalidCredentialsError,
     );
   });
 
   it("maps 5xx to AdminUnavailableError", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(503, { message: "down" }));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.ServiceUnavailable, { message: "down" }));
     await expect(client().login("a", "b")).rejects.toBeInstanceOf(AdminUnavailableError);
   });
 
   it("maps other non-200 statuses to AdminBadResponseError", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(418, {}));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.Forbidden, {}));
     await expect(client().login("a", "b")).rejects.toBeInstanceOf(AdminBadResponseError);
   });
 
@@ -87,7 +88,7 @@ describe("AdminClient.login", () => {
 
 describe("AdminClient.googleAuth", () => {
   it("posts the google fields", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { data: USER }));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.Ok, { data: USER }));
     await client().googleAuth("sub-1", "g@x", "G");
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("http://admin.test/v1/internal/auth/google");
@@ -101,7 +102,7 @@ describe("AdminClient.googleAuth", () => {
 
 describe("AdminClient.getUser", () => {
   it("GETs the user and decodes the envelope", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { data: USER }));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.Ok, { data: USER }));
     const out = await client().getUser(USER.uuid);
     expect(out).toEqual(USER);
     const [url, init] = fetchMock.mock.calls[0];
@@ -111,24 +112,24 @@ describe("AdminClient.getUser", () => {
   });
 
   it("maps 404 to AdminUserNotFoundError", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(404, { message: "gone" }));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.NotFound, { message: "gone" }));
     await expect(client().getUser(USER.uuid)).rejects.toBeInstanceOf(
       AdminUserNotFoundError,
     );
   });
 
   it("maps 5xx to AdminUnavailableError", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(500, {}));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.InternalServerError, {}));
     await expect(client().getUser(USER.uuid)).rejects.toBeInstanceOf(AdminUnavailableError);
   });
 
   it("maps other non-200 statuses to AdminBadResponseError", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(403, {}));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.Forbidden, {}));
     await expect(client().getUser(USER.uuid)).rejects.toBeInstanceOf(AdminBadResponseError);
   });
 
   it("treats a missing data envelope as a bad response", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { nope: true }));
+    fetchMock.mockResolvedValue(jsonResponse(HttpStatus.Ok, { nope: true }));
     await expect(client().getUser(USER.uuid)).rejects.toBeInstanceOf(AdminBadResponseError);
   });
 });

@@ -4,6 +4,8 @@
 // errors. Mirrors the Go adminclient package, including its status-code
 // mapping (which differs between POST auth calls and GET user lookups).
 
+import { ContentType, HttpHeader, HttpMethod } from "../constants";
+import { HttpStatus } from "../http-status";
 import {
   AdminBadResponseError,
   AdminInvalidCredentialsError,
@@ -11,9 +13,6 @@ import {
   AdminUserNotFoundError,
 } from "./errors";
 import type { AdminApi, UserDTO } from "./types";
-
-/** Shared service-secret header. Must match admin's middleware.ServiceKeyHeader. */
-const SERVICE_KEY_HEADER = "X-Service-Key";
 
 export class AdminClient implements AdminApi {
   private readonly baseUrl: string;
@@ -48,18 +47,18 @@ export class AdminClient implements AdminApi {
   /** GET /v1/internal/users/:userUUID — 404 → user not found. */
   async getUser(userUuid: string, locale?: string): Promise<UserDTO> {
     const resp = await this.fetchWithTimeout(
-      "GET",
+      HttpMethod.Get,
       `/v1/internal/users/${encodeURIComponent(userUuid)}`,
       undefined,
       locale,
     );
-    if (resp.status === 404) {
+    if (resp.status === HttpStatus.NotFound) {
       throw new AdminUserNotFoundError();
     }
-    if (resp.status >= 500) {
+    if (resp.status >= HttpStatus.InternalServerError) {
       throw new AdminUnavailableError(`adminclient: admin returned ${resp.status}`);
     }
-    if (resp.status !== 200) {
+    if (resp.status !== HttpStatus.Ok) {
       throw new AdminBadResponseError(`adminclient: unexpected status ${resp.status}`);
     }
     return decodeUser(resp);
@@ -70,21 +69,21 @@ export class AdminClient implements AdminApi {
     body: Record<string, string>,
     locale?: string,
   ): Promise<UserDTO> {
-    const resp = await this.fetchWithTimeout("POST", path, body, locale);
-    if (resp.status === 401) {
+    const resp = await this.fetchWithTimeout(HttpMethod.Post, path, body, locale);
+    if (resp.status === HttpStatus.Unauthorized) {
       throw new AdminInvalidCredentialsError();
     }
-    if (resp.status >= 500) {
+    if (resp.status >= HttpStatus.InternalServerError) {
       throw new AdminUnavailableError(`adminclient: admin returned ${resp.status}`);
     }
-    if (resp.status !== 200) {
+    if (resp.status !== HttpStatus.Ok) {
       throw new AdminBadResponseError(`adminclient: unexpected status ${resp.status}`);
     }
     return decodeUser(resp);
   }
 
   private async fetchWithTimeout(
-    method: "GET" | "POST",
+    method: HttpMethod,
     path: string,
     body: Record<string, string> | undefined,
     locale: string | undefined,
@@ -92,12 +91,12 @@ export class AdminClient implements AdminApi {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
-    const headers: Record<string, string> = { [SERVICE_KEY_HEADER]: this.serviceKey };
+    const headers: Record<string, string> = { [HttpHeader.XServiceKey]: this.serviceKey };
     if (locale) {
-      headers["X-Locale"] = locale;
+      headers[HttpHeader.XLocale] = locale;
     }
     if (body !== undefined) {
-      headers["Content-Type"] = "application/json";
+      headers[HttpHeader.ContentType] = ContentType.Json;
     }
 
     try {

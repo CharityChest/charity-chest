@@ -7,7 +7,8 @@ import type { Request, RequestHandler, Response } from "express";
 import { AdminUnavailableError, AdminUserNotFoundError } from "../adminclient/errors";
 import type { AdminApi, UserDTO } from "../adminclient/types";
 import { dataJson, HttpError } from "../http";
-import { t } from "../i18n";
+import { HttpStatus } from "../http-status";
+import { MessageKey, t } from "../i18n";
 
 export interface MeDeps {
   admin: AdminApi;
@@ -20,7 +21,7 @@ export function createMeHandler(deps: MeDeps): RequestHandler {
     const locale = res.locals.locale;
     const userUuid = res.locals.userUuid;
     if (!userUuid) {
-      throw new HttpError(401, t(locale, "invalidToken"));
+      throw new HttpError(HttpStatus.Unauthorized, t(locale, MessageKey.InvalidToken));
     }
 
     let user: UserDTO;
@@ -28,15 +29,15 @@ export function createMeHandler(deps: MeDeps): RequestHandler {
       user = await admin.getUser(userUuid, locale);
     } catch (err) {
       if (err instanceof AdminUserNotFoundError) {
-        throw new HttpError(404, t(locale, "userNotFound"));
+        throw new HttpError(HttpStatus.NotFound, t(locale, MessageKey.UserNotFound));
       }
       if (err instanceof AdminUnavailableError) {
-        throw new HttpError(502, t(locale, "adminUnavailable"));
+        throw new HttpError(HttpStatus.BadGateway, t(locale, MessageKey.AdminUnavailable));
       }
       // AdminBadResponseError or anything unexpected — upstream failure.
-      throw new HttpError(502, t(locale, "adminUnavailable"));
+      throw new HttpError(HttpStatus.BadGateway, t(locale, MessageKey.AdminUnavailable));
     }
 
-    dataJson(res, 200, user);
+    dataJson(res, HttpStatus.Ok, user);
   };
 }

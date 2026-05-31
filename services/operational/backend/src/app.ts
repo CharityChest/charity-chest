@@ -8,10 +8,12 @@ import express, { type Express } from "express";
 
 import type { AdminApi } from "./adminclient/types";
 import type { Config } from "./config";
+import { HttpHeader } from "./constants";
 import type { GoogleValidator } from "./google";
 import { createAuthHandlers } from "./handlers/auth";
 import { createMeHandler } from "./handlers/me";
 import { errorHandler } from "./http";
+import { HttpStatus } from "./http-status";
 import { jwtAuth } from "./middleware/jwt";
 import { locale } from "./middleware/locale";
 
@@ -26,7 +28,6 @@ function requestLogger(): express.RequestHandler {
   return (req, res, next) => {
     const start = Date.now();
     res.on("finish", () => {
-      // eslint-disable-next-line no-console
       console.log(
         `${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - start}ms`,
       );
@@ -46,14 +47,19 @@ export function createApp(deps: AppDeps): Express {
   app.use(
     cors({
       origin: "*",
-      allowedHeaders: ["Origin", "Content-Type", "Authorization", "X-Locale"],
+      allowedHeaders: [
+        HttpHeader.Origin,
+        HttpHeader.ContentType,
+        HttpHeader.Authorization,
+        HttpHeader.XLocale,
+      ],
     }),
   );
   app.use(express.json());
 
   // Unversioned liveness probe. Enveloped to match the rest of the API.
   app.get("/health", (_req, res) => {
-    res.status(200).json({ data: { status: "ok" } });
+    res.status(HttpStatus.Ok).json({ data: { status: "ok" } });
   });
 
   const auth = createAuthHandlers(deps);

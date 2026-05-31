@@ -11,36 +11,36 @@
 import type { RequestHandler } from "express";
 import jwt, { type JwtPayload } from "jsonwebtoken";
 
+import { AuthScheme, HttpHeader, JwtAlgorithm, NIL_UUID } from "../constants";
 import { HttpError } from "../http";
-import { t } from "../i18n";
-
-const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+import { HttpStatus } from "../http-status";
+import { MessageKey, t } from "../i18n";
 
 export function jwtAuth(secret: string): RequestHandler {
   return (req, res, next) => {
     const locale = res.locals.locale ?? "en";
 
-    const authHeader = req.header("Authorization") ?? "";
-    if (!authHeader.startsWith("Bearer ")) {
-      throw new HttpError(401, t(locale, "missingAuthHeader"));
+    const authHeader = req.header(HttpHeader.Authorization) ?? "";
+    if (!authHeader.startsWith(AuthScheme.Bearer)) {
+      throw new HttpError(HttpStatus.Unauthorized, t(locale, MessageKey.MissingAuthHeader));
     }
-    const raw = authHeader.slice("Bearer ".length);
+    const raw = authHeader.slice(AuthScheme.Bearer.length);
 
     let claims: string | JwtPayload;
     try {
       // algorithms is pinned to HS256 so a token signed with a different
       // method (e.g. "none" or RS256) is rejected — mirrors the Go HMAC guard.
-      claims = jwt.verify(raw, secret, { algorithms: ["HS256"] });
+      claims = jwt.verify(raw, secret, { algorithms: [JwtAlgorithm.HS256] });
     } catch {
-      throw new HttpError(401, t(locale, "invalidToken"));
+      throw new HttpError(HttpStatus.Unauthorized, t(locale, MessageKey.InvalidToken));
     }
 
     if (typeof claims !== "object") {
-      throw new HttpError(401, t(locale, "invalidClaims"));
+      throw new HttpError(HttpStatus.Unauthorized, t(locale, MessageKey.InvalidClaims));
     }
     const userUuid = claims.user_uuid;
     if (typeof userUuid !== "string" || userUuid === "" || userUuid === NIL_UUID) {
-      throw new HttpError(401, t(locale, "invalidClaims"));
+      throw new HttpError(HttpStatus.Unauthorized, t(locale, MessageKey.InvalidClaims));
     }
 
     res.locals.userUuid = userUuid;
