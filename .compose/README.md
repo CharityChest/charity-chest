@@ -44,7 +44,7 @@ operational backend reaches admin in-cluster via `http://admin-backend:8080`.
 | `admin-frontend` | 3000         | Next.js dev server (hot reload via bind mount)          |
 | `op-postgres`    | 5433         | operational database                                    |
 | `op-valkey`      | 6380         | operational cache (wired but unused in v1)              |
-| `op-backend`     | 8081         | operational Go API                                      |
+| `op-backend`     | 8081         | operational Node.js API                                      |
 
 ---
 

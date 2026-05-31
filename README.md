@@ -33,7 +33,7 @@ charity-chest/
     │   ├── backend/   # Go HTTP API (Echo v4, GORM, PostgreSQL, JWT)
     │   └── frontend/  # Next.js 15 webapp (TypeScript, Tailwind CSS, next-intl)
     └── operational/           # the "operational" microservice (end-user mobile surface)
-        ├── backend/   # Go HTTP gateway; stateless re: user data, delegates to admin via /v1/internal/*
+        ├── backend/   # Node.js + TypeScript (Express 5) HTTP gateway; stateless re: user data, delegates to admin via /v1/internal/*
         └── app/       # Expo + React Native + TypeScript mobile app (iOS + Android)
 ```
 
@@ -65,7 +65,7 @@ This is repo-local (stored in `.git/config`) and only needs to be run a single t
 
 ## Quick start
 
-The fastest way to run everything locally is the **unified Docker Compose stack** in [`.compose/`](.compose/README.md). It brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Go API) on a single docker network, so the operational backend can reach admin in-cluster via `http://admin-backend:8080` without any external-network wiring.
+The fastest way to run everything locally is the **unified Docker Compose stack** in [`.compose/`](.compose/README.md). It brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Node.js API) on a single docker network, so the operational backend can reach admin in-cluster via `http://admin-backend:8080` without any external-network wiring.
 
 ```bash
 # 1. Copy the env template and fill in the secrets that have no safe default

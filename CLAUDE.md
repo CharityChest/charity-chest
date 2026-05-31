@@ -10,12 +10,12 @@ This repo is a microservices monorepo. Each service lives under `services/<name>
 
 - `services/admin/backend/` — Go HTTP API (owns user identity, billing, orgs).
 - `services/admin/frontend/` — Next.js 15 webapp targeting admin users.
-- `services/operational/backend/` — Go HTTP gateway for the mobile app. Stateless re: user data — delegates every identity read/write to admin via the `/v1/internal/*` API (see "Service-to-service internal API"). Has its own DB scaffolding for future operational-only entities; today the DB has no entities.
+- `services/operational/backend/` — Node.js + TypeScript (Express 5) HTTP gateway for the mobile app. Stateless re: user data — delegates every identity read/write to admin via the `/v1/internal/*` API (see "Service-to-service internal API"). Has its own DB scaffolding for future operational-only entities; today the DB has no entities. Code lives under `src/`; tests are co-located `*.test.ts` (Vitest + Supertest). See `services/operational/backend/README.md`.
 - `services/operational/app/` — Expo + React Native + TypeScript mobile app (iOS + Android).
 
-At the repo root, `.compose/` holds the **unified development stack** (`docker-compose.yml` + `.env.example` + `README.md`) — one compose that brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Go API) on a single docker network named `charitychest`. Services are renamed `admin-backend` / `op-backend` / `admin-frontend` / `admin-postgres` / `op-postgres` / `admin-valkey` / `op-valkey` / `mailpit` so they coexist; operational reaches admin in-cluster via `http://admin-backend:8080`. `SERVICE_API_KEY` is declared once in `.compose/.env` and passed to both backends. The per-service `.docker-dev/docker-compose.yml` files still work in isolation but expose the same host ports — never run both modes at once.
+At the repo root, `.compose/` holds the **unified development stack** (`docker-compose.yml` + `.env.example` + `README.md`) — one compose that brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Node.js API) on a single docker network named `charitychest`. Services are renamed `admin-backend` / `op-backend` / `admin-frontend` / `admin-postgres` / `op-postgres` / `admin-valkey` / `op-valkey` / `mailpit` so they coexist; operational reaches admin in-cluster via `http://admin-backend:8080`. `SERVICE_API_KEY` is declared once in `.compose/.env` and passed to both backends. The per-service `.docker-dev/docker-compose.yml` files still work in isolation but expose the same host ports — never run both modes at once.
 
-Module paths: `charity-chest/services/admin/backend` and `charity-chest/services/operational/backend`; imports are `<module>/internal/...`.
+The admin backend is a Go module (`charity-chest/services/admin/backend`); its imports are `<module>/internal/...`. The operational backend is a TypeScript package (`charity-chest-operational-backend`) with sources under `src/` and relative imports.
 
 Inside `services/admin/backend/`:
 - `main.go` — entry point: config → migrations → routes → listen.

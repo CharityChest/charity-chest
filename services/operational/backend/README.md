@@ -1,78 +1,103 @@
-# Charity Chest — Operational backend
+# Operational Backend
 
-Go HTTP gateway for the operational mobile app (`services/operational/app`). Targets end users on iOS and Android.
+Node.js + TypeScript HTTP gateway for the Charity Chest mobile app. It is **stateless with respect to user identity** — every credential check and profile read is delegated to the **admin** backend's `/v1/internal/*` service-to-service API. It owns no user tables; it only signs and verifies its own short-lived JWTs for the mobile client.
 
-It is **stateless re: user data** — every credential check and user lookup is delegated to the admin backend via `/v1/internal/*`, authenticated with a shared `X-Service-Key` header. Operational signs its own short-lived JWTs for the mobile app; it does not reuse admin's JWT secret.
+## Responsibilities
 
-The service still ships with its own Postgres + GORM + cache scaffolding so future operational-owned entities (per-user operational state, etc.) can be added without re-bootstrapping. In v1 the schema is empty.
+- **Login** (`POST /v1/auth/login`) — forwards email/password to admin, issues an operational JWT on success.
+- **Google sign-in** (`POST /v1/auth/google`) — verifies the Google ID token, delegates find-or-create to admin, issues an operational JWT.
+- **Profile** (`GET /v1/api/me`) — validates the operational JWT and returns the caller's profile fetched from admin.
+- **Health** (`GET /health`) — liveness probe.
 
-## What's in v1
+MFA-enabled accounts are rejected with `409` on both login paths — the mobile app does not yet implement the TOTP step.
 
-- `POST /v1/auth/login` — email + password → operational JWT.
-- `POST /v1/auth/google` — Google ID token (verified server-side with `google.golang.org/api/idtoken`) → operational JWT.
-- `GET  /v1/api/me` — operational JWT in → user profile from admin out.
-- `GET  /health` — liveness probe (unversioned).
+The backend has its own PostgreSQL + Valkey scaffolding for future operational-only entities, but v1 defines no tables and caches nothing.
 
-## Known v1 limitations
+## Tech stack
 
-- **MFA is not supported on mobile.** Admin reports `mfa_enabled=true` → operational returns HTTP 409 with a localised "use the admin web app" message.
-- **No password recovery on mobile.** Users still recover via the admin webapp.
-- **Logout is client-only.** The mobile app drops its token; operational does not maintain a revocation list.
+| Concern | Choice |
+|---|---|
+| Language | TypeScript (strict), Node.js 24 |
+| HTTP framework | Express 5 |
+| Auth | JWT (HS256) via `jsonwebtoken`; password check delegated to admin |
+| Identity source | admin backend via `/v1/internal/*` (service key auth) |
+| Google verify | `google-auth-library` (`OAuth2Client.verifyIdToken`) |
+| Datastore (future) | PostgreSQL (`pg`), Valkey/Redis (`redis`) |
+| Tests | Vitest + Supertest |
 
-## Running locally
+## Project layout
 
-The operational compose joins the admin compose's docker network as `external: true`, so bring admin up first.
+```
+src/
+├── main.ts                 # entry point: config → migrations → app → listen
+├── app.ts                  # createApp(deps) — wires middleware + routes (test seam)
+├── config.ts               # env loading + validation (+ Go-style duration parsing)
+├── i18n.ts                 # en/it message catalog + locale parsing
+├── http.ts                 # {data} envelope, HttpError, terminal error handler
+├── db.ts                   # reserved Postgres pool (no entities in v1)
+├── cache.ts                # reserved Valkey/Redis wrapper (disabled by default)
+├── migrate.ts              # SQL migration runner (no-op when migrations/ is empty)
+├── google.ts               # GoogleValidator interface + google-auth-library impl
+├── adminclient/            # typed client for admin's /v1/internal/* API
+├── handlers/               # auth (login/google) + me
+└── middleware/             # locale, jwt
+```
+
+All non-`main` modules are unit-tested; `app.ts` is exercised end-to-end through Supertest, mirroring the previous Go `routes_test.go`.
+
+## Local development
+
+The operational backend talks to the admin backend, so bring admin up first, then this service. The simplest path is the unified compose stack at the repo root (`.compose/`), which wires both together.
+
+### Option A — unified stack (recommended)
+
+From the repo root, see [`.compose/README.md`](../../../.compose/README.md):
 
 ```bash
-# 1. Generate the shared service-to-service secret and put it in BOTH
-#    admin's and operational's .docker-dev/.env (same value).
-openssl rand -hex 32
+docker compose -f .compose/docker-compose.yml up --build
+```
 
-# 2. Bring up admin (Postgres + Valkey + Mailpit + server)
-docker compose -f services/admin/backend/.docker-dev/docker-compose.yml up --build -d
+### Option B — this service's own compose
 
-# 3. Seed an admin root user (needed to test password login from the app)
-make -C services/admin/backend seed-root EMAIL=root@example.com PASSWORD=changeme
-
-# 4. Fill .docker-dev/.env with the shared SERVICE_API_KEY and GOOGLE_AUDIENCE
+```bash
 cp services/operational/backend/.docker-dev/.env.example services/operational/backend/.docker-dev/.env
 $EDITOR services/operational/backend/.docker-dev/.env
+# set SERVICE_API_KEY (match admin) and GOOGLE_AUDIENCE
 
-# 5. Bring up operational (Postgres + Valkey + server). Reaches admin at server:8080
-#    via the shared `charitychest_admin` docker network.
 docker compose -f services/operational/backend/.docker-dev/docker-compose.yml up --build -d
-
-# 6. Smoke test
-curl localhost:8081/health
-curl -X POST localhost:8081/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"root@example.com","password":"changeme"}'
 ```
 
-## Environment variables
-
-| Variable | Required | Description |
-|---|---|---|
-| `APP_ENV` | **yes** | One of `local`, `testing`, `staging`, `production`. |
-| `DATABASE_URL` | **yes** | PostgreSQL DSN. Used even though v1 has no entities — present so future migrations land cleanly. |
-| `JWT_SECRET` | **yes** | HS256 signing secret for operational's JWTs. Independent from admin's `JWT_SECRET`. |
-| `ADMIN_BASE_URL` | **yes** | Admin backend base URL, e.g. `http://localhost:8080`. |
-| `SERVICE_API_KEY` | **yes** | Shared secret matching admin's `SERVICE_API_KEY`. Sent as `X-Service-Key` on every admin call. |
-| `GOOGLE_AUDIENCE` | **yes** | Google OAuth Web Client ID validated as the `aud` claim on Google ID tokens forwarded by the mobile app. |
-| `PORT` | no | HTTP listen port (default `8081`). |
-| `REQUEST_LOG_ENABLED` | no | Echo's RequestLogger middleware (default `true`). |
-| `ADMIN_TIMEOUT` | no | Per-request timeout for admin calls (default `10s`). |
-| `CACHE_ENABLED` | no | Enable Valkey caching (default `false`). |
-| `CACHE_URL` | no | Valkey URL (default `redis://localhost:6379`). |
-| `CACHE_TTL` | no | TTL for cached entries (default `5m`). |
-
-## Tests
-
-Unit tests use stdlib `testing`. Handler integration tests use stub `AdminAPI` and `GoogleValidator` implementations defined inside the test files; `internal/testdb` is wired up but not yet used because there are no entities.
+### Option C — run on the host
 
 ```bash
-make -C services/operational/backend test
-make -C services/operational/backend test-coverage
+cd services/operational/backend
+npm ci
+cp .env.example .env && $EDITOR .env
+npm run dev          # tsx watch — restarts on change
 ```
 
-Docker must be running for tests (`internal/testdb` boots a Postgres container via testcontainers).
+## Configuration
+
+All via environment variables (see `.env.example`). Required: `APP_ENV`, `DATABASE_URL`, `JWT_SECRET`, `ADMIN_BASE_URL`, `SERVICE_API_KEY`, `GOOGLE_AUDIENCE`. Optional: `PORT` (8081), `REQUEST_LOG_ENABLED`, `ADMIN_TIMEOUT` (`10s`), `CACHE_*`. `ADMIN_TIMEOUT` and `CACHE_TTL` accept Go-style durations (`10s`, `5m`, `1h30m`) for drop-in compatibility with the existing compose files.
+
+## Scripts
+
+```bash
+npm run dev            # watch-mode dev server (tsx)
+npm run build          # tsc → dist/
+npm start              # node dist/main.js
+npm run typecheck      # tsc --noEmit
+npm run lint           # eslint
+npm test               # vitest run
+npm run test:ci        # vitest run --coverage (enforces ≥ 80% via vitest.config.ts)
+```
+
+`make test` / `make test-coverage` (and friends) wrap these for parity with the rest of the monorepo. No Docker is required for the test suite — admin and Google are faked, and the migration runner's DB path is not exercised in v1.
+
+## Architecture notes
+
+- **No user storage.** The service holds no identity tables. A compromise of its database exposes no user data.
+- **Independent JWT secret.** `JWT_SECRET` differs from admin's on purpose — an operational token can't be replayed against admin, and vice-versa. Tokens carry the public `user_uuid` claim (plus `email`), HS256, 24h expiry.
+- **Service key.** Every admin call carries `X-Service-Key`; admin rejects missing/incorrect keys. See the admin backend's internal API docs.
+- **Locale forwarding.** The `X-Locale` request header is propagated to admin so upstream error messages are localized.
+- **Upstream failures** (transport error, timeout, or 5xx from admin) surface as `502`. Admin's `401` on login becomes `401`; a `404` on `GET /v1/api/me` becomes `404`.

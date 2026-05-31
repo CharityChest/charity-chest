@@ -51,7 +51,7 @@ jobs:
           awk -v c="$COVERAGE" 'BEGIN { if (c+0 < 80) { print "Coverage " c "% is below the 80% threshold"; exit 1 } }'
 
   lint-operational-backend:
-    name: Operational backend lint (Go)
+    name: Operational backend lint (TS)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -59,16 +59,23 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          go-version-file: services/operational/backend/go.mod
-          cache-dependency-path: services/operational/backend/go.sum
+          node-version: 24
+          cache: npm
+          cache-dependency-path: services/operational/backend/package-lock.json
 
-      - name: Run golangci-lint
-        run: make lint
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Run ESLint
+        run: npm run lint
 
   test-operational-backend:
-    name: Operational backend tests (Go)
+    name: Operational backend tests (Vitest)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -76,30 +83,32 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          go-version-file: services/operational/backend/go.mod
-          cache-dependency-path: services/operational/backend/go.sum
+          node-version: 24
+          cache: npm
+          cache-dependency-path: services/operational/backend/package-lock.json
 
-      # testcontainers-go is wired up via internal/testdb (mirrors admin's
-      # harness); v1 has no tests that actually open a DB, but `go test` still
-      # builds the package, which requires the lib/pq and testcontainers
-      # imports to resolve. Docker is preinstalled on ubuntu-latest.
-      - name: Verify Docker is available
-        run: docker info
+      - name: Install dependencies
+        run: npm ci
 
+      # `test:ci` runs vitest with --coverage and the thresholds configured in
+      # vitest.config.ts (80% lines/functions/statements/branches, excluding the
+      # entry point and the thin runtime-only wrappers — the same spirit as the
+      # previous Go business-coverage gate). Vitest exits non-zero when a
+      # threshold is missed, failing the job. No Docker needed: admin and Google
+      # are faked and the migration runner's DB path is not exercised.
       - name: Run tests with coverage
-        run: |
-          go test -race -coverprofile=coverage.out ./internal/...
-          # internal/testdb is test-only scaffolding — never linked into the
-          # production binary and (until operational grows DB-backed tests) has
-          # no callers, so it sits at 0% and would otherwise drag the gated
-          # total below the threshold. Exclude it, mirroring the Makefile's
-          # business-coverage report.
-          grep -v 'charity-chest/services/operational/backend/internal/testdb/' coverage.out > coverage.business.out
-          COVERAGE=$(go tool cover -func=coverage.business.out | grep '^total:' | awk '{print $3}' | tr -d '%')
-          echo "Coverage (excluding test scaffolding): ${COVERAGE}%"
-          awk -v c="$COVERAGE" 'BEGIN { if (c+0 < 80) { print "Coverage " c "% is below the 80% threshold"; exit 1 } }'
+        run: npm run test:ci
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: operational-backend-coverage
+          path: services/operational/backend/coverage
+          if-no-files-found: ignore
+          retention-days: 7
 
   lint-operational-app:
     name: Operational app type-check (TS)

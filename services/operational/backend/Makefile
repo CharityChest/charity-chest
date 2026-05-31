@@ -1,92 +1,37 @@
-BINARY  := server
-DEBUG   := dist/debug/$(BINARY)
-RELEASE := dist/release/$(BINARY)
+# Operational backend (Node.js / TypeScript).
+#
+# Thin wrappers over the npm scripts so the repo's `make -C ... <target>`
+# muscle memory keeps working across the Go → Node rewrite. CI calls the npm
+# scripts directly; these targets are for local convenience.
 
-# golang-migrate is already in go.mod — no separate install needed.
-MIGRATE      := go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate
-GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
+.PHONY: install build run dev typecheck lint test test-coverage clean
 
-.PHONY: all build build-debug build-release test test-coverage lint fmt clean tidy migrate migrate-down migrate-version
+install:
+	npm ci
 
-# ── Default ───────────────────────────────────────────────────────────────────
+build:
+	npm run build
 
-all: build
+run: build
+	npm start
 
-build: build-debug build-release
+dev:
+	npm run dev
 
-# ── Debug build ───────────────────────────────────────────────────────────────
-# Optimisations and inlining are disabled so the binary is debugger-friendly;
-# the race detector is enabled to catch data races during development.
-
-build-debug:
-	@mkdir -p dist/debug
-	go build \
-	  -race \
-	  -gcflags="all=-N -l" \
-	  -o $(DEBUG) \
-	  .
-	@echo "debug binary → $(DEBUG)"
-
-# ── Release build ─────────────────────────────────────────────────────────────
-# Produces a fully static binary with debug info and symbol table stripped.
-
-build-release:
-	@mkdir -p dist/release
-	CGO_ENABLED=0 GOOS=linux go build \
-	  -ldflags="-s -w" \
-	  -o $(RELEASE) \
-	  .
-	@echo "release binary → $(RELEASE)"
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-test:
-	@docker info >/dev/null 2>&1 || (echo "ERROR: Docker daemon required for tests (testcontainers boots a Postgres container)"; exit 1)
-	go test -race ./internal/...
-
-# Report coverage across all production packages, excluding the entry point
-# (main.go) and the test-only Postgres harness (internal/testdb), which is
-# never linked into the production binary and only exercised once operational
-# grows DB-backed tests.
-# `-coverpkg=./...` cross-instruments every package so integration coverage in
-# routes/v1 counts against the file that owns the code.
-test-coverage:
-	@docker info >/dev/null 2>&1 || (echo "ERROR: Docker daemon required for tests (testcontainers boots a Postgres container)"; exit 1)
-	go test -race -coverpkg=./... -coverprofile=coverage.out ./...
-	@grep -v -E '(charity-chest/services/operational/backend/main\.go|charity-chest/services/operational/backend/internal/testdb/)' coverage.out > coverage.business.out
-	@echo "── full coverage ──"
-	@go tool cover -func=coverage.out | tail -1
-	@echo "── coverage excluding entry points and test scaffolding ──"
-	@go tool cover -func=coverage.business.out | tail -1
-	@COVERAGE=$$(go tool cover -func=coverage.business.out | grep '^total:' | awk '{print $$3}' | tr -d '%'); \
-	  awk -v c="$$COVERAGE" 'BEGIN { if (c+0 < 80) { print "Business coverage " c "% is below the 80% threshold"; exit 1 } }'
+typecheck:
+	npm run typecheck
 
 lint:
-	$(GOLANGCI_LINT) run ./...
+	npm run lint
 
-fmt:
-	gofmt -w .
-	$(GOLANGCI_LINT) run --fix ./...
+test:
+	npm test
 
-tidy:
-	go mod tidy
+# Runs the suite with coverage. The 80% business-coverage gate is enforced by
+# the thresholds in vitest.config.ts (which exclude the entry point and the
+# thin runtime-only wrappers), mirroring the previous Go business-coverage rule.
+test-coverage:
+	npm run test:ci
 
 clean:
-	rm -rf dist
-
-# ── Migrations ────────────────────────────────────────────────────────────────
-# DATABASE_URL must be set in the environment or .env. The migrations/
-# directory may be empty in v1 — golang-migrate then reports no change.
-
-migrate:
-	@test -n "$(DATABASE_URL)" || (echo "ERROR: DATABASE_URL is required"; exit 1)
-	$(MIGRATE) -path migrations -database "$(DATABASE_URL)" up
-
-migrate-down:
-	@test -n "$(DATABASE_URL)" || (echo "ERROR: DATABASE_URL is required"; exit 1)
-	@test -n "$(N)" || (echo "ERROR: N is required (e.g. make migrate-down N=1)"; exit 1)
-	$(MIGRATE) -path migrations -database "$(DATABASE_URL)" down $(N)
-
-migrate-version:
-	@test -n "$(DATABASE_URL)" || (echo "ERROR: DATABASE_URL is required"; exit 1)
-	$(MIGRATE) -path migrations -database "$(DATABASE_URL)" version
+	rm -rf dist coverage node_modules

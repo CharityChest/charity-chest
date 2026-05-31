@@ -1,7 +1,7 @@
 # Unified Charity Chest development stack.
 #
 # Brings up every service in one go: admin (Postgres + Valkey + Mailpit + Go
-# backend + Next.js frontend) and operational (its own Postgres + Valkey + Go
+# backend + Next.js frontend) and operational (its own Postgres + Valkey + Node.js
 # backend). All services share a single docker network so the operational
 # backend reaches admin at `http://admin-backend:8080`.
 #
@@ -17,7 +17,7 @@
 # Ports exposed on the host:
 #   3000  admin frontend (Next.js)
 #   8080  admin backend (Go API)
-#   8081  operational backend (Go API)
+#   8081  operational backend (Node.js API)
 #   8025  Mailpit web UI
 #   1025  Mailpit SMTP
 #   5432  admin Postgres

@@ -1,32 +1,36 @@
 # Build context is the services/operational/backend/ directory
 # (set by docker-compose context: ..).
+#
+# Multi-stage Node.js build: compile TypeScript → dist in the build stage,
+# install production-only dependencies in the deps stage, then assemble a slim
+# runtime image carrying only node_modules + dist + migrations.
 
-# ---- build stage ----
-FROM golang:alpine AS builder
-
+# ---- build stage (compile TypeScript) ----
+FROM node:24-alpine AS build
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
 
-# Cache dependency downloads as a separate layer.
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/server .
+# ---- deps stage (production node_modules) ----
+FROM node:24-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 # ---- runtime stage ----
-FROM alpine:3.23
-
-# ca-certificates: needed for HTTPS calls to Google's tokeninfo and the
-#   admin backend over TLS in non-dev environments.
-# tzdata: consistent timezone handling.
-RUN apk --no-cache add ca-certificates tzdata
-
+FROM node:24-alpine
 WORKDIR /app
 
-COPY --from=builder /bin/server     ./server
-COPY --from=builder /app/migrations ./migrations
-COPY ./.docker-dev/entry-point.sh   ./entry-point.sh
+ENV NODE_ENV=production
+
+COPY --from=deps  /app/node_modules ./node_modules
+COPY --from=build /app/dist         ./dist
+COPY package.json ./
+COPY migrations ./migrations
+COPY ./.docker-dev/entry-point.sh ./entry-point.sh
 RUN chmod +x ./entry-point.sh
 
 EXPOSE 8081

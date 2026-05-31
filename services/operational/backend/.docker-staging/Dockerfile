@@ -1,4 +1,4 @@
-# Staging image — production-style build of the operational Go backend.
+# Staging image — production-style build of the operational Node.js backend.
 # Self-contained, designed to be deployed standalone (ECS, Fly.io, Kubernetes)
 # connecting to managed Postgres and Valkey via env vars supplied at runtime.
 # No docker-compose for staging.
@@ -14,40 +14,41 @@
 #   GOOGLE_AUDIENCE
 # Optional: PORT, REQUEST_LOG_ENABLED, ADMIN_TIMEOUT, CACHE_*
 
-# ---- build stage --------------------------------------------------------
-FROM golang:alpine AS builder
-
+# ---- build stage (compile TypeScript) -----------------------------------
+FROM node:24-alpine AS build
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
 
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /bin/server .
+# ---- deps stage (production node_modules) --------------------------------
+FROM node:24-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 # ---- runtime stage ------------------------------------------------------
-FROM alpine:3.23
+FROM node:24-alpine
 
-# ca-certificates: HTTPS to Google's tokeninfo and admin over TLS.
-# tzdata: consistent timezone handling.
 # curl: used by the Docker HEALTHCHECK to probe /health.
-# adduser -H: no home directory the app user could write to.
-RUN apk --no-cache add ca-certificates tzdata curl && \
-    addgroup -S app && adduser -S -H -G app app
+# tzdata: consistent timezone handling.
+# The node:alpine image already ships an unprivileged `node` user.
+RUN apk --no-cache add ca-certificates tzdata curl
 
 WORKDIR /app
+ENV NODE_ENV=production
 
-# Lock the working directory so the unprivileged user cannot create or replace
-# files alongside the binary at runtime.
-RUN chmod 0555 /app
+COPY --from=deps  --chown=root:root /app/node_modules ./node_modules
+COPY --from=build --chown=root:root /app/dist         ./dist
+COPY              --chown=root:root package.json       ./package.json
+COPY              --chown=root:root migrations         ./migrations
+COPY              --chown=root:root ./.docker-staging/entry-point.sh ./entry-point.sh
+RUN chmod 0555 ./entry-point.sh
 
-COPY --from=builder --chown=root:root --chmod=0555 /bin/server      ./server
-COPY --from=builder --chown=root:root --chmod=0555 /app/migrations  ./migrations
-COPY              --chown=root:root --chmod=0555 ./.docker-staging/entry-point.sh ./entry-point.sh
-
-# Drop privileges — the binary does not need root at runtime.
-USER app
+# Drop privileges — the app does not need root at runtime.
+USER node
 
 EXPOSE 8081
 

@@ -1,2 +1,2 @@
 #!/bin/sh
-exec ./server
+exec node dist/main.js
