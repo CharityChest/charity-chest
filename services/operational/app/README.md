@@ -34,7 +34,7 @@ These commands run a native dev build (required because `expo-secure-store` and 
 
 ## Project layout
 
-```
+```text
 app/
   _layout.tsx          root Stack + <AuthProvider>
   index.tsx            splash: redirects to /login or /(app)
