@@ -38,8 +38,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    await clearToken();
-    setTokenState(null);
+    try {
+      await clearToken();
+    } catch (err) {
+      // A storage failure must never strand the user in a logged-in state;
+      // log it and still clear the in-memory token below.
+      console.warn("Failed to clear persisted token during sign out", err);
+    } finally {
+      setTokenState(null);
+    }
   }, []);
 
   return (

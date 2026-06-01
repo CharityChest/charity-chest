@@ -99,6 +99,36 @@ describe("AuthProvider / useAuth", () => {
     expect(await SecureStore.getItemAsync("cc_op_token")).toBeNull();
   });
 
+  it("signOut clears in-memory state even when SecureStore fails", async () => {
+    await SecureStore.setItemAsync("cc_op_token", "pre-existing");
+    jest
+      .mocked(SecureStore.deleteItemAsync)
+      .mockRejectedValueOnce(new Error("keychain unavailable"));
+    // signOut logs the storage failure via console.warn; suppress the noise.
+    const spy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    let captured: ReturnType<typeof useAuth> | null = null;
+    render(
+      <AuthProvider>
+        <Probe onMount={(a) => (captured = a)} />
+      </AuthProvider>
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    if (!captured) throw new Error("auth never captured");
+    try {
+      await act(async () => {
+        await captured!.signOut();
+      });
+
+      expect(screen.getByTestId("state").props.children).toBe("anon");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("throws when useAuth is called outside the provider", () => {
     // Render only the probe, with no provider wrapping it. Testing-library
     // surfaces the thrown error via `act`'s error boundary; we suppress the
