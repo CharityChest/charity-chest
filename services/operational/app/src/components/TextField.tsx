@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
 
 type Props = TextInputProps & {
@@ -5,10 +6,14 @@ type Props = TextInputProps & {
 };
 
 export function TextField({ label, style, ...inputProps }: Props) {
+  const labelId = useId();
   return (
     <View style={styles.wrapper}>
-      <Text style={styles.label}>{label}</Text>
+      <Text nativeID={labelId} style={styles.label}>
+        {label}
+      </Text>
       <TextInput
+        accessibilityLabelledBy={labelId}
         {...inputProps}
         style={[styles.input, style]}
         placeholderTextColor="#9ca3af"

@@ -36,4 +36,24 @@ describe("<TextField>", () => {
     );
     expect(screen.getByPlaceholderText("Your name").props.autoCapitalize).toBe("words");
   });
+
+  it("links the label to the input for screen readers", () => {
+    render(<TextField label="Email" value="" onChangeText={() => {}} placeholder="you@x" />);
+    const labelId = screen.getByText("Email").props.nativeID;
+    expect(labelId).toBeTruthy();
+    expect(screen.getByPlaceholderText("you@x").props.accessibilityLabelledBy).toBe(labelId);
+  });
+
+  it("lets callers override the accessibility association", () => {
+    render(
+      <TextField
+        label="Email"
+        value=""
+        onChangeText={() => {}}
+        placeholder="you@x"
+        accessibilityLabel="Email address"
+      />
+    );
+    expect(screen.getByPlaceholderText("you@x").props.accessibilityLabel).toBe("Email address");
+  });
 });
