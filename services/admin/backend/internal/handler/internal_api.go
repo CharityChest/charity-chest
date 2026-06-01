@@ -86,7 +86,8 @@ func (h *InternalHandler) InternalLogin(c echo.Context) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return echo.NewHTTPError(http.StatusUnauthorized, i18n.T(locale(c), i18n.KeyInvalidCredentials))
 		}
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		log.Printf("internal: login user lookup: %v", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, i18n.T(locale(c), i18n.KeyDatabaseError))
 	}
 	if user.PasswordHash == nil {
 		// Generic 401 — surfacing "google-only" here would leak that the email
