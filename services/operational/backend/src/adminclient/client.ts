@@ -53,12 +53,15 @@ export class AdminClient implements AdminApi {
       locale,
     );
     if (resp.status === HttpStatus.NotFound) {
+      await resp.body?.cancel();
       throw new AdminUserNotFoundError();
     }
     if (resp.status >= HttpStatus.InternalServerError) {
+      await resp.body?.cancel();
       throw new AdminUnavailableError(`adminclient: admin returned ${resp.status}`);
     }
     if (resp.status !== HttpStatus.Ok) {
+      await resp.body?.cancel();
       throw new AdminBadResponseError(`adminclient: unexpected status ${resp.status}`);
     }
     return decodeUser(resp);
@@ -71,12 +74,15 @@ export class AdminClient implements AdminApi {
   ): Promise<UserDTO> {
     const resp = await this.fetchWithTimeout(HttpMethod.Post, path, body, locale);
     if (resp.status === HttpStatus.Unauthorized) {
+      await resp.body?.cancel();
       throw new AdminInvalidCredentialsError();
     }
     if (resp.status >= HttpStatus.InternalServerError) {
+      await resp.body?.cancel();
       throw new AdminUnavailableError(`adminclient: admin returned ${resp.status}`);
     }
     if (resp.status !== HttpStatus.Ok) {
+      await resp.body?.cancel();
       throw new AdminBadResponseError(`adminclient: unexpected status ${resp.status}`);
     }
     return decodeUser(resp);
