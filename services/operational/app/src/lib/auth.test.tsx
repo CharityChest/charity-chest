@@ -58,6 +58,28 @@ describe("AuthProvider / useAuth", () => {
     expect(screen.getByTestId("state").props.children).toBe("anon");
   });
 
+  it("clears isLoading and stays anonymous when SecureStore rejects", async () => {
+    // A keychain/decryption failure rejects getItemAsync; hydration must still
+    // resolve the loading state instead of getting stuck on "loading" forever.
+    const spy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    jest
+      .mocked(SecureStore.getItemAsync)
+      .mockRejectedValueOnce(new Error("keychain unavailable"));
+    try {
+      render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByTestId("state").props.children).toBe("anon");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("signIn persists the token and updates state synchronously after await", async () => {
     let capturedAuth: ReturnType<typeof useAuth> | null = null;
     render(

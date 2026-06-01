@@ -21,10 +21,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const t = await getToken();
-      if (!cancelled) {
-        setTokenState(t);
-        setIsLoading(false);
+      try {
+        const t = await getToken();
+        if (!cancelled) {
+          setTokenState(t);
+        }
+      } catch (err) {
+        console.warn("Failed to hydrate persisted token", err);
+        if (!cancelled) {
+          setTokenState(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     })();
     return () => {
