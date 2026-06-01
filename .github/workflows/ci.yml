@@ -5,6 +5,13 @@ on:
   push:
     branches: [main]
 
+# Least privilege: the default GITHUB_TOKEN is read-only for every job. No job
+# pushes commits, comments on PRs, or creates releases, and upload-artifact
+# uses a separate results-service token — so none need write scopes. If a future
+# job does, add a job-level `permissions:` override rather than widening this.
+permissions:
+  contents: read
+
 jobs:
   lint-server:
     name: Server lint (Go)
