@@ -24,6 +24,9 @@ export interface Config {
 
   requestLogEnabled: boolean;
 
+  /** Browser origins allowed by CORS. Never "*" — see ALLOWED_ORIGINS. */
+  allowedOrigins: string[];
+
   cacheEnabled: boolean;
   cacheUrl: string;
   cacheTtlMs: number;
@@ -75,6 +78,20 @@ function getenv(env: Env, key: string, def: string): string {
 }
 
 /**
+ * Parses a comma-separated env value into a trimmed, empty-stripped list.
+ * Returns `def` when the variable is unset or empty after stripping — used by
+ * ALLOWED_ORIGINS so a misconfigured value never collapses back to "*".
+ */
+function parseList(value: string | undefined, def: string[]): string[] {
+  if (value === undefined) return def;
+  const items = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+  return items.length > 0 ? items : def;
+}
+
+/**
  * Reads configuration from `env` (defaults to process.env), applies defaults,
  * and validates. Throws an Error naming every missing required variable, or a
  * specific error for an invalid APP_ENV / PORT / duration.
@@ -95,6 +112,7 @@ export function loadConfig(env: Env = process.env): Config {
     // Mirrors Go's exact-string semantics: enabled only when "true";
     // request logging on unless explicitly "false".
     requestLogEnabled: env.REQUEST_LOG_ENABLED !== "false",
+    allowedOrigins: parseList(env.ALLOWED_ORIGINS, ["http://localhost:3000"]),
     cacheEnabled: env.CACHE_ENABLED === "true",
     cacheUrl: getenv(env, "CACHE_URL", "redis://localhost:6379"),
     cacheTtlMs: 5 * MINUTE_MS,

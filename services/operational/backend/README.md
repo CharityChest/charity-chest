@@ -78,7 +78,7 @@ npm run dev          # tsx watch — restarts on change
 
 ## Configuration
 
-All via environment variables (see `.env.example`). Required: `APP_ENV`, `DATABASE_URL`, `JWT_SECRET`, `ADMIN_BASE_URL`, `SERVICE_API_KEY`, `GOOGLE_AUDIENCE`. Optional: `PORT` (8081), `REQUEST_LOG_ENABLED`, `ADMIN_TIMEOUT` (`10s`), `CACHE_*`. `ADMIN_TIMEOUT` and `CACHE_TTL` accept Go-style durations (`10s`, `5m`, `1h30m`) for drop-in compatibility with the existing compose files.
+All via environment variables (see `.env.example`). Required: `APP_ENV`, `DATABASE_URL`, `JWT_SECRET`, `ADMIN_BASE_URL`, `SERVICE_API_KEY`, `GOOGLE_AUDIENCE`. Optional: `PORT` (8081), `REQUEST_LOG_ENABLED`, `ALLOWED_ORIGINS` (comma-separated CORS origins, default `http://localhost:3000`; never `*`), `ADMIN_TIMEOUT` (`10s`), `CACHE_*`. `ADMIN_TIMEOUT` and `CACHE_TTL` accept Go-style durations (`10s`, `5m`, `1h30m`) for drop-in compatibility with the existing compose files.
 
 ## Scripts
 

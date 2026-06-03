@@ -24,6 +24,7 @@ export function makeConfig(overrides: Partial<Config> = {}): Config {
     adminTimeoutMs: 10_000,
     googleAudience: TEST_AUDIENCE,
     requestLogEnabled: false,
+    allowedOrigins: ["http://localhost:3000"],
     cacheEnabled: false,
     cacheUrl: "redis://localhost:6379",
     cacheTtlMs: 5 * 60 * 1000,

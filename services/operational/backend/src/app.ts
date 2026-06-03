@@ -46,7 +46,7 @@ export function createApp(deps: AppDeps): Express {
   app.use(locale());
   app.use(
     cors({
-      origin: "*",
+      origin: deps.config.allowedOrigins,
       allowedHeaders: [
         HttpHeader.Origin,
         HttpHeader.ContentType,

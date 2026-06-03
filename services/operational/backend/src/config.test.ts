@@ -62,6 +62,28 @@ describe("loadConfig", () => {
     expect(cfg.cacheUrl).toBe("redis://valkey:6379");
   });
 
+  it("defaults allowedOrigins to localhost and never wildcards", () => {
+    const cfg = loadConfig({ ...REQUIRED });
+    expect(cfg.allowedOrigins).toEqual(["http://localhost:3000"]);
+  });
+
+  it("parses ALLOWED_ORIGINS as a trimmed, empty-stripped list", () => {
+    const cfg = loadConfig({
+      ...REQUIRED,
+      ALLOWED_ORIGINS: " https://a.example , https://b.example ,",
+    });
+    expect(cfg.allowedOrigins).toEqual(["https://a.example", "https://b.example"]);
+  });
+
+  it("falls back to the default when ALLOWED_ORIGINS is empty", () => {
+    expect(loadConfig({ ...REQUIRED, ALLOWED_ORIGINS: "" }).allowedOrigins).toEqual([
+      "http://localhost:3000",
+    ]);
+    expect(loadConfig({ ...REQUIRED, ALLOWED_ORIGINS: " , " }).allowedOrigins).toEqual([
+      "http://localhost:3000",
+    ]);
+  });
+
   it("uses exact-string boolean semantics (only 'true' enables cache)", () => {
     expect(loadConfig({ ...REQUIRED, CACHE_ENABLED: "1" }).cacheEnabled).toBe(false);
     expect(loadConfig({ ...REQUIRED, CACHE_ENABLED: "TRUE" }).cacheEnabled).toBe(false);
