@@ -46,7 +46,7 @@ export class AdminClient implements AdminApi {
 
   /** GET /v1/internal/users/:userUUID — 404 → user not found. */
   async getUser(userUuid: string, locale?: string): Promise<UserDTO> {
-    const resp = await this.fetchWithTimeout(
+    const { resp, timer } = await this.fetchWithTimeout(
       HttpMethod.Get,
       `/v1/internal/users/${encodeURIComponent(userUuid)}`,
       undefined,
@@ -54,17 +54,20 @@ export class AdminClient implements AdminApi {
     );
     if (resp.status === HttpStatus.NotFound) {
       await resp.body?.cancel();
+      clearTimeout(timer);
       throw new AdminUserNotFoundError();
     }
     if (resp.status >= HttpStatus.InternalServerError) {
       await resp.body?.cancel();
+      clearTimeout(timer);
       throw new AdminUnavailableError(`adminclient: admin returned ${resp.status}`);
     }
     if (resp.status !== HttpStatus.Ok) {
       await resp.body?.cancel();
+      clearTimeout(timer);
       throw new AdminBadResponseError(`adminclient: unexpected status ${resp.status}`);
     }
-    return decodeUser(resp);
+    return decodeUser(resp, timer);
   }
 
   private async postUser(
@@ -72,20 +75,23 @@ export class AdminClient implements AdminApi {
     body: Record<string, string>,
     locale?: string,
   ): Promise<UserDTO> {
-    const resp = await this.fetchWithTimeout(HttpMethod.Post, path, body, locale);
+    const { resp, timer } = await this.fetchWithTimeout(HttpMethod.Post, path, body, locale);
     if (resp.status === HttpStatus.Unauthorized) {
       await resp.body?.cancel();
+      clearTimeout(timer);
       throw new AdminInvalidCredentialsError();
     }
     if (resp.status >= HttpStatus.InternalServerError) {
       await resp.body?.cancel();
+      clearTimeout(timer);
       throw new AdminUnavailableError(`adminclient: admin returned ${resp.status}`);
     }
     if (resp.status !== HttpStatus.Ok) {
       await resp.body?.cancel();
+      clearTimeout(timer);
       throw new AdminBadResponseError(`adminclient: unexpected status ${resp.status}`);
     }
-    return decodeUser(resp);
+    return decodeUser(resp, timer);
   }
 
   private async fetchWithTimeout(
@@ -93,7 +99,7 @@ export class AdminClient implements AdminApi {
     path: string,
     body: Record<string, string> | undefined,
     locale: string | undefined,
-  ): Promise<Response> {
+  ): Promise<{ resp: Response; timer: ReturnType<typeof setTimeout> }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -106,29 +112,38 @@ export class AdminClient implements AdminApi {
     }
 
     try {
-      return await fetch(this.baseUrl + path, {
+      const resp = await fetch(this.baseUrl + path, {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
+      // The timer is intentionally left running: it must keep covering body
+      // consumption (resp.json() / body.cancel()). Callers clear it once the
+      // body has been drained or cancelled.
+      return { resp, timer };
     } catch (err) {
       // Transport failure or abort (timeout) — surfaced as 502 by handlers.
+      clearTimeout(timer);
       throw new AdminUnavailableError(
         `adminclient: ${err instanceof Error ? err.message : String(err)}`,
       );
-    } finally {
-      clearTimeout(timer);
     }
   }
 }
 
-async function decodeUser(resp: Response): Promise<UserDTO> {
+async function decodeUser(
+  resp: Response,
+  timer: ReturnType<typeof setTimeout>,
+): Promise<UserDTO> {
   let wrapper: { data?: UserDTO };
   try {
     wrapper = (await resp.json()) as { data?: UserDTO };
   } catch {
     throw new AdminBadResponseError("adminclient: decode body failed");
+  } finally {
+    // Body consumed (or failed) — the timeout no longer needs to fire.
+    clearTimeout(timer);
   }
   if (!wrapper || typeof wrapper.data !== "object" || wrapper.data === null) {
     throw new AdminBadResponseError("adminclient: missing data envelope");
