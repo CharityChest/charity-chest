@@ -87,7 +87,7 @@ describe("loadConfig", () => {
   it("uses exact-string boolean semantics (only 'true' enables cache)", () => {
     expect(loadConfig({ ...REQUIRED, CACHE_ENABLED: "1" }).cacheEnabled).toBe(false);
     expect(loadConfig({ ...REQUIRED, CACHE_ENABLED: "TRUE" }).cacheEnabled).toBe(false);
-    expect(loadConfig({ ...REQUIRED, REQUIRED_LOG: "x" }).requestLogEnabled).toBe(true);
+    expect(loadConfig({ ...REQUIRED, REQUEST_LOG_ENABLED: "x" }).requestLogEnabled).toBe(true);
   });
 
   it("lists every missing required variable in one error", () => {
