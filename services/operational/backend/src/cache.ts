@@ -20,6 +20,11 @@ export class Cache {
   /** Connects to Redis/Valkey at `url` and returns an enabled Cache. */
   static async connect(url: string, ttlMs: number): Promise<Cache> {
     const client: RedisClientType = createClient({ url });
+    // Without an "error" listener, node-redis emits "error" as an unhandled
+    // event (e.g. on a dropped connection), which crashes the process.
+    client.on("error", (err) => {
+      console.error(`cache: ${err instanceof Error ? err.message : String(err)}`);
+    });
     await client.connect();
     return new Cache(client, ttlMs, false);
   }
