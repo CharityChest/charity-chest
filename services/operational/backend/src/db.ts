@@ -6,5 +6,11 @@
 import { Pool } from "pg";
 
 export function createPool(databaseUrl: string): Pool {
-  return new Pool({ connectionString: databaseUrl });
+  const pool = new Pool({ connectionString: databaseUrl });
+  // Without an "error" listener, pg emits "error" from idle clients as an
+  // unhandled event (e.g. on a dropped connection), which crashes the process.
+  pool.on("error", (err) => {
+    console.error(`db: ${err instanceof Error ? err.message : String(err)}`);
+  });
+  return pool;
 }
