@@ -12,6 +12,11 @@ import { Client } from "pg";
 
 const DEFAULT_DIR = path.resolve(process.cwd(), "migrations");
 
+// Session-level advisory lock key that serializes the migration run across
+// replicas: only one process at a time may execute the check+apply+insert
+// sequence, so concurrent startups can't both apply the same migration.
+const MIGRATION_LOCK_KEY = 4927510384172639;
+
 export async function runMigrations(
   databaseUrl: string,
   dir: string = DEFAULT_DIR,
@@ -42,29 +47,34 @@ export async function runMigrations(
        )`,
     );
 
-    for (const file of files) {
-      const version = file.replace(/\.up\.sql$/, "");
-      const existing = await client.query(
-        "SELECT 1 FROM schema_migrations WHERE version = $1",
-        [version],
-      );
-      if (existing.rowCount && existing.rowCount > 0) {
-        continue;
-      }
+    await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    try {
+      for (const file of files) {
+        const version = file.replace(/\.up\.sql$/, "");
+        const existing = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = $1",
+          [version],
+        );
+        if (existing.rowCount && existing.rowCount > 0) {
+          continue;
+        }
 
-      const sql = await readFile(path.join(dir, file), "utf8");
-      await client.query("BEGIN");
-      try {
-        await client.query(sql);
-        await client.query("INSERT INTO schema_migrations (version) VALUES ($1)", [
-          version,
-        ]);
-        await client.query("COMMIT");
-      } catch (err) {
-        await client.query("ROLLBACK");
-        throw err;
+        const sql = await readFile(path.join(dir, file), "utf8");
+        await client.query("BEGIN");
+        try {
+          await client.query(sql);
+          await client.query("INSERT INTO schema_migrations (version) VALUES ($1)", [
+            version,
+          ]);
+          await client.query("COMMIT");
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw err;
+        }
+        console.log(`migrate: applied ${version}`);
       }
-      console.log(`migrate: applied ${version}`);
+    } finally {
+      await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
     }
   } finally {
     await client.end();
