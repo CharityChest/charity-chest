@@ -55,7 +55,7 @@ export function createApp(deps: AppDeps): Express {
       ],
     }),
   );
-  app.use(express.json());
+  app.use(express.json({ limit: "100kb" }));
 
   // Unversioned liveness probe. Enveloped to match the rest of the API.
   app.get("/health", (_req, res) => {
