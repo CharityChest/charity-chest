@@ -59,11 +59,45 @@ async function main(): Promise<void> {
   const google = new RealGoogleValidator();
 
   const app = createApp({ config, admin, google });
-  app.listen(Number(config.port), () => {
+  const server = app.listen(Number(config.port), () => {
     console.log(
       `starting operational server on :${config.port} (admin=${config.adminBaseUrl})`,
     );
   });
+
+  // Graceful shutdown: stop accepting connections, then drain the cache and DB
+  // pools so the container stop doesn't leak Redis/Postgres connections.
+  let shuttingDown = false;
+  const shutdown = (signal: string): void => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    console.log(`${signal}: shutting down`);
+
+    // Force-exit if shutdown hangs (e.g. a stuck connection close).
+    const forceExit = setTimeout(() => {
+      console.error("shutdown: timed out, forcing exit");
+      process.exit(1);
+    }, 10_000);
+    forceExit.unref();
+
+    server.close(async () => {
+      try {
+        await cache.close();
+        await db.end();
+      } catch (err) {
+        console.error(
+          `shutdown: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      clearTimeout(forceExit);
+      process.exit(0);
+    });
+  };
+
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 void main();
