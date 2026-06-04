@@ -62,7 +62,7 @@ full list with comments.
 | `ROOT_USER`            | `admin-backend`               | Email of the root user seeded on first boot.                                           |
 | `ROOT_PASSWORD`        | `admin-backend`               | Password for that root user.                                                           |
 | `SERVICE_API_KEY`      | `admin-backend` + `op-backend` | Shared service-to-service secret. Generate with `openssl rand -hex 32`. Declared once and passed to both containers — no duplication. |
-| `GOOGLE_AUDIENCE`      | `op-backend`                  | Google OAuth Web client ID used as the audience the mobile app's ID token must match.  |
+| `GOOGLE_AUDIENCE`      | `op-backend`                  | Comma-separated Google OAuth client ID(s) (iOS, Android, Web) — the mobile app's ID token `aud` must match one. |
 
 ### Optional (commented out in `.env.example`)
 

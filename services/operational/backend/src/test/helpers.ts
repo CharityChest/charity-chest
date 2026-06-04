@@ -22,7 +22,7 @@ export function makeConfig(overrides: Partial<Config> = {}): Config {
     adminBaseUrl: "http://admin.test",
     serviceApiKey: "test-service-key",
     adminTimeoutMs: 10_000,
-    googleAudience: TEST_AUDIENCE,
+    googleAudiences: [TEST_AUDIENCE],
     requestLogEnabled: false,
     allowedOrigins: ["http://localhost:3000"],
     cacheEnabled: false,
@@ -71,11 +71,12 @@ export class FakeGoogle implements GoogleValidator {
     private readonly err: Error | null = null,
   ) {}
 
-  validate(_idToken: string, audience: string): Promise<GooglePayload> {
+  validate(_idToken: string, audience: string | string[]): Promise<GooglePayload> {
     if (this.err) {
       return Promise.reject(this.err);
     }
-    if (audience !== TEST_AUDIENCE) {
+    const accepted = Array.isArray(audience) ? audience : [audience];
+    if (!accepted.includes(TEST_AUDIENCE)) {
       return Promise.reject(new Error("audience mismatch"));
     }
     return Promise.resolve(this.payload as GooglePayload);

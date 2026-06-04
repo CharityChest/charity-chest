@@ -44,6 +44,23 @@ describe("loadConfig", () => {
     expect(cfg.jwtTtlMs).toBe(24 * 60 * 60 * 1000);
   });
 
+  it("parses GOOGLE_AUDIENCE as a single client ID", () => {
+    const cfg = loadConfig({ ...REQUIRED });
+    expect(cfg.googleAudiences).toEqual(["aud.apps.googleusercontent.com"]);
+  });
+
+  it("parses GOOGLE_AUDIENCE as a comma-separated list, trimming blanks", () => {
+    const cfg = loadConfig({
+      ...REQUIRED,
+      GOOGLE_AUDIENCE: " ios.apps.googleusercontent.com , android.apps.googleusercontent.com ,, web.apps.googleusercontent.com ",
+    });
+    expect(cfg.googleAudiences).toEqual([
+      "ios.apps.googleusercontent.com",
+      "android.apps.googleusercontent.com",
+      "web.apps.googleusercontent.com",
+    ]);
+  });
+
   it("honours overrides for optional vars", () => {
     const cfg = loadConfig({
       ...REQUIRED,

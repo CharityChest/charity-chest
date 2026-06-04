@@ -9,7 +9,7 @@ v1 does exactly two things: let a user sign in (email/password or Google) and sh
 - Node 18+ and npm.
 - Xcode (for iOS Simulator) and/or Android Studio (for an emulator).
 - A running `services/operational/backend` and `services/admin/backend` (see those READMEs).
-- Three Google Cloud OAuth 2.0 client IDs (iOS, Android, Web) provisioned under the same project. The **Web** client ID is sent to the backend as `GOOGLE_AUDIENCE`.
+- Three Google Cloud OAuth 2.0 client IDs (iOS, Android, Web) provisioned under the same project. All three are set on the backend as a comma-separated `GOOGLE_AUDIENCE` so a forwarded ID token's `aud` matches whichever platform the app ran on.
 
 ## Set up
 

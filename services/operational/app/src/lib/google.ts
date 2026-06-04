@@ -13,9 +13,11 @@ export type GoogleSignInResult =
 
 // useGoogleSignIn wraps expo-auth-session's Google provider in the shape the
 // login screen wants: a `prompt()` to kick off the consent flow and an `onResult`
-// callback for the resolved outcome. Each platform uses its own OAuth client ID;
-// the resulting ID token is verified server-side against EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
-// (which the operational backend also uses as GOOGLE_AUDIENCE).
+// callback for the resolved outcome. Each platform uses its own OAuth client ID,
+// so the resulting ID token's audience is that platform's client ID. The
+// operational backend accepts all three (the iOS, Android, and Web client IDs
+// listed comma-separated in its GOOGLE_AUDIENCE) and verifies the token against
+// whichever one matches.
 export function useGoogleSignIn(onResult: (r: GoogleSignInResult) => void) {
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,

@@ -11,16 +11,20 @@ export interface GooglePayload {
   name: string;
 }
 
-/** Verifies a Google ID token against an expected audience. */
+/**
+ * Verifies a Google ID token against the expected audience(s). `audience` may
+ * be a single client ID or a list — the token's `aud` must match one of them
+ * (the mobile app uses a different OAuth client per platform).
+ */
 export interface GoogleValidator {
-  validate(idToken: string, audience: string): Promise<GooglePayload>;
+  validate(idToken: string, audience: string | string[]): Promise<GooglePayload>;
 }
 
 /** Production GoogleValidator backed by google-auth-library. */
 export class RealGoogleValidator implements GoogleValidator {
   private readonly client = new OAuth2Client();
 
-  async validate(idToken: string, audience: string): Promise<GooglePayload> {
+  async validate(idToken: string, audience: string | string[]): Promise<GooglePayload> {
     const ticket = await this.client.verifyIdToken({ idToken, audience });
     const payload = ticket.getPayload();
     if (!payload || !payload.sub) {
