@@ -65,7 +65,9 @@ This is repo-local (stored in `.git/config`) and only needs to be run a single t
 
 ## Quick start
 
-The fastest way to run everything locally is the **unified Docker Compose stack** in [`.compose/`](.compose/README.md). It brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Node.js API) on a single docker network, so the operational backend can reach admin in-cluster via `http://admin-backend:8080` without any external-network wiring.
+The fastest way to run the backend services locally is the **unified Docker Compose stack** in [`.compose/`](.compose/README.md). It brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Node.js API) on a single docker network, so the operational backend can reach admin in-cluster via `http://admin-backend:8080` without any external-network wiring.
+
+The Expo mobile app (`services/operational/app`) is **not** part of the Compose stack — React Native needs a simulator/device and a native dev build, so it's run separately (see [Running the mobile app](#running-the-mobile-app) below).
 
 ```bash
 # 1. Copy the env template and fill in the secrets that have no safe default
@@ -103,6 +105,19 @@ docker compose -f services/operational/backend/.docker-dev/docker-compose.yml up
 ```
 
 Each of those has its own `.docker-dev/.env.example`. Don't mix the two modes — the unified stack and the per-service composes expose the same host ports and will collide.
+
+### Running the mobile app
+
+The Expo + React Native app (`services/operational/app`) isn't containerised — it runs on a simulator/device against the backends above. With the operational API up (on `http://localhost:8081`), start a native dev build:
+
+```bash
+cd services/operational/app
+npx expo run:ios
+# or
+npx expo run:android
+```
+
+A native dev build is required (not Expo Go) because `expo-secure-store` and `expo-auth-session` ship native code. Point `EXPO_PUBLIC_API_URL` at the operational backend — note that on the standard Android emulator the host is `http://10.0.2.2:8081`, not `localhost`. See [services/operational/app/README.md](services/operational/app/README.md) for the full setup.
 
 See the component READMEs for local (non-Docker) setup, environment variable reference, and deployment guides.
 

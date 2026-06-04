@@ -13,6 +13,9 @@ export function TextField({ label, style, ...inputProps }: Props) {
         {label}
       </Text>
       <TextInput
+        // accessibilityLabel works on both iOS and Android; accessibilityLabelledBy
+        // only associates the label on Android, so VoiceOver would otherwise skip it.
+        accessibilityLabel={label}
         accessibilityLabelledBy={labelId}
         {...inputProps}
         style={[styles.input, style]}
