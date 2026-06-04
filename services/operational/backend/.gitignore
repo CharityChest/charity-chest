@@ -1,0 +1,23 @@
+# Operational backend (Node.js / TypeScript)
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test coverage
+coverage/
+
+# Env files (never commit secrets)
+.env
+.env.*
+!.env.example
+.docker-dev/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS noise
+.DS_Store

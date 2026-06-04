@@ -63,6 +63,12 @@ const (
 	// Password recovery — KeyPasswordResetTokenInvalid covers every failure mode
 	// (missing, malformed, expired, already used). A single message prevents an
 	// attacker from probing which tokens ever existed.
+	// Service-to-service — used by the /v1/internal/* group's ServiceKey middleware.
+	KeyMissingServiceKey Key = "missing_service_key"
+	KeyInvalidServiceKey Key = "invalid_service_key"
+
+	KeyEmailPasswordRequired      Key = "email_password_required"
+	KeyGoogleSubEmailRequired     Key = "google_sub_email_required"
 	KeyEmailRequired              Key = "email_required"
 	KeyPasswordResetTokenRequired Key = "password_reset_token_required"
 	KeyPasswordResetTokenInvalid  Key = "password_reset_token_invalid"
@@ -133,6 +139,11 @@ var messages = map[string]map[Key]string{
 		KeySubscriptionNotFound:       "no active subscription found",
 		KeyEnterpriseCheckoutConflict: "checkout rejected: organization is already on the enterprise plan",
 
+		KeyMissingServiceKey: "missing service credentials",
+		KeyInvalidServiceKey: "invalid service credentials",
+
+		KeyEmailPasswordRequired:      "email and password are required",
+		KeyGoogleSubEmailRequired:     "google sub and email are required",
 		KeyEmailRequired:              "email is required",
 		KeyPasswordResetTokenRequired: "reset token and new password are required",
 		KeyPasswordResetTokenInvalid:  "this password reset link is invalid or has expired",
@@ -199,6 +210,11 @@ var messages = map[string]map[Key]string{
 		KeySubscriptionNotFound:       "nessun abbonamento attivo trovato",
 		KeyEnterpriseCheckoutConflict: "checkout rifiutato: l'organizzazione ha già il piano Enterprise",
 
+		KeyMissingServiceKey: "credenziali del servizio mancanti",
+		KeyInvalidServiceKey: "credenziali del servizio non valide",
+
+		KeyEmailPasswordRequired:      "email e password sono obbligatori",
+		KeyGoogleSubEmailRequired:     "google sub ed email sono obbligatori",
 		KeyEmailRequired:              "l'email è obbligatoria",
 		KeyPasswordResetTokenRequired: "token di reimpostazione e nuova password sono obbligatori",
 		KeyPasswordResetTokenInvalid:  "questo link di reimpostazione password non è valido o è scaduto",

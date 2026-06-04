@@ -267,6 +267,7 @@ cp .env.example .env
 | `SMTP_PASSWORD` | if SMTP enabled & relay requires AUTH | Optional. See above — must be set together with `SMTP_USERNAME`. |
 | `SMTP_FROM` | if SMTP enabled | Sender address. **Required** when `SMTP_HOST` is set — the server refuses to start otherwise. |
 | `SMTP_FROM_NAME` | no | Sender display name (default `Charity Chest`). |
+| `SERVICE_API_KEY` | no | Shared secret for the `/v1/internal/*` service-to-service API (consumed by sibling backends — e.g. the operational service — through the `X-Service-Key` header). Leave empty to disable the internal group entirely: requests get 404, not 503. Generate with `openssl rand -hex 32`. |
 
 ### SMTP — local dev with Mailpit
 

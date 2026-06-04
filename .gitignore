@@ -35,3 +35,7 @@ ehthumbs.db
 Desktop.ini
 
 services/admin/frontend/tsconfig.tsbuildinfo
+
+services/operational/app/coverage/
+
+.compose/.env

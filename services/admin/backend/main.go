@@ -76,6 +76,14 @@ func main() {
 	routesv1.RegisterAdmin(v1, db, appCache, cfg.JWTSecret)
 	routesv1.RegisterBilling(e, v1, db, appCache, cfg, cfg.JWTSecret, nil)
 
+	if cfg.ServiceAPIKey != "" {
+		internalH := handler.NewInternalHandler(db, appCache, cfg)
+		routesv1.RegisterInternal(v1, internalH, cfg.ServiceAPIKey)
+		log.Printf("service-to-service: /v1/internal/* enabled")
+	} else {
+		log.Printf("service-to-service: disabled (SERVICE_API_KEY unset)")
+	}
+
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(e.Start(":" + cfg.Port))
 }

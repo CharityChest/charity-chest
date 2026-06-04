@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Charity Chest",
+    "slug": "charity-chest-operational",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "charitychestop",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "app.charitychest.operational"
+    },
+    "android": {
+      "package": "app.charitychest.operational"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -60,6 +60,10 @@ type Config struct {
 	SMTPFrom      string
 	SMTPFromName  string
 	SMTPForceIPv4 bool
+	// ServiceAPIKey is the shared secret consumed by the /v1/internal/* group's
+	// ServiceKey middleware. Optional: when empty, main.go skips registering
+	// the internal group entirely (requests get 404, not 503).
+	ServiceAPIKey string
 }
 
 // Load reads configuration from environment variables.
@@ -87,6 +91,7 @@ func Load() (*Config, error) {
 		SMTPFrom:            os.Getenv("SMTP_FROM"),
 		SMTPFromName:        envOrDefault("SMTP_FROM_NAME", "Charity Chest"),
 		SMTPForceIPv4:       os.Getenv("SMTP_FORCE_IPV4") != "false",
+		ServiceAPIKey:       os.Getenv("SERVICE_API_KEY"),
 	}
 
 	cacheTTL, err := parseDuration(os.Getenv("CACHE_TTL"), 5*time.Minute)

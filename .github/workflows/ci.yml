@@ -5,6 +5,13 @@ on:
   push:
     branches: [main]
 
+# Least privilege: the default GITHUB_TOKEN is read-only for every job. No job
+# pushes commits, comments on PRs, or creates releases, and upload-artifact
+# uses a separate results-service token — so none need write scopes. If a future
+# job does, add a job-level `permissions:` override rather than widening this.
+permissions:
+  contents: read
+
 jobs:
   lint-server:
     name: Server lint (Go)
@@ -14,6 +21,8 @@ jobs:
         working-directory: services/admin/backend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
@@ -31,6 +40,8 @@ jobs:
         working-directory: services/admin/backend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
@@ -50,6 +61,127 @@ jobs:
           echo "Coverage: ${COVERAGE}%"
           awk -v c="$COVERAGE" 'BEGIN { if (c+0 < 80) { print "Coverage " c "% is below the 80% threshold"; exit 1 } }'
 
+  lint-operational-backend:
+    name: Operational backend lint (TS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/operational/backend
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: services/operational/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Run ESLint
+        run: npm run lint
+
+  test-operational-backend:
+    name: Operational backend tests (Vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/operational/backend
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: services/operational/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `test:ci` runs vitest with --coverage and the thresholds configured in
+      # vitest.config.ts (80% lines/functions/statements/branches, excluding the
+      # entry point and the thin runtime-only wrappers — the same spirit as the
+      # previous Go business-coverage gate). Vitest exits non-zero when a
+      # threshold is missed, failing the job. No Docker needed: admin and Google
+      # are faked and the migration runner's DB path is not exercised.
+      - name: Run tests with coverage
+        run: npm run test:ci
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: operational-backend-coverage
+          path: services/operational/backend/coverage
+          if-no-files-found: ignore
+          retention-days: 7
+
+  lint-operational-app:
+    name: Operational app type-check (TS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/operational/app
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          # No `cache: npm` / cache-dependency-path until a package-lock.json
+          # is committed (Expo SDK 52 install hasn't been run yet). Switch to
+          # `npm ci` + cache once the lockfile lands.
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check (tsc --noEmit)
+        run: npm run lint
+
+  test-operational-app:
+    name: Operational app tests (Jest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/operational/app
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # `test:ci` runs jest with --coverage and the thresholds configured in
+      # jest.config.js (80% lines/functions/statements, 70% branches). Jest
+      # exits non-zero when a threshold is missed, failing the job.
+      - name: Run tests with coverage
+        run: npm run test:ci
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: operational-app-coverage
+          path: services/operational/app/coverage
+          if-no-files-found: ignore
+          retention-days: 7
+
   lint-webapp:
     name: Webapp lint (Node)
     runs-on: ubuntu-latest
@@ -58,6 +190,8 @@ jobs:
         working-directory: services/admin/frontend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -79,6 +213,8 @@ jobs:
         working-directory: services/admin/frontend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

@@ -6,12 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository layout
 
-This repo is a microservices monorepo. Each service lives under `services/<name>/` with a `backend/` and `frontend/`. Today there is one service, **admin**:
+This repo is a microservices monorepo. Each service lives under `services/<name>/` with a `backend/` and either a `frontend/` (web) or `app/` (mobile). There are two services today:
 
-- `services/admin/backend/` — Go HTTP API.
-- `services/admin/frontend/` — Next.js 15 frontend.
+- `services/admin/backend/` — Go HTTP API (owns user identity, billing, orgs).
+- `services/admin/frontend/` — Next.js 15 webapp targeting admin users.
+- `services/operational/backend/` — Node.js + TypeScript (Express 5) HTTP gateway for the mobile app. Stateless re: user data — delegates every identity read/write to admin via the `/v1/internal/*` API (see "Service-to-service internal API"). Has its own DB scaffolding for future operational-only entities; today the DB has no entities. Code lives under `src/`; tests are co-located `*.test.ts` (Vitest + Supertest). See `services/operational/backend/README.md`.
+- `services/operational/app/` — Expo + React Native + TypeScript mobile app (iOS + Android).
 
-The Go module is `charity-chest/services/admin/backend`; imports are `charity-chest/services/admin/backend/internal/...`.
+At the repo root, `.compose/` holds the **unified development stack** (`docker-compose.yml` + `.env.example` + `README.md`) — one compose that brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Node.js API) on a single docker network named `charitychest`. Services are renamed `admin-backend` / `op-backend` / `admin-frontend` / `admin-postgres` / `op-postgres` / `admin-valkey` / `op-valkey` / `mailpit` so they coexist; operational reaches admin in-cluster via `http://admin-backend:8080`. `SERVICE_API_KEY` is declared once in `.compose/.env` and passed to both backends. The per-service `.docker-dev/docker-compose.yml` files still work in isolation but expose the same host ports — never run both modes at once.
+
+The admin backend is a Go module (`charity-chest/services/admin/backend`); its imports are `<module>/internal/...`. The operational backend is a TypeScript package (`charity-chest-operational-backend`) with sources under `src/` and relative imports.
 
 Inside `services/admin/backend/`:
 - `main.go` — entry point: config → migrations → routes → listen.
@@ -59,6 +63,22 @@ All application routes are prefixed `/v1/`. The `/health` probe is intentionally
 When a breaking change is needed, introduce `/v2/` alongside `/v1/` in `main.go`, add `RegisterFoo` functions under `internal/routes/v2/`, and keep both alive until clients migrate.
 
 The authoritative list of routes lives in `internal/routes/v1/*.go` — read those files rather than maintaining a duplicate table here.
+
+---
+
+## Service-to-service internal API
+
+Sibling backends in this monorepo (today: `services/operational/backend/`) call admin via a small **service-to-service** API mounted under `/v1/internal/*`. It exists so other services can validate credentials and look up users without holding their own copy of the identity tables.
+
+- **Auth**: every request must send `X-Service-Key: <shared-secret>`. The header is constant-time compared by the `middleware.ServiceKey(expected)` middleware. Missing header → 401; mismatch → 403.
+- **Env policy**: `SERVICE_API_KEY` is **optional**. When unset, `main.go` does not register the group at all (callers get 404, not 503). This matches the "feature absent" spirit of the Stripe/SMTP companion-group policy.
+- **No JWTs issued**: callers are responsible for signing their own tokens for end-users. Admin only returns a slim user DTO (`uuid`, `email`, `name`, `role`, `mfa_enabled`) — never `id`, `password_hash`, `totp_secret`, `google_id`.
+- **Endpoints** (`internal/routes/v1/internal.go`):
+  - `POST /v1/internal/auth/login` — `{email, password}` → slim DTO, generic 401 on every credential failure mode (no enumeration).
+  - `POST /v1/internal/auth/google` — `{google_sub, email, name}` (caller has already verified the Google ID token) → find-or-create user via the same `findOrCreateGoogleUser` helper used by the browser OAuth callback.
+  - `GET /v1/internal/users/:userUUID` — slim DTO for a public UUID; 404 if no row.
+
+When you add a new internal endpoint, mount it under the same group so the service-key check stays automatic, and return only the slim DTO (or define a similarly restricted one) — never `model.User` directly.
 
 ---
 
@@ -250,7 +270,8 @@ See `services/admin/backend/Makefile` for the full set of targets. The non-obvio
 - `make test-coverage` enforces ≥ 80% on the **business** coverage (excludes `main.go`/`cmd/`/generated). Full coverage is reported but not gated.
 - `make templ` regenerates `*_templ.go` from `.templ` sources. `make build-*` invokes it automatically; both source and generated files are checked in so plain `go build` works.
 - `make seed-root EMAIL=... PASSWORD=...` seeds the first root user (needs `DATABASE_URL`).
-- Compose stack: `docker compose -f services/admin/backend/.docker-dev/docker-compose.yml up --build` brings up Postgres + Valkey + Mailpit + server.
+- **Unified compose stack (preferred)**: `docker compose -f .compose/docker-compose.yml up --build` brings up the whole topology — admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (Postgres + Valkey + Go API) on the shared `charitychest` network. Env lives in `.compose/.env` (copy from `.compose/.env.example`). The root user is seeded automatically from `ROOT_USER` / `ROOT_PASSWORD` on first boot — no separate `seed-root` step. See `.compose/README.md` for the full env reference and the synthesis caveats.
+- **Per-service compose (isolation)**: each service still has its own `.docker-dev/docker-compose.yml` for when you only want one service up. Don't mix the two modes — host ports collide.
 
 ---
 
