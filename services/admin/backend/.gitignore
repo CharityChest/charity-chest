@@ -8,14 +8,10 @@ dist
 coverage.out
 coverage.business.out
 
-admin/internal/v1/internal_grpc.pb.go
-
-admin/internal/v1/internal.pb.go
-
-internal/grpc/adminpb/internal_grpc.pb.go
-
-internal/grpc/adminpb/internal.pb.go
-
+# Stale protoc output — generated into proto/ or admin/ when run without
+# --go_opt=module. The current Makefile outputs correctly to
+# internal/grpc/adminpb/ instead.
 proto/admin/internal/v1/internal.pb.go
-
 proto/admin/internal/v1/internal_grpc.pb.go
+admin/internal/v1/internal.pb.go
+admin/internal/v1/internal_grpc.pb.go

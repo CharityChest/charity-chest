@@ -6,7 +6,7 @@ const REQUIRED: Record<string, string> = {
   APP_ENV: "local",
   DATABASE_URL: "postgres://u:p@localhost:5432/db?sslmode=disable",
   JWT_SECRET: "secret",
-  ADMIN_BASE_URL: "http://localhost:8080",
+  ADMIN_GRPC_URL: "localhost:9090",
   SERVICE_API_KEY: "svc-key",
   GOOGLE_AUDIENCE: "aud.apps.googleusercontent.com",
 };
@@ -117,7 +117,7 @@ describe("loadConfig", () => {
     expect(message).toContain("APP_ENV");
     expect(message).toContain("DATABASE_URL");
     expect(message).toContain("JWT_SECRET");
-    expect(message).toContain("ADMIN_BASE_URL");
+    expect(message).toContain("ADMIN_GRPC_URL");
     expect(message).toContain("SERVICE_API_KEY");
     expect(message).toContain("GOOGLE_AUDIENCE");
   });
