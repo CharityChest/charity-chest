@@ -50,8 +50,8 @@ services:
       # Independent from admin's JWT_SECRET on purpose.
       JWT_SECRET: demo-op-jwt-secret-do-not-use-in-production
 
-      # Talk to the admin server on the shared `charitychest_admin` network.
-      ADMIN_BASE_URL: http://server:8080
+      # Talk to the admin gRPC server on the shared `charitychest_admin` network.
+      ADMIN_GRPC_URL: server:9090
       ADMIN_TIMEOUT: 10s
 
       # Must match SERVICE_API_KEY on the admin compose; set both in their

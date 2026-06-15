@@ -33,16 +33,32 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Install the templ CLI as its own cached layer. The version must match the
-# templ entry in go.mod (and the TEMPL_VERSION variable in the Makefile) so
-# the generator and the linked runtime cannot drift.
-RUN go install github.com/a-h/templ/cmd/templ@v0.3.1020
+# Install code generators as their own cached layer. Versions are pinned to
+# match the runtime packages in go.mod — bump them together when upgrading deps.
+# protoc-gen-go version mirrors google.golang.org/protobuf in go.mod.
+# protoc-gen-go-grpc version mirrors google.golang.org/grpc/cmd/protoc-gen-go-grpc.
+ARG TEMPL_VERSION=v0.3.1020
+ARG PROTOC_GEN_GO_VERSION=v1.36.11
+ARG PROTOC_GEN_GO_GRPC_VERSION=v1.6.2
+RUN go install github.com/a-h/templ/cmd/templ@${TEMPL_VERSION} && \
+    go install google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION} && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION}
+
+# Install protoc (the protobuf compiler that drives the Go plugins above).
+RUN apk add --no-cache protobuf
 
 COPY . .
 
-# Regenerate *_templ.go from .templ sources before compiling, so the image
-# cannot inherit a stale generated file from a developer's working tree.
+# Regenerate *_templ.go and gRPC bindings from their sources so the image
+# cannot ship stale generated files from a developer's working tree.
 RUN templ generate
+RUN protoc \
+      --proto_path=proto \
+      --go_out=. \
+      --go_opt=module=charity-chest/services/admin/backend \
+      --go-grpc_out=. \
+      --go-grpc_opt=module=charity-chest/services/admin/backend \
+      admin/internal/v1/internal.proto
 
 # -trimpath strips local filesystem paths from the binary for reproducibility.
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /bin/server . && \

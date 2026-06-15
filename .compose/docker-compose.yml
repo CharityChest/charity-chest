@@ -16,7 +16,8 @@
 #
 # Ports exposed on the host:
 #   3000  admin frontend (Next.js)
-#   8080  admin backend (Go API)
+#   8080  admin backend (Go HTTP API)
+#   9090  admin backend (gRPC — service-to-service only)
 #   8081  operational backend (Node.js API)
 #   8025  Mailpit web UI
 #   1025  Mailpit SMTP
@@ -80,6 +81,7 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+      - "9090:9090"
     environment:
       DATABASE_URL: >-
         postgres://charitychest:charitychest_dev@admin-postgres:5432/charitychest?sslmode=disable
@@ -115,8 +117,9 @@ services:
       SMTP_FROM: no-reply@charitychest.local
       SMTP_FROM_NAME: Charity Chest
 
-      # Shared with the operational backend for /v1/internal/* calls.
+      # Shared with the operational backend for gRPC service-to-service calls.
       SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in .compose/.env}
+      GRPC_PORT: "9090"
     depends_on:
       admin-postgres:
         condition: service_healthy
@@ -199,8 +202,8 @@ services:
       # Independent from admin's JWT_SECRET on purpose.
       JWT_SECRET: demo-op-jwt-secret-do-not-use-in-production
 
-      # Admin lives on the same docker network in this unified stack.
-      ADMIN_BASE_URL: http://admin-backend:8080
+      # Admin gRPC server lives on the same docker network in this unified stack.
+      ADMIN_GRPC_URL: admin-backend:9090
       ADMIN_TIMEOUT: 10s
 
       # Same value as admin's SERVICE_API_KEY above.

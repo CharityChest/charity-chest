@@ -2,11 +2,11 @@
   "name": "charity-chest-operational-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "Operational backend — HTTP gateway for the mobile app. Stateless re: user data; delegates every identity read/write to the admin service via /v1/internal/*.",
+  "description": "Operational backend — HTTP gateway for the mobile app. Stateless re: user data; delegates every identity read/write to the admin service via gRPC (AdminInternal service).",
   "license": "UNLICENSED",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/adminclient && cp src/adminclient/internal.proto dist/adminclient/internal.proto",
     "start": "node dist/main.js",
     "dev": "tsx watch src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -16,6 +16,8 @@
     "test:ci": "vitest run --coverage"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^5.1.0",

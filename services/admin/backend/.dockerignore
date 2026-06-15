@@ -1,0 +1,21 @@
+# Secret files
+.env
+*.env.local
+.docker-dev/.env
+
+# Build output
+dist
+coverage.out
+coverage.business.out
+
+admin/internal/v1/internal_grpc.pb.go
+
+admin/internal/v1/internal.pb.go
+
+internal/grpc/adminpb/internal_grpc.pb.go
+
+internal/grpc/adminpb/internal.pb.go
+
+proto/admin/internal/v1/internal.pb.go
+
+proto/admin/internal/v1/internal_grpc.pb.go

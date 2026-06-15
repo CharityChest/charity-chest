@@ -58,6 +58,7 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+      - "9090:9090"
     environment:
       DATABASE_URL: >-
         postgres://charitychest:charitychest_dev@postgres:5432/charitychest?sslmode=disable
@@ -101,8 +102,9 @@ services:
 
       # Service-to-service shared secret. Set in .docker-dev/.env when running
       # the operational backend against this admin compose; leave unset to
-      # disable the /v1/internal/* group (default).
+      # disable the gRPC server (default).
       SERVICE_API_KEY: ${SERVICE_API_KEY:-}
+      GRPC_PORT: "9090"
     depends_on:
       postgres:
         condition: service_healthy   # wait until postgres is ready before starting
