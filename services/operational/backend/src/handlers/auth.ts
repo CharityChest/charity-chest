@@ -103,7 +103,7 @@ export function createAuthHandlers(deps: AuthDeps): AuthHandlers {
 
     let payload;
     try {
-      payload = await google.validate(idToken, config.googleAudience);
+      payload = await google.validate(idToken, config.googleAudiences);
     } catch {
       throw new HttpError(HttpStatus.Unauthorized, t(locale, MessageKey.GoogleVerifyFailed));
     }

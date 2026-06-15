@@ -20,7 +20,13 @@ export interface Config {
   /** Per-request timeout for admin calls, in milliseconds (default 10s). */
   adminTimeoutMs: number;
 
-  googleAudience: string;
+  /**
+   * Accepted `aud` values for Google ID tokens. The mobile app uses a
+   * per-platform OAuth client (iOS / Android / Web), so a forwarded token's
+   * audience can be any of them — list all client IDs the app ships with,
+   * comma-separated, in GOOGLE_AUDIENCE.
+   */
+  googleAudiences: string[];
 
   requestLogEnabled: boolean;
 
@@ -108,7 +114,7 @@ export function loadConfig(env: Env = process.env): Config {
     adminBaseUrl: env.ADMIN_BASE_URL ?? "",
     serviceApiKey: env.SERVICE_API_KEY ?? "",
     adminTimeoutMs: 10 * SECOND_MS,
-    googleAudience: env.GOOGLE_AUDIENCE ?? "",
+    googleAudiences: parseList(env.GOOGLE_AUDIENCE, []),
     // Mirrors Go's exact-string semantics: enabled only when "true";
     // request logging on unless explicitly "false".
     requestLogEnabled: env.REQUEST_LOG_ENABLED !== "false",
@@ -150,7 +156,7 @@ export function loadConfig(env: Env = process.env): Config {
   if (cfg.jwtSecret === "") missing.push("JWT_SECRET");
   if (cfg.adminBaseUrl === "") missing.push("ADMIN_BASE_URL");
   if (cfg.serviceApiKey === "") missing.push("SERVICE_API_KEY");
-  if (cfg.googleAudience === "") missing.push("GOOGLE_AUDIENCE");
+  if (cfg.googleAudiences.length === 0) missing.push("GOOGLE_AUDIENCE");
 
   if (missing.length > 0) {
     throw new Error(`missing required environment variables: ${missing.join(", ")}`);
