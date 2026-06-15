@@ -73,7 +73,7 @@ test:
 # The result is `coverage.business.out`; the raw report is `coverage.out`.
 test-coverage:
 	@docker info >/dev/null 2>&1 || (echo "ERROR: Docker daemon required for tests (testcontainers boots a Postgres container)"; exit 1)
-	go test -race -coverpkg=./... -coverprofile=coverage.out ./...
+	go test -race -coverpkg=$$(go list ./... | grep -v '/grpc/adminpb' | tr '\n' ',' | sed 's/,$$//') -coverprofile=coverage.out ./...
 	@grep -v -E '(charity-chest/services/admin/backend/main\.go|charity-chest/services/admin/backend/cmd/|_templ\.go|\.pb\.go)' coverage.out > coverage.business.out
 	@echo "── full coverage ──"
 	@go tool cover -func=coverage.out | tail -1

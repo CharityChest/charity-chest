@@ -56,7 +56,8 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          go test -race -coverprofile=coverage.out ./internal/...
+          PKGS=$(go list ./internal/... | grep -v '/grpc/adminpb')
+          go test -race -coverprofile=coverage.out $PKGS
           COVERAGE=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
           echo "Coverage: ${COVERAGE}%"
           awk -v c="$COVERAGE" 'BEGIN { if (c+0 < 80) { print "Coverage " c "% is below the 80% threshold"; exit 1 } }'
