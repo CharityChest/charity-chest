@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package admin.internal.v1;
+
+option go_package = "charity-chest/services/admin/backend/internal/grpc/adminpb";
+
+// AdminInternal is the service-to-service gRPC API exposed by the admin
+// backend. Callers authenticate via the "x-service-key" metadata entry,
+// validated by a server-side interceptor before any method runs.
+//
+// When SERVICE_API_KEY is unset, main.go skips starting the gRPC server
+// entirely — callers get a connection-refused error rather than an auth error.
+service AdminInternal {
+  // Login validates email + password and returns the slim user DTO.
+  // Returns UNAUTHENTICATED for every failure mode (unknown user, no password
+  // set, wrong password) to avoid user enumeration — same posture as the
+  // public login endpoint.
+  rpc Login(LoginRequest) returns (UserDTO);
+
+  // GoogleAuth finds or creates a user from pre-verified Google ID token
+  // claims. The caller (operational backend) has already validated the Google
+  // ID token and forwards the three trustworthy claims.
+  rpc GoogleAuth(GoogleAuthRequest) returns (UserDTO);
+
+  // GetUser returns the slim user DTO for the given public UUID.
+  // Returns NOT_FOUND when no user exists for the UUID.
+  rpc GetUser(GetUserRequest) returns (UserDTO);
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message GoogleAuthRequest {
+  // google_sub is the "sub" claim from the verified Google ID token.
+  string google_sub = 1;
+  string email = 2;
+  string name = 3;
+}
+
+message GetUserRequest {
+  string user_uuid = 1;
+}
+
+// UserDTO is the slim payload returned by every AdminInternal method.
+// Sensitive columns (id, password_hash, totp_secret, google_id) are
+// intentionally absent so callers can display the user and decide on next
+// steps without holding identity secrets.
+message UserDTO {
+  string uuid = 1;
+  string email = 2;
+  string name = 3;
+  // role is empty when the user has no system-level role (root / system).
+  string role = 4;
+  bool mfa_enabled = 5;
+}

@@ -58,9 +58,11 @@ then
 fi
 
 # Run golangci-lint on staged Go files (admin backend) before allowing the commit.
+# Must run from within the module directory — golangci-lint v2 does not support
+# cross-module patterns from a parent directory.
 STAGED_GO=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
 if [ -n "$STAGED_GO" ]; then
-  golangci-lint run services/admin/backend/... || exit 1
+  (cd services/admin/backend && golangci-lint run ./...) || exit 1
 fi
 
 # Run eslint on staged TypeScript files (operational backend is Node.js + TypeScript).

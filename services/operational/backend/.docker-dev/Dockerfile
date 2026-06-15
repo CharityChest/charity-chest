@@ -12,6 +12,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
+# npm run build compiles TS and copies internal.proto to dist/adminclient/
 RUN npm run build
 
 # ---- deps stage (production node_modules) ----

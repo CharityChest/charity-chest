@@ -8,8 +8,21 @@ linters:
     - ineffassign
     - staticcheck
     - unused
+  exclusions:
+    # Skip linting of generated files (protobuf/gRPC bindings, templ output).
+    # "strict" = honour the `// Code generated` header that every generated
+    # file carries; safer than a glob because it is self-documenting in the file.
+    generated: strict
+    paths:
+      - ".*\\.pb\\.go"
+      - ".*_templ\\.go"
 
 formatters:
   enable:
     - gofmt
     - goimports
+  exclusions:
+    generated: strict
+    paths:
+      - ".*\\.pb\\.go"
+      - ".*_templ\\.go"

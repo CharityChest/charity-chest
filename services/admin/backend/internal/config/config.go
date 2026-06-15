@@ -60,10 +60,13 @@ type Config struct {
 	SMTPFrom      string
 	SMTPFromName  string
 	SMTPForceIPv4 bool
-	// ServiceAPIKey is the shared secret consumed by the /v1/internal/* group's
-	// ServiceKey middleware. Optional: when empty, main.go skips registering
-	// the internal group entirely (requests get 404, not 503).
+	// ServiceAPIKey is the shared secret consumed by the gRPC ServiceKey
+	// interceptor. Optional: when empty, main.go skips starting the gRPC server
+	// entirely (callers get a connection-refused error).
 	ServiceAPIKey string
+	// GRPCPort is the TCP port for the service-to-service gRPC server.
+	// Only used when ServiceAPIKey is non-empty. Default: 9090.
+	GRPCPort string
 }
 
 // Load reads configuration from environment variables.
@@ -92,6 +95,7 @@ func Load() (*Config, error) {
 		SMTPFromName:        envOrDefault("SMTP_FROM_NAME", "Charity Chest"),
 		SMTPForceIPv4:       os.Getenv("SMTP_FORCE_IPV4") != "false",
 		ServiceAPIKey:       os.Getenv("SERVICE_API_KEY"),
+		GRPCPort:            envOrDefault("GRPC_PORT", "9090"),
 	}
 
 	cacheTTL, err := parseDuration(os.Getenv("CACHE_TTL"), 5*time.Minute)

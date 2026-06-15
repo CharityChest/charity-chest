@@ -2,9 +2,11 @@ package main
 
 import (
 	"log"
+	"net"
 
 	"charity-chest/services/admin/backend/internal/cache"
 	"charity-chest/services/admin/backend/internal/config"
+	"charity-chest/services/admin/backend/internal/grpc/adminpb"
 	"charity-chest/services/admin/backend/internal/handler"
 	"charity-chest/services/admin/backend/internal/middleware"
 	routesv1 "charity-chest/services/admin/backend/internal/routes/v1"
@@ -14,6 +16,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/labstack/echo/v4"
 	echomw "github.com/labstack/echo/v4/middleware"
+	"google.golang.org/grpc"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -50,6 +53,25 @@ func main() {
 		log.Printf("cache: disabled")
 	}
 
+	// Start the gRPC service-to-service server when SERVICE_API_KEY is set.
+	if cfg.ServiceAPIKey != "" {
+		grpcSrv := grpc.NewServer(grpc.UnaryInterceptor(handler.ServiceKeyInterceptor(cfg.ServiceAPIKey)))
+		adminpb.RegisterAdminInternalServer(grpcSrv, handler.NewGRPCServer(db, appCache, cfg))
+
+		lis, err := net.Listen("tcp", ":"+cfg.GRPCPort)
+		if err != nil {
+			log.Fatalf("grpc: listen: %v", err)
+		}
+		go func() {
+			log.Printf("service-to-service: gRPC server on :%s", cfg.GRPCPort)
+			if err := grpcSrv.Serve(lis); err != nil {
+				log.Fatalf("grpc: serve: %v", err)
+			}
+		}()
+	} else {
+		log.Printf("service-to-service: disabled (SERVICE_API_KEY unset)")
+	}
+
 	e := echo.New()
 	e.HideBanner = true
 
@@ -75,14 +97,6 @@ func main() {
 	routesv1.RegisterProfile(v1, db, cfg, appCache, cfg.JWTSecret)
 	routesv1.RegisterAdmin(v1, db, appCache, cfg.JWTSecret)
 	routesv1.RegisterBilling(e, v1, db, appCache, cfg, cfg.JWTSecret, nil)
-
-	if cfg.ServiceAPIKey != "" {
-		internalH := handler.NewInternalHandler(db, appCache, cfg)
-		routesv1.RegisterInternal(v1, internalH, cfg.ServiceAPIKey)
-		log.Printf("service-to-service: /v1/internal/* enabled")
-	} else {
-		log.Printf("service-to-service: disabled (SERVICE_API_KEY unset)")
-	}
 
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(e.Start(":" + cfg.Port))

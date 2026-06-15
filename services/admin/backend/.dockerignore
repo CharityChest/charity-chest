@@ -1,4 +1,4 @@
-# Secret files — never commit
+# Secret files
 .env
 *.env.local
 .docker-dev/.env

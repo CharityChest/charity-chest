@@ -19,7 +19,7 @@ export function makeConfig(overrides: Partial<Config> = {}): Config {
     databaseUrl: "postgres://localhost:5432/test?sslmode=disable",
     jwtSecret: TEST_JWT_SECRET,
     jwtTtlMs: 24 * 60 * 60 * 1000,
-    adminBaseUrl: "http://admin.test",
+    adminGrpcUrl: "localhost:9090",
     serviceApiKey: "test-service-key",
     adminTimeoutMs: 10_000,
     googleAudiences: [TEST_AUDIENCE],

@@ -10,10 +10,10 @@ This repo is a microservices monorepo. Each service lives under `services/<name>
 
 - `services/admin/backend/` — Go HTTP API (owns user identity, billing, orgs).
 - `services/admin/frontend/` — Next.js 15 webapp targeting admin users.
-- `services/operational/backend/` — Node.js + TypeScript (Express 5) HTTP gateway for the mobile app. Stateless re: user data — delegates every identity read/write to admin via the `/v1/internal/*` API (see "Service-to-service internal API"). Has its own DB scaffolding for future operational-only entities; today the DB has no entities. Code lives under `src/`; tests are co-located `*.test.ts` (Vitest + Supertest). See `services/operational/backend/README.md`.
+- `services/operational/backend/` — Node.js + TypeScript (Express 5) HTTP gateway for the mobile app. Stateless re: user data — delegates every identity read/write to admin via gRPC (`AdminInternal` service, see "Service-to-service gRPC API"). Has its own DB scaffolding for future operational-only entities; today the DB has no entities. Code lives under `src/`; tests are co-located `*.test.ts` (Vitest + Supertest). See `services/operational/backend/README.md`.
 - `services/operational/app/` — Expo + React Native + TypeScript mobile app (iOS + Android).
 
-At the repo root, `.compose/` holds the **unified development stack** (`docker-compose.yml` + `.env.example` + `README.md`) — one compose that brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Node.js API) on a single docker network named `charitychest`. Services are renamed `admin-backend` / `op-backend` / `admin-frontend` / `admin-postgres` / `op-postgres` / `admin-valkey` / `op-valkey` / `mailpit` so they coexist; operational reaches admin in-cluster via `http://admin-backend:8080`. `SERVICE_API_KEY` is declared once in `.compose/.env` and passed to both backends. The per-service `.docker-dev/docker-compose.yml` files still work in isolation but expose the same host ports — never run both modes at once.
+At the repo root, `.compose/` holds the **unified development stack** (`docker-compose.yml` + `.env.example` + `README.md`) — one compose that brings up admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (its own Postgres + Valkey + Node.js API) on a single docker network named `charitychest`. Services are renamed `admin-backend` / `op-backend` / `admin-frontend` / `admin-postgres` / `op-postgres` / `admin-valkey` / `op-valkey` / `mailpit` so they coexist; operational reaches admin's gRPC server in-cluster via `admin-backend:9090`. `SERVICE_API_KEY` is declared once in `.compose/.env` and passed to both backends. The per-service `.docker-dev/docker-compose.yml` files still work in isolation but expose the same host ports — never run both modes at once.
 
 The admin backend is a Go module (`charity-chest/services/admin/backend`); its imports are `<module>/internal/...`. The operational backend is a TypeScript package (`charity-chest-operational-backend`) with sources under `src/` and relative imports.
 
@@ -21,7 +21,7 @@ Inside `services/admin/backend/`:
 - `main.go` — entry point: config → migrations → routes → listen.
 - `cmd/seed-root/` — CLI that creates the first root user. Accepts `-email`/`-password` flags or `SEED_ROOT_EMAIL`/`SEED_ROOT_PASSWORD` env vars; refuses to run when `APP_ENV=production` and a root user already exists.
 - `internal/` — all non-`main` code lives here (no `pkg/`).
-  - `cache/`, `config/`, `i18n/`, `middleware/`, `model/`, `handler/`, `routes/v1/`, `templates/<category>/`, `testdb/` (shared per-test Postgres harness; not imported from production).
+  - `cache/`, `config/`, `grpc/adminpb/` (generated gRPC bindings), `i18n/`, `middleware/`, `model/`, `handler/`, `routes/v1/`, `templates/<category>/`, `testdb/` (shared per-test Postgres harness; not imported from production).
 - `migrations/` — `golang-migrate` SQL files (`NNNNNN_<description>.{up,down}.sql`).
 - `.docker-dev/` — Compose stack (Postgres + Valkey + Mailpit + server).
 - `.docker-staging/` — standalone server image (no compose).
@@ -66,19 +66,20 @@ The authoritative list of routes lives in `internal/routes/v1/*.go` — read tho
 
 ---
 
-## Service-to-service internal API
+## Service-to-service gRPC API
 
-Sibling backends in this monorepo (today: `services/operational/backend/`) call admin via a small **service-to-service** API mounted under `/v1/internal/*`. It exists so other services can validate credentials and look up users without holding their own copy of the identity tables.
+Sibling backends in this monorepo (today: `services/operational/backend/`) call admin via the **`AdminInternal` gRPC service**. It exists so other services can validate credentials and look up users without holding their own copy of the identity tables.
 
-- **Auth**: every request must send `X-Service-Key: <shared-secret>`. The header is constant-time compared by the `middleware.ServiceKey(expected)` middleware. Missing header → 401; mismatch → 403.
-- **Env policy**: `SERVICE_API_KEY` is **optional**. When unset, `main.go` does not register the group at all (callers get 404, not 503). This matches the "feature absent" spirit of the Stripe/SMTP companion-group policy.
-- **No JWTs issued**: callers are responsible for signing their own tokens for end-users. Admin only returns a slim user DTO (`uuid`, `email`, `name`, `role`, `mfa_enabled`) — never `id`, `password_hash`, `totp_secret`, `google_id`.
-- **Endpoints** (`internal/routes/v1/internal.go`):
-  - `POST /v1/internal/auth/login` — `{email, password}` → slim DTO, generic 401 on every credential failure mode (no enumeration).
-  - `POST /v1/internal/auth/google` — `{google_sub, email, name}` (caller has already verified the Google ID token) → find-or-create user via the same `findOrCreateGoogleUser` helper used by the browser OAuth callback.
-  - `GET /v1/internal/users/:userUUID` — slim DTO for a public UUID; 404 if no row.
+- **Proto**: canonical definition at `services/admin/backend/proto/admin/internal/v1/internal.proto` (within the admin backend's Docker context). Generated Go bindings in `services/admin/backend/internal/grpc/adminpb/` (checked in — `go build` works without a separate codegen step). The operational backend loads the proto dynamically at runtime from `src/adminclient/internal.proto` (a copy, kept in sync by `make proto` in the admin backend).
+- **Auth**: every gRPC call must include `x-service-key: <shared-secret>` in metadata. The `handler.ServiceKeyInterceptor` validates it in constant time before any method runs. Missing → `UNAUTHENTICATED`; mismatch → `PERMISSION_DENIED`.
+- **Env policy**: `SERVICE_API_KEY` is **optional**. When unset, `main.go` skips starting the gRPC server (callers get connection-refused). `GRPC_PORT` defaults to `9090`.
+- **No JWTs issued**: callers sign their own tokens. Admin returns only a slim `UserDTO` (`uuid`, `email`, `name`, `role`, `mfa_enabled`) — never `id`, `password_hash`, `totp_secret`, `google_id`.
+- **Methods** (`handler/grpc_server.go`):
+  - `Login(email, password)` → `UserDTO`; `UNAUTHENTICATED` on every credential failure mode (no enumeration).
+  - `GoogleAuth(google_sub, email, name)` → `UserDTO`; find-or-create via the same `findOrCreateGoogleUser` helper used by the browser OAuth callback.
+  - `GetUser(user_uuid)` → `UserDTO`; `NOT_FOUND` if no row.
 
-When you add a new internal endpoint, mount it under the same group so the service-key check stays automatic, and return only the slim DTO (or define a similarly restricted one) — never `model.User` directly.
+When you add a new method, add it to the proto, run `make proto`, implement it in `handler/grpc_server.go`, and return only `UserDTO` (or a similarly restricted message) — never `model.User` directly. Regenerating also updates the operational backend's proto copy.
 
 ---
 
@@ -110,7 +111,7 @@ New entities follow the same pattern: `ID uint` with `json:"-"`, `UUID uuid.UUID
 - `config.Load()` calls `godotenv.Load()` silently (ignored in production) then validates required vars, returning an error that names every missing variable.
 - **Required**: `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APP_ENV`.
 - `APP_ENV` must be one of `local`, `testing`, `staging`, `production`. Compare against the typed constants `config.AppEnv*` — never bare string literals.
-- **Optional with defaults**: `GOOGLE_REDIRECT_URL` (`http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (`http://localhost:3000`), `PORT` (`8080`).
+- **Optional with defaults**: `GOOGLE_REDIRECT_URL` (`http://localhost:8080/v1/auth/google/callback`), `FRONTEND_URL` (`http://localhost:3000`), `PORT` (`8080`), `GRPC_PORT` (`9090` — the port the gRPC server listens on when `SERVICE_API_KEY` is set).
 - **Cache**: `CACHE_ENABLED` (`false`), `CACHE_URL` (`redis://localhost:6379`), `CACHE_TTL` (`5m`).
 - `REQUEST_LOG_ENABLED` (`true`): when `false`, Echo's access log middleware isn't mounted.
 - **Stripe** (companion group — billing endpoints return 503 when `STRIPE_SECRET_KEY` is unset): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`. When `STRIPE_SECRET_KEY` is set, the other two are required; `Load()` reports every missing companion.
@@ -119,6 +120,7 @@ New entities follow the same pattern: `ID uint` with `json:"-"`, `UUID uuid.UUID
   - `SMTP_USERNAME` / `SMTP_PASSWORD` are an **optional pair** (both or neither) so capture servers like Mailpit (which rejects AUTH) and internal relays work; the mailer skips AUTH when both are empty.
   - `SMTP_FORCE_IPV4` pins the dial to `tcp4`. Many self-hosted relays publish unreachable AAAA records; the default dual-stack dial then times out.
 - `FRONTEND_URL` is used by `GoogleCallback` to redirect back to the webapp with the JWT.
+- **gRPC** (optional group — `SERVICE_API_KEY` enables the `AdminInternal` gRPC server; when unset, `main.go` skips starting it entirely): `SERVICE_API_KEY`, `GRPC_PORT` (`9090`). `GRPC_PORT` is only read when `SERVICE_API_KEY` is non-empty.
 - `ROOT_USER` / `ROOT_PASSWORD` are **container-level** vars consumed by the entry-point scripts, not by `config.Load()`. Required in dev compose; optional in staging (entry-point seeds best-effort and continues even if seeding fails).
 
 ---
@@ -148,6 +150,7 @@ New entities follow the same pattern: `ID uint` with `json:"-"`, `UUID uuid.UUID
 - **Cache in tests**: pass `cache.Disabled()` for basic handler tests. For cache hit/miss/invalidation tests use an in-process `miniredis` via `newMiniRedisCache(t)` (defined in `auth_test.go`).
 - **Cache errors are non-fatal**: log with `log.Printf` and fall through to the database. Never skip invalidation on a successful write.
 - **Templates**: templ sources live under `internal/templates/<category>/`, one file per template. The subdirectory is the Go package — keep it tightly scoped (`email`, `page`, …). Per-template data structs go in `types.go` alongside the `.templ`. Run `make templ` after editing (`make build-*` invokes it automatically). Generated `*_templ.go` is checked in so plain `go build` works.
+- **gRPC bindings**: proto source at `proto/admin/internal/v1/internal.proto`. Run `make proto` after editing (`make build-*` invokes it automatically; requires `protoc` in `PATH`). Generated `*pb.go` files are checked in.
 
 ---
 
@@ -269,6 +272,7 @@ See `services/admin/backend/Makefile` for the full set of targets. The non-obvio
 - `make test` and `make test-coverage` require a running Docker daemon (testcontainers-go boots Postgres).
 - `make test-coverage` enforces ≥ 80% on the **business** coverage (excludes `main.go`/`cmd/`/generated). Full coverage is reported but not gated.
 - `make templ` regenerates `*_templ.go` from `.templ` sources. `make build-*` invokes it automatically; both source and generated files are checked in so plain `go build` works.
+- `make proto` regenerates `internal/grpc/adminpb/*.pb.go` from `proto/admin/internal/v1/internal.proto` and syncs the copy in `services/operational/backend/src/adminclient/internal.proto`. `make build-*` invokes it automatically; requires `protoc` in `PATH` (installed separately — see the target's comment). Both the `.proto` source and generated files are checked in.
 - `make seed-root EMAIL=... PASSWORD=...` seeds the first root user (needs `DATABASE_URL`).
 - **Unified compose stack (preferred)**: `docker compose -f .compose/docker-compose.yml up --build` brings up the whole topology — admin (Postgres + Valkey + Mailpit + Go API + Next.js webapp) and operational (Postgres + Valkey + Go API) on the shared `charitychest` network. Env lives in `.compose/.env` (copy from `.compose/.env.example`). The root user is seeded automatically from `ROOT_USER` / `ROOT_PASSWORD` on first boot — no separate `seed-root` step. See `.compose/README.md` for the full env reference and the synthesis caveats.
 - **Per-service compose (isolation)**: each service still has its own `.docker-dev/docker-compose.yml` for when you only want one service up. Don't mix the two modes — host ports collide.

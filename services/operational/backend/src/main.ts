@@ -7,7 +7,7 @@
 
 import "dotenv/config";
 
-import { AdminClient } from "./adminclient/client";
+import { AdminGrpcClient } from "./adminclient/grpc-client";
 import { createApp } from "./app";
 import { Cache } from "./cache";
 import { loadConfig } from "./config";
@@ -51,8 +51,8 @@ async function main(): Promise<void> {
   }
   void cache;
 
-  const admin = new AdminClient(
-    config.adminBaseUrl,
+  const admin = new AdminGrpcClient(
+    config.adminGrpcUrl,
     config.serviceApiKey,
     config.adminTimeoutMs,
   );
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
   const app = createApp({ config, admin, google });
   const server = app.listen(Number(config.port), () => {
     console.log(
-      `starting operational server on :${config.port} (admin=${config.adminBaseUrl})`,
+      `starting operational server on :${config.port} (admin-grpc=${config.adminGrpcUrl})`,
     );
   });
 
@@ -84,6 +84,7 @@ async function main(): Promise<void> {
 
     server.close(async () => {
       try {
+        admin.close();
         await cache.close();
         await db.end();
       } catch (err) {

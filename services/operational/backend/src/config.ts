@@ -15,9 +15,9 @@ export interface Config {
   /** JWT lifetime in milliseconds (24h, mirrors admin). */
   jwtTtlMs: number;
 
-  adminBaseUrl: string;
+  adminGrpcUrl: string;
   serviceApiKey: string;
-  /** Per-request timeout for admin calls, in milliseconds (default 10s). */
+  /** Per-request timeout for admin gRPC calls, in milliseconds (default 10s). */
   adminTimeoutMs: number;
 
   /**
@@ -111,7 +111,7 @@ export function loadConfig(env: Env = process.env): Config {
     databaseUrl: env.DATABASE_URL ?? "",
     jwtSecret: env.JWT_SECRET ?? "",
     jwtTtlMs: 24 * HOUR_MS,
-    adminBaseUrl: env.ADMIN_BASE_URL ?? "",
+    adminGrpcUrl: env.ADMIN_GRPC_URL ?? "",
     serviceApiKey: env.SERVICE_API_KEY ?? "",
     adminTimeoutMs: 10 * SECOND_MS,
     googleAudiences: parseList(env.GOOGLE_AUDIENCE, []),
@@ -154,7 +154,7 @@ export function loadConfig(env: Env = process.env): Config {
 
   if (cfg.databaseUrl === "") missing.push("DATABASE_URL");
   if (cfg.jwtSecret === "") missing.push("JWT_SECRET");
-  if (cfg.adminBaseUrl === "") missing.push("ADMIN_BASE_URL");
+  if (cfg.adminGrpcUrl === "") missing.push("ADMIN_GRPC_URL");
   if (cfg.serviceApiKey === "") missing.push("SERVICE_API_KEY");
   if (cfg.googleAudiences.length === 0) missing.push("GOOGLE_AUDIENCE");
 
